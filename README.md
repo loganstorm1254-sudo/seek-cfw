@@ -54,6 +54,17 @@ Output (after a successful build):
 ./_build/vicos-3.0.1.1d.ota
 ```
 
+
+### Cloud / nested-container Docker tip
+
+If `docker build` fails with an overlay mount `invalid argument` error (common when Docker runs inside another overlay filesystem), configure the VFS storage driver:
+
+```bash
+sudo mkdir -p /etc/docker
+echo '{"storage-driver":"vfs"}' | sudo tee /etc/docker/daemon.json
+sudo systemctl restart docker   # or restart dockerd
+```
+
 Bare metal (no Docker):
 
 ```bash
