@@ -31,6 +31,7 @@
 
 #include "audioEngine/audioTypeTranslator.h"
 #include "clad/audio/audioStateTypes.h"
+#include "clad/audio/audioParameterTypes.h"
 
 #include "coretech/common/shared/array2d.h"
 #include "coretech/common/engine/utils/data/dataPlatform.h"
@@ -968,7 +969,7 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
   triplePressDetected = false;
 
   // Max gap between releases that still counts as one multi-press gesture
-  static const u32 kMultiPressWindow_ms = 700;
+  static const u32 kMultiPressWindow_ms = 900;
 
   const u32 curTime_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp();
 
@@ -982,18 +983,26 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
       pressCount = 1;
     }
     lastReleaseTime_ms = curTime_ms;
-    waitingConfirm = true;
+
+    // Triple fires immediately on the 3rd release (no wait) so it feels responsive
+    // and doesn't lose the gesture to a delayed double-confirm.
+    if (pressCount >= 3) {
+      triplePressDetected = true;
+      pressCount = 0;
+      waitingConfirm = false;
+      lastReleaseTime_ms = 0;
+    } else {
+      waitingConfirm = true;
+    }
     holdStartTime_ms = 0;
   }
 
-  // Confirm multi-press after the window expires (so 2 vs 3 don't collide)
+  // Confirm single/double after the window expires (triple already handled above)
   if (waitingConfirm && (curTime_ms - lastReleaseTime_ms >= kMultiPressWindow_ms)) {
     if (pressCount == 1) {
       singlePressDetected = true;
     } else if (pressCount == 2) {
       doublePressDetected = true;
-    } else if (pressCount >= 3) {
-      triplePressDetected = true;
     }
     pressCount = 0;
     waitingConfirm = false;
@@ -1098,11 +1107,14 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
     ToggleMute("DOUBLE_PRESS");
   }
   else if(triplePressDetected &&
-          !isOnCharger &&
           _engineLoaded &&
-          CanEnterPairingFromScreen(currScreenName))
+          (currScreenName == ScreenName::None ||
+           currScreenName == ScreenName::ToggleMute ||
+           currScreenName == ScreenName::FAC ||
+           currScreenName == ScreenName::MirrorMode))
   {
     // SeekOS: triple-click mutes/unmutes all robot sounds and shows a mute icon
+    // (works on or off charger; fires immediately on 3rd release)
     ToggleSoundMute("TRIPLE_PRESS");
   }
 
@@ -1239,6 +1251,16 @@ ScreenName FaceInfoScreenManager::GetCurrScreenName() const
 void FaceInfoScreenManager::Update(const RobotState& state)
 {
   ProcessMenuNavigation(state);
+
+  // Keep sound mute enforced — engine volume/settings can overwrite Wwise state
+  if (_soundMuted) {
+    static u32 lastReapply_ms = 0;
+    const u32 now_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp();
+    if (now_ms - lastReapply_ms > 500) {
+      lastReapply_ms = now_ms;
+      ApplySoundMuteState();
+    }
+  }
 
   const auto currScreenName = GetCurrScreenName();
 
@@ -2006,24 +2028,47 @@ void FaceInfoScreenManager::ApplySoundMuteState()
   using namespace AudioEngine;
   using AudioMetaData::GameState::StateGroupType;
   using AudioMetaData::GameState::Robot_Vic_Volume;
+  using AudioMetaData::GameState::Robot_Vic_Quiet;
+  using AudioMetaData::GameState::GenericState;
+  using AudioMetaData::GameParameter::ParameterType;
 
-  const auto groupId = static_cast<AudioStateGroupId>(StateGroupType::Robot_Vic_Volume);
+  // Volume state group (Mute / Medium / ...)
+  const bool okVol = audioController->SetState(
+    ToAudioStateGroupId(StateGroupType::Robot_Vic_Volume),
+    ToAudioStateId(static_cast<GenericState>(
+      _soundMuted ? Robot_Vic_Volume::Mute : (
+        _volumeBeforeSoundMute != 0
+          ? static_cast<Robot_Vic_Volume>(_volumeBeforeSoundMute)
+          : Robot_Vic_Volume::Medium))));
+
+  // Quiet mode also gates a lot of robot SFX
+  const bool okQuiet = audioController->SetState(
+    ToAudioStateGroupId(StateGroupType::Robot_Vic_Quiet),
+    ToAudioStateId(static_cast<GenericState>(
+      _soundMuted ? Robot_Vic_Quiet::Robot_Vic_Quiet_On
+                  : Robot_Vic_Quiet::Robot_Vic_Quiet_Off)));
+
+  // Hard-zero master RTPC while muted so engine volume pushes can't sneak audio back in
+  audioController->SetParameter(
+    ToAudioParameterId(ParameterType::Robot_Vic_Volume_Master),
+    _soundMuted ? 0.0f : 1.0f,
+    kInvalidAudioGameObject);
+
   if (_soundMuted) {
-    if (_volumeBeforeSoundMute == 0) {
-      _volumeBeforeSoundMute = static_cast<uint32_t>(Robot_Vic_Volume::Medium);
-    }
-    audioController->SetState(groupId, static_cast<AudioStateId>(Robot_Vic_Volume::Mute));
     audioController->StopAllAudioEvents();
-  } else {
-    const auto restore = (_volumeBeforeSoundMute != 0)
-      ? static_cast<Robot_Vic_Volume>(_volumeBeforeSoundMute)
-      : Robot_Vic_Volume::Medium;
-    audioController->SetState(groupId, static_cast<AudioStateId>(restore));
   }
+
+  LOG_INFO("FaceInfoScreenManager.ApplySoundMuteState",
+           "muted=%d setVol=%d setQuiet=%d",
+           _soundMuted ? 1 : 0, okVol ? 1 : 0, okQuiet ? 1 : 0);
 }
 
 void FaceInfoScreenManager::ToggleSoundMute(const std::string& reason)
 {
+  if (_volumeBeforeSoundMute == 0) {
+    _volumeBeforeSoundMute = static_cast<uint32_t>(AudioMetaData::GameState::Robot_Vic_Volume::Medium);
+  }
+
   _soundMuted = !_soundMuted;
   ApplySoundMuteState();
 
@@ -2057,24 +2102,22 @@ void FaceInfoScreenManager::DrawSoundMuteIcon(Vision::ImageRGB565& faceImg) cons
     return;
   }
 
-  // Small mute glyph in the top-right: speaker body + slash
-  const s32 iconSize = 14;
-  const s32 margin = 3;
-  const s32 x0 = FACE_DISPLAY_WIDTH - iconSize - margin;
+  // Clear, high-contrast mute badge in the top-right
+  const s32 boxW = 22;
+  const s32 boxH = 16;
+  const s32 margin = 2;
+  const s32 x0 = FACE_DISPLAY_WIDTH - boxW - margin;
   const s32 y0 = margin;
 
-  const ColorRGBA iconColor(1.f, 1.f, 1.f);
-  const ColorRGBA slashColor(1.f, 0.2f, 0.2f);
-
-  // Speaker body
-  faceImg.DrawFilledRect(Rectangle<s32>(x0 + 1, y0 + 4, 5, 6), iconColor);
-  // Speaker cone (triangle-ish via stacked rects)
-  faceImg.DrawFilledRect(Rectangle<s32>(x0 + 6, y0 + 3, 2, 8), iconColor);
-  faceImg.DrawFilledRect(Rectangle<s32>(x0 + 8, y0 + 2, 2, 10), iconColor);
-  // Mute slash
-  faceImg.DrawLine(Point2f((f32)(x0 + 1), (f32)(y0 + iconSize - 2)),
-                   Point2f((f32)(x0 + iconSize - 2), (f32)(y0 + 1)),
-                   slashColor,
+  // Dark backdrop so it reads on bright eyes
+  faceImg.DrawFilledRect(Rectangle<s32>(x0, y0, boxW, boxH), ColorRGBA(0.f, 0.f, 0.f));
+  // White speaker
+  faceImg.DrawFilledRect(Rectangle<s32>(x0 + 3, y0 + 5, 6, 6), NamedColors::WHITE);
+  faceImg.DrawFilledRect(Rectangle<s32>(x0 + 9, y0 + 3, 3, 10), NamedColors::WHITE);
+  // Red mute slash
+  faceImg.DrawLine(Point2f((f32)(x0 + 2), (f32)(y0 + boxH - 3)),
+                   Point2f((f32)(x0 + boxW - 3), (f32)(y0 + 2)),
+                   NamedColors::RED,
                    2.f);
 }
   

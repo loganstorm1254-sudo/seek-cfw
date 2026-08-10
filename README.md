@@ -24,7 +24,7 @@ Source of truth: `seek/overlays/anki/victor/animProcess/src/cozmoAnim/faceDispla
 | --- | --- |
 | Single click | Wake word / attention |
 | Double click (off charger) | Mic mute/unmute |
-| **Triple click (off charger)** | **Mute/unmute all sounds** + small mute icon top-right |
+| **Triple click** (3 quick taps) | **Mute/unmute all sounds** + mute icon top-right |
 
 ## Boot splash
 
