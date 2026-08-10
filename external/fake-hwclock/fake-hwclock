@@ -1,0 +1,97 @@
+#!/bin/sh
+
+# Establish an epoch time for Victor.  Our clock should never be set to a value before this.
+EPOCH_STR="2018-05-10 12:34:56"
+EPOCH_SECS=1525955696
+SAVEDTIME_SECS="${EPOCH_SECS}"
+
+# Try to use the timestamp file to update the SAVEDTIME
+# /etc/timestamp is expected to contain YYYYMMDDHHMMSS
+TIMESTAMP="/etc/timestamp"
+if [ -f "${TIMESTAMP}" ]; then
+    TS=$(cat "${TIMESTAMP}")
+    if [ ${#TS} -eq 14 ]; then
+        Y=${TS%??????????}
+        M=${TS#????}; M=${M%????????}
+        D=${TS#??????}; D=${D%??????}
+        h=${TS#????????}; h=${h%????}
+        m=${TS#??????????}; m=${m%??}
+        s=${TS#????????????}
+        TS_FMT="$Y-$M-$D $h:$m:$s"
+        TS_SECS=$(date -u -d "$TS_FMT" +%s 2>/dev/null)
+        if [ -n "$TS_SECS" ] && expr "$TS_SECS" \> "$SAVEDTIME_SECS" >/dev/null; then
+            SAVEDTIME_SECS="$TS_SECS"
+        fi
+    fi
+fi
+
+# Get the Current UTC Time (epoch seconds)
+CTIME_SECS=$(date -u +%s)
+
+HWCLOCK_SECS=$(hwclock 2>/dev/null | awk '{print int($NF)}')
+[ -n "$HWCLOCK_SECS" ] || HWCLOCK_SECS=0
+FHWCLOCK_SECS="$HWCLOCK_SECS"
+
+# If we have a saved time and hardware clock value, load them
+CLOCKFILE="/data/opt/fake-hwclock/fake-hwclock.data-2"
+if [ -f "${CLOCKFILE}" ]; then
+    FTIME_SECS=$(grep '^TIME=' "${CLOCKFILE}" | awk -F= '{print $2}')
+    FHWCLOCK_SECS=$(grep '^HWCLOCK=' "${CLOCKFILE}" | awk -F= '{print $2}')
+    [ -n "$FHWCLOCK_SECS" ] || FHWCLOCK_SECS=0
+
+    if [ -n "$FTIME_SECS" ] && expr "$FTIME_SECS" \> "$SAVEDTIME_SECS" >/dev/null; then
+        SAVEDTIME_SECS="$FTIME_SECS"
+    fi
+fi
+
+# if the file time is in the future, use that
+setclock() {
+    CLOCK_OFFSET=0
+    if [ -f "${CLOCKFILE}" ]; then
+        CLOCK_OFFSET="$HWCLOCK_SECS"
+        if expr "$HWCLOCK_SECS" \> "$FHWCLOCK_SECS" >/dev/null; then
+            CLOCK_OFFSET=$(expr "$HWCLOCK_SECS" - "$FHWCLOCK_SECS")
+        fi
+        SAVEDTIME_SECS=$(expr "$SAVEDTIME_SECS" + "$CLOCK_OFFSET")
+    fi
+
+    if expr "$SAVEDTIME_SECS" \> "$CTIME_SECS" >/dev/null; then
+        SAVEDTIME_STR=$(date -u -d "@$SAVEDTIME_SECS" '+%Y-%m-%d %H:%M:%S' 2>/dev/null)
+        echo "loading saved time ${SAVEDTIME_STR}"
+        date -u -s "${SAVEDTIME_STR}"
+    else
+        echo "ignoring saved time"
+    fi
+}
+
+# if current time is greater than what is in the file, save it
+saveclock() {
+    if expr "$CTIME_SECS" \> "$SAVEDTIME_SECS" >/dev/null; then
+        mkdir -p "$(dirname "${CLOCKFILE}")"
+        echo "saving time"
+        echo "TIME=${CTIME_SECS}" > "${CLOCKFILE}.tmp"
+        echo "HWCLOCK=${HWCLOCK_SECS}" >> "${CLOCKFILE}.tmp"
+        mv "${CLOCKFILE}.tmp" "${CLOCKFILE}"
+    else
+        echo "not saving time"
+    fi
+}
+
+# The format expected is "<CMD>\n"
+CMD=$1
+if [ -z "$CMD" ] || [ "$CMD" = "stdin" ]; then
+    read -r -t 1 CMD
+fi
+
+case "$CMD" in
+    load)
+        setclock
+        ;;
+    save|tick)
+        saveclock
+        ;;
+    *)
+        echo "Usage: $0 {load|save|tick}"
+        exit 1
+        ;;
+esac

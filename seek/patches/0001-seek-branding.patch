@@ -1,0 +1,17 @@
+diff --git a/animProcess/src/cozmoAnim/faceDisplay/faceInfoScreenManager.cpp b/animProcess/src/cozmoAnim/faceDisplay/faceInfoScreenManager.cpp
+index 5ac6dd2f..d537e33b 100644
+--- a/animProcess/src/cozmoAnim/faceDisplay/faceInfoScreenManager.cpp
++++ b/animProcess/src/cozmoAnim/faceDisplay/faceInfoScreenManager.cpp
+@@ -66,9 +66,9 @@
+ #endif
+ 
+ // CHANGE THIS TO BE YOUR PROJECT'S STUFF
+-const std::string OSProject = "WireOS";
+-const std::string Creator = "By Wire/kercre123";
+-const std::string CreatorWebsite = "kerigan.dev";
++const std::string OSProject = "SeekOS";
++const std::string Creator = "By Logan / Seek CFW";
++const std::string CreatorWebsite = "github.com/loganstorm1254-sudo/seek-cfw";
+ 
+ // Log options
+ #define LOG_CHANNEL    "FaceInfoScreenManager"
