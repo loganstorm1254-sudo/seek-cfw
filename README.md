@@ -16,6 +16,15 @@ CCIS face-info strings (guide step in `faceInfoScreenManager.cpp`):
 
 Source of truth: `seek/overlays/anki/victor/animProcess/src/cozmoAnim/faceDisplay/faceInfoScreenManager.cpp`
 
+
+## Boot splash
+
+The first static early-boot screen (rampost `anki_dev_unit`) is the **SeekAra** wordmark.
+
+- Source: `seek/assets/seekara-boot-184x96.png`
+- Overlay: `seek/overlays/anki/rampost/anki_dev_unit.h` (184×96 RGB565)
+- Applied automatically by `seek/apply-overlay.sh` before `./build/build.sh`
+
 ## Prerequisites
 
 - Linux x86_64 (recommended) with **git**, **docker**, **wget**
