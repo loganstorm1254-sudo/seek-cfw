@@ -17,6 +17,15 @@ CCIS face-info strings (guide step in `faceInfoScreenManager.cpp`):
 Source of truth: `seek/overlays/anki/victor/animProcess/src/cozmoAnim/faceDisplay/faceInfoScreenManager.cpp`
 
 
+
+## Backpack button
+
+| Gesture | Action |
+| --- | --- |
+| Single click | Wake word / attention |
+| Double click (off charger) | Mic mute/unmute |
+| **Triple click (off charger)** | **Mute/unmute all sounds** + small mute icon top-right |
+
 ## Boot splash
 
 The first static early-boot screen (rampost `anki_dev_unit`) is the **SeekAra** wordmark.

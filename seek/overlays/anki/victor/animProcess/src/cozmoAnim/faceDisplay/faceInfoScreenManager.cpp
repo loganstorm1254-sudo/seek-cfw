@@ -18,6 +18,7 @@
 #include "cozmoAnim/animContext.h"
 #include "cozmoAnim/animProcessMessages.h"
 #include "cozmoAnim/animation/animationStreamer.h"
+#include "cozmoAnim/audio/cozmoAudioController.h"
 #include "cozmoAnim/backpackLights/animBackpackLightComponent.h"
 #include "cozmoAnim/connectionFlow.h"
 #include "cozmoAnim/faceDisplay/faceDisplay.h"
@@ -27,6 +28,9 @@
 #include "cozmoAnim/robotDataLoader.h"
 
 #include "micDataTypes.h"
+
+#include "audioEngine/audioTypeTranslator.h"
+#include "clad/audio/audioStateTypes.h"
 
 #include "coretech/common/shared/array2d.h"
 #include "coretech/common/engine/utils/data/dataPlatform.h"
@@ -145,7 +149,7 @@ namespace {
 #if ANKI_DEV_CHEATS
   // Fake one of several types of button presses. This value will get reset immediately, so to
   // run it again from the web interface, first set it to NoOp
-  CONSOLE_VAR_ENUM(int, kFakeButtonPressType, "FaceInfoScreenManager", 0, "NoOp,singlePressDetected,doublePressDetected");
+  CONSOLE_VAR_ENUM(int, kFakeButtonPressType, "FaceInfoScreenManager", 0, "NoOp,singlePressDetected,doublePressDetected,triplePressDetected");
 #endif
 }
 
@@ -463,6 +467,17 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
     SetScreen(ScreenName::Recovery);
   } else {
     SetScreen(ScreenName::None);
+  }
+
+  // Restore SeekOS sound-mute across reboots (persistent file, like mic mute)
+  if (_context != nullptr && _context->GetDataPlatform() != nullptr) {
+    const std::string persistentFolder = Util::FileUtils::AddTrailingFileSeparator(
+      _context->GetDataPlatform()->pathToResource(Util::Data::Scope::Persistent, ""));
+    if (Util::FileUtils::FileExists(persistentFolder + "soundMuted")) {
+      _soundMuted = true;
+      _volumeBeforeSoundMute = static_cast<uint32_t>(AudioMetaData::GameState::Robot_Vic_Volume::Medium);
+      ApplySoundMuteState();
+    }
   }
 }
 
@@ -933,65 +948,74 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
                                                 bool& buttonPressedEvent,
                                                 bool& buttonReleasedEvent,
                                                 bool& singlePressDetected, 
-                                                bool& doublePressDetected)
+                                                bool& doublePressDetected,
+                                                bool& triplePressDetected)
 {
-  static u32  lastPressTime_ms   = 0;
-  static bool singlePressPending = false;
-  static bool doublePressPending = false;
+  static u32  lastReleaseTime_ms = 0;
+  static u32  pressCount         = 0;
+  static bool waitingConfirm     = false;
   static bool buttonWasPressed   = false;
 
   // Whether or not the shutdown message was already sent
   static bool shutdownSent       = false;
+  static u32  holdStartTime_ms   = 0;
 
   buttonPressedEvent  = !buttonWasPressed && buttonPressed;
   buttonReleasedEvent = buttonWasPressed && !buttonPressed;
   buttonWasPressed = buttonPressed;
   singlePressDetected = false;
   doublePressDetected = false;
+  triplePressDetected = false;
 
-  // The maximum amount of time allowed between button releases
-  // to register as a double press
-  static const u32 kDoublePressWindow_ms   = 700;
+  // Max gap between releases that still counts as one multi-press gesture
+  static const u32 kMultiPressWindow_ms = 700;
 
-  const u32  curTime_ms         = BaseStationTimer::getInstance()->GetCurrentTimeStamp();
-  const bool mightBeDoublePress = (lastPressTime_ms > 0) && (curTime_ms - lastPressTime_ms < kDoublePressWindow_ms);
+  const u32 curTime_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp();
 
   if (buttonPressedEvent) {
-    if (mightBeDoublePress) {
-      lastPressTime_ms = 0;
-      doublePressPending = true;
-    } else {
-      lastPressTime_ms = curTime_ms;
-    }
-    singlePressPending = false;
-  } else if (buttonReleasedEvent) {
-    if (lastPressTime_ms > 0) {
-      singlePressPending = true;
-    } else if (doublePressPending) {
-      doublePressPending = false;
-      doublePressDetected = true;
-    }
+    holdStartTime_ms = curTime_ms;
     shutdownSent = false;
-  } else if (singlePressPending && !mightBeDoublePress) {
-    lastPressTime_ms = 0;
-    singlePressPending = false;
-    singlePressDetected = true;
+  } else if (buttonReleasedEvent) {
+    if ((pressCount > 0) && (curTime_ms - lastReleaseTime_ms < kMultiPressWindow_ms)) {
+      ++pressCount;
+    } else {
+      pressCount = 1;
+    }
+    lastReleaseTime_ms = curTime_ms;
+    waitingConfirm = true;
+    holdStartTime_ms = 0;
+  }
+
+  // Confirm multi-press after the window expires (so 2 vs 3 don't collide)
+  if (waitingConfirm && (curTime_ms - lastReleaseTime_ms >= kMultiPressWindow_ms)) {
+    if (pressCount == 1) {
+      singlePressDetected = true;
+    } else if (pressCount == 2) {
+      doublePressDetected = true;
+    } else if (pressCount >= 3) {
+      triplePressDetected = true;
+    }
+    pressCount = 0;
+    waitingConfirm = false;
+    lastReleaseTime_ms = 0;
   }
 
   // Check if button was held down long enough for shutdown animation to start
   const bool shouldTriggerShutdown = buttonPressed && 
-                                     (lastPressTime_ms > 0) && 
-                                     (curTime_ms - lastPressTime_ms > kButtonPressDurationForShutdown_ms) &&
+                                     (holdStartTime_ms > 0) && 
+                                     (curTime_ms - holdStartTime_ms > kButtonPressDurationForShutdown_ms) &&
                                      (GetCurrScreenName() == ScreenName::None);
   if (shouldTriggerShutdown && !shutdownSent) {
     LOG_INFO("FaceInfoScreenManager.CheckForButtonEvent.StartShutdownAnim", "");
     RobotInterface::SendAnimToEngine(StartShutdownAnim());
-    lastPressTime_ms    = 0;
-    singlePressPending  = false;
+    pressCount = 0;
+    waitingConfirm = false;
+    lastReleaseTime_ms = 0;
+    holdStartTime_ms = 0;
     singlePressDetected = false;
-    doublePressPending  = false;
     doublePressDetected = false;
-    shutdownSent        = true;
+    triplePressDetected = false;
+    shutdownSent = true;
   }
   
 #if ANKI_DEV_CHEATS
@@ -1000,6 +1024,9 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
     kFakeButtonPressType = 0;
   } else if( kFakeButtonPressType == 2 ) { // double press
     doublePressDetected = true;
+    kFakeButtonPressType = 0;
+  } else if( kFakeButtonPressType == 3 ) { // triple press
+    triplePressDetected = true;
     kFakeButtonPressType = 0;
   }
 #endif
@@ -1021,11 +1048,13 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
   bool buttonReleasedEvent;
   bool singlePressDetected;
   bool doublePressDetected;
+  bool triplePressDetected;
   CheckForButtonEvent(buttonIsPressed, 
                       buttonPressedEvent, 
                       buttonReleasedEvent, 
                       singlePressDetected, 
-                      doublePressDetected);
+                      doublePressDetected,
+                      triplePressDetected);
 
   const bool isOnCharger = static_cast<bool>(state.status & (uint32_t)RobotStatusFlag::IS_ON_CHARGER);
 
@@ -1067,6 +1096,14 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
           CanEnterPairingFromScreen(currScreenName))
   {
     ToggleMute("DOUBLE_PRESS");
+  }
+  else if(triplePressDetected &&
+          !isOnCharger &&
+          _engineLoaded &&
+          CanEnterPairingFromScreen(currScreenName))
+  {
+    // SeekOS: triple-click mutes/unmutes all robot sounds and shows a mute icon
+    ToggleSoundMute("TRIPLE_PRESS");
   }
 
   // Check for button press to go to next debug screen
@@ -1957,6 +1994,88 @@ void FaceInfoScreenManager::ToggleMute(const std::string& reason)
   } else {
     SetScreen(ScreenName::ToggleMute);
   }
+}
+
+void FaceInfoScreenManager::ApplySoundMuteState()
+{
+  auto* audioController = (_context != nullptr) ? _context->GetAudioController() : nullptr;
+  if (audioController == nullptr) {
+    return;
+  }
+
+  using namespace AudioEngine;
+  using AudioMetaData::GameState::StateGroupType;
+  using AudioMetaData::GameState::Robot_Vic_Volume;
+
+  const auto groupId = static_cast<AudioStateGroupId>(StateGroupType::Robot_Vic_Volume);
+  if (_soundMuted) {
+    if (_volumeBeforeSoundMute == 0) {
+      _volumeBeforeSoundMute = static_cast<uint32_t>(Robot_Vic_Volume::Medium);
+    }
+    audioController->SetState(groupId, static_cast<AudioStateId>(Robot_Vic_Volume::Mute));
+    audioController->StopAllAudioEvents();
+  } else {
+    const auto restore = (_volumeBeforeSoundMute != 0)
+      ? static_cast<Robot_Vic_Volume>(_volumeBeforeSoundMute)
+      : Robot_Vic_Volume::Medium;
+    audioController->SetState(groupId, static_cast<AudioStateId>(restore));
+  }
+}
+
+void FaceInfoScreenManager::ToggleSoundMute(const std::string& reason)
+{
+  _soundMuted = !_soundMuted;
+  ApplySoundMuteState();
+
+  // Persist like mic mute
+  std::string persistentFolder;
+  if (_context != nullptr) {
+    auto* dataPlatform = _context->GetDataPlatform();
+    if (dataPlatform != nullptr) {
+      persistentFolder = Util::FileUtils::AddTrailingFileSeparator(
+        dataPlatform->pathToResource(Util::Data::Scope::Persistent, ""));
+    }
+  }
+  if (!persistentFolder.empty()) {
+    const auto muteFile = persistentFolder + "soundMuted";
+    if (_soundMuted) {
+      Util::FileUtils::TouchFile(muteFile);
+    } else if (Util::FileUtils::FileExists(muteFile)) {
+      Util::FileUtils::DeleteFile(muteFile);
+    }
+  }
+
+  LOG_INFO("FaceInfoScreenManager.ToggleSoundMute",
+           "soundMuted=%d reason=%s",
+           _soundMuted ? 1 : 0,
+           reason.c_str());
+}
+
+void FaceInfoScreenManager::DrawSoundMuteIcon(Vision::ImageRGB565& faceImg) const
+{
+  if (!_soundMuted) {
+    return;
+  }
+
+  // Small mute glyph in the top-right: speaker body + slash
+  const s32 iconSize = 14;
+  const s32 margin = 3;
+  const s32 x0 = FACE_DISPLAY_WIDTH - iconSize - margin;
+  const s32 y0 = margin;
+
+  const ColorRGBA iconColor(1.f, 1.f, 1.f);
+  const ColorRGBA slashColor(1.f, 0.2f, 0.2f);
+
+  // Speaker body
+  faceImg.DrawFilledRect(Rectangle<s32>(x0 + 1, y0 + 4, 5, 6), iconColor);
+  // Speaker cone (triangle-ish via stacked rects)
+  faceImg.DrawFilledRect(Rectangle<s32>(x0 + 6, y0 + 3, 2, 8), iconColor);
+  faceImg.DrawFilledRect(Rectangle<s32>(x0 + 8, y0 + 2, 2, 10), iconColor);
+  // Mute slash
+  faceImg.DrawLine(Point2f((f32)(x0 + 1), (f32)(y0 + iconSize - 2)),
+                   Point2f((f32)(x0 + iconSize - 2), (f32)(y0 + 1)),
+                   slashColor,
+                   2.f);
 }
   
 void FaceInfoScreenManager::StartAlexaNotification()
