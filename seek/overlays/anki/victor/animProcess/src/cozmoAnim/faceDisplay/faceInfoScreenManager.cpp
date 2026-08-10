@@ -2052,7 +2052,7 @@ void FaceInfoScreenManager::ApplySoundMuteState()
   audioController->SetParameter(
     ToAudioParameterId(ParameterType::Robot_Vic_Volume_Master),
     _soundMuted ? 0.0f : 1.0f,
-    kInvalidAudioGameObject);
+    AudioEngine::kInvalidAudioGameObject);
 
   if (_soundMuted) {
     audioController->StopAllAudioEvents();
