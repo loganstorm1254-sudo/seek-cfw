@@ -256,7 +256,12 @@ if [[ "${NO_DOCKER}" != "1" ]]; then
 fi
 
 function run_with_docker() {
-    docker run -it --rm \
+    # Use -it only when a TTY is available (local terminals). Cloud/CI builds need -i alone.
+    local docker_tty_flags="-i"
+    if [[ -t 0 && -t 1 ]]; then
+        docker_tty_flags="-it"
+    fi
+    docker run ${docker_tty_flags} --rm \
     -v $(pwd)/anki-deps:/home/$USER/.anki \
     -v $(pwd):$(pwd) \
     -v $(pwd)/build/cache:/home/$USER/.ccache \
