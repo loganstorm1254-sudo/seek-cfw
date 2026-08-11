@@ -26,5 +26,5 @@ do_install() {
 
 FILES:${PN} += "${bindir}/seek-doom /usr/share/seek-doom/*"
 
-# Prebuilt ARM binary is already stripped
-INSANE_SKIP:${PN} += "already-stripped"
+# Prebuilt ARM binary is already stripped and was not built with OE LDFLAGS
+INSANE_SKIP:${PN} += "already-stripped ldflags"
