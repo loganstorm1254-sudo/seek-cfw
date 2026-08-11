@@ -37,25 +37,19 @@ func main() {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		lanIP := vars.PreferredLANIP()
 		phoneURL := vars.PreferredPhoneURL()
-		hostnames := vars.CanonicalHostnames()
-		hostnameURLs := make([]string, 0, len(hostnames))
-		for _, h := range hostnames {
-			hostnameURLs = append(hostnameURLs, "http://"+h+":8080/seek.html")
-		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"addrs":         vars.ListNetAddrs(),
-			"lanIp":         lanIP,
-			"phoneUrl":      phoneURL,
-			"canonicalUrl":  phoneURL,
-			"hostnames":     hostnames,
-			"hostnameUrls":  hostnameURLs,
-			"oneAddress":    phoneURL,
-			"hint":          "Use the Wi‑Fi IP (or http://seek.local:8080/seek.html) on BOTH phone and PC. USB/RNDIS is PC-only.",
+			"addrs":        vars.ListNetAddrs(),
+			"lanIp":        lanIP,
+			"phoneUrl":     phoneURL,
+			"canonicalUrl": phoneURL,
+			"oneAddress":   phoneURL,
+			"hint":         "Use http://<vector-wifi-ip>:8080/seek.html on phone and PC (same Wi‑Fi). Hosted on the robot.",
 		})
 	})
 
 	vars.EnabledMods = EnabledMods
 	vars.InitMods()
+	// Optional LAN discovery only — never required. Prefer numeric Wi‑Fi IP.
 	vars.StartMDNS()
 	startweb()
 }

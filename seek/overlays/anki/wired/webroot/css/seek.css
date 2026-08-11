@@ -352,9 +352,19 @@ button.danger { color: var(--err); border-color: rgba(255, 143, 143, 0.35); }
     background: var(--panel);
 }
 
-.net-url {
-    margin: 0.5rem 0 0;
+.net-ip {
+    margin: 0.55rem 0 0;
+    font-family: var(--display);
+    font-size: clamp(1.35rem, 5vw, 1.85rem);
     font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--accent-2);
+    word-break: break-all;
+}
+
+.net-url {
+    margin: 0.45rem 0 0;
+    font-weight: 700;
     word-break: break-all;
 }
 

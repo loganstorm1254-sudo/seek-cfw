@@ -759,34 +759,40 @@ function bindTouchPad() {
 }
 
 async function loadNetInfo() {
+    const ipEl = $('netLanIp');
     const urlEl = $('netPhoneUrl');
-    const hostEl = $('netHostUrl');
     const listEl = $('netAddrList');
-    if (!urlEl && !listEl) return;
+    if (!ipEl && !urlEl && !listEl) return;
     try {
         const res = await fetch('/api/netinfo', { cache: 'no-store' });
         if (!res.ok) return;
         const data = await res.json();
-        const one = data.canonicalUrl || data.phoneUrl || data.oneAddress;
+        const lanIp = data.lanIp || '';
+        const one = data.canonicalUrl || data.phoneUrl || data.oneAddress ||
+            (lanIp ? ('http://' + lanIp + ':8080/seek.html') : '');
+        if (ipEl) {
+            if (lanIp) {
+                ipEl.hidden = false;
+                ipEl.textContent = lanIp;
+            } else {
+                ipEl.hidden = false;
+                ipEl.textContent = 'No Wi‑Fi IP — put Vector on your home Wi‑Fi';
+            }
+        }
         if (urlEl) {
             if (one) {
                 urlEl.hidden = false;
-                urlEl.innerHTML = 'Shared URL: <a href="' + one + '">' + one + '</a>';
+                urlEl.innerHTML = 'Open on phone + PC: <a href="' + one + '">' + one + '</a>';
             } else {
                 urlEl.hidden = false;
-                urlEl.textContent = 'No Wi‑Fi IP yet — connect Vector to your home Wi‑Fi (same network as phone + PC).';
+                urlEl.textContent = 'Connect Vector to the same Wi‑Fi as your phone, then refresh.';
             }
-        }
-        if (hostEl) {
-            const hu = (data.hostnameUrls && data.hostnameUrls[0]) || 'http://seek.local:8080/seek.html';
-            hostEl.hidden = false;
-            hostEl.innerHTML = 'Or hostname: <a href="' + hu + '">' + hu + '</a>';
         }
         if (listEl) {
             listEl.textContent = '';
             (data.addrs || []).forEach((a) => {
                 const li = document.createElement('li');
-                const tag = a.phoneOk ? 'shared Wi‑Fi' : (a.kind === 'usb' ? 'USB/PC only' : a.kind);
+                const tag = a.phoneOk ? 'use this' : (a.kind === 'usb' ? 'USB only' : a.kind);
                 li.textContent = a.iface + ' · ' + a.ip + ' · ' + tag;
                 listEl.appendChild(li);
             });
