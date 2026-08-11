@@ -33,6 +33,16 @@ func main() {
 			"ts":    time.Now().Unix(),
 		})
 	})
+	http.HandleFunc("/api/netinfo", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		addrs := vars.ListNetAddrs()
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"addrs":    addrs,
+			"phoneUrl": vars.PreferredPhoneURL(),
+			"hint":     "192.168.42.x is USB (PC only). Use the wifi IP on your phone, same Wi‑Fi as Vector.",
+		})
+	})
 
 	vars.EnabledMods = EnabledMods
 	vars.InitMods()

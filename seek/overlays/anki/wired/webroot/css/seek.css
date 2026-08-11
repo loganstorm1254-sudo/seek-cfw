@@ -345,6 +345,33 @@ button.danger { color: var(--err); border-color: rgba(255, 143, 143, 0.35); }
     align-items: center;
 }
 
+.net-box {
+    margin: 0.75rem 0 0;
+    padding: 0.75rem 0.85rem;
+    border: 1px solid var(--line);
+    background: var(--panel);
+}
+
+.net-url {
+    margin: 0.5rem 0 0;
+    font-weight: 800;
+    word-break: break-all;
+}
+
+.net-url a {
+    color: var(--accent-2);
+    text-decoration: none;
+}
+
+.net-list {
+    margin: 0.55rem 0 0;
+    padding-left: 1.1rem;
+    color: var(--muted);
+    font-size: 0.88rem;
+}
+
+.net-list li { margin: 0.2rem 0; }
+
 @media (max-width: 720px) {
     .drive-layout,
     .grid2,
