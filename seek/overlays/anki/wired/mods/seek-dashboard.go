@@ -646,3 +646,152 @@ func (m *SeekDashboard) streamPCM(parent context.Context, v *vector.Vector, pcm 
 	time.Sleep(200 * time.Millisecond)
 	return nil
 }
+
+// streamPCMLive pumps an open-ended mono s16le PCM stream (Doom SFX).
+// Unlike streamPCM, it has no upload size cap and stays open until ctx ends.
+func (m *SeekDashboard) streamPCMLive(parent context.Context, v *vector.Vector, pcm io.Reader, rate uint32, volume uint32) error {
+	m.stopAudio()
+	ctx, cancel := context.WithCancel(parent)
+	m.audioMu.Lock()
+	m.audioCancel = cancel
+	m.audioGen++
+	myGen := m.audioGen
+	m.audioMu.Unlock()
+	defer func() {
+		m.audioMu.Lock()
+		if m.audioGen == myGen {
+			m.audioCancel = nil
+		}
+		m.audioMu.Unlock()
+		cancel()
+	}()
+
+	stream, err := v.Conn.ExternalAudioStreamPlayback(ctx)
+	if err != nil {
+		return err
+	}
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		for {
+			resp, err := stream.Recv()
+			if err != nil {
+				return
+			}
+			select {
+			case <-done:
+				return
+			default:
+				_ = resp
+			}
+		}
+	}()
+
+	sendCancel := func() {
+		_ = stream.Send(&vectorpb.ExternalAudioStreamRequest{
+			AudioRequestType: &vectorpb.ExternalAudioStreamRequest_AudioStreamCancel{
+				AudioStreamCancel: &vectorpb.ExternalAudioStreamCancel{},
+			},
+		})
+	}
+
+	if err := stream.Send(&vectorpb.ExternalAudioStreamRequest{
+		AudioRequestType: &vectorpb.ExternalAudioStreamRequest_AudioStreamPrepare{
+			AudioStreamPrepare: &vectorpb.ExternalAudioStreamPrepare{
+				AudioFrameRate: rate,
+				AudioVolume:    volume,
+			},
+		},
+	}); err != nil {
+		return err
+	}
+
+	const chunkBytes = 1024
+	buf := make([]byte, chunkBytes)
+	var leftover []byte
+	start := time.Now()
+	sentSamples := 0
+	for {
+		select {
+		case <-ctx.Done():
+			sendCancel()
+			return nil
+		default:
+		}
+		n, readErr := pcm.Read(buf)
+		if n > 0 {
+			chunk := append(leftover, buf[:n]...)
+			for len(chunk) >= 2 {
+				select {
+				case <-ctx.Done():
+					sendCancel()
+					return nil
+				default:
+				}
+				take := len(chunk)
+				if take > chunkBytes {
+					take = chunkBytes
+				}
+				if take%2 == 1 {
+					take--
+				}
+				if take < 2 {
+					break
+				}
+				send := append([]byte(nil), chunk[:take]...)
+				chunk = chunk[take:]
+				if err := stream.Send(&vectorpb.ExternalAudioStreamRequest{
+					AudioRequestType: &vectorpb.ExternalAudioStreamRequest_AudioStreamChunk{
+						AudioStreamChunk: &vectorpb.ExternalAudioStreamChunk{
+							AudioChunkSizeBytes: uint32(len(send)),
+							AudioChunkSamples:   send,
+						},
+					},
+				}); err != nil {
+					if ctx.Err() != nil {
+						sendCancel()
+						return nil
+					}
+					return err
+				}
+				sentSamples += len(send) / 2
+				elapsed := time.Since(start).Seconds()
+				expected := elapsed * float64(rate)
+				ahead := (float64(sentSamples) - expected) / float64(rate)
+				if ahead > 0.6 {
+					sleep := time.Duration((ahead - 0.25) * float64(time.Second))
+					timer := time.NewTimer(sleep)
+					select {
+					case <-ctx.Done():
+						timer.Stop()
+						sendCancel()
+						return nil
+					case <-timer.C:
+					}
+				}
+			}
+			leftover = chunk
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				// Doom reconnects between sessions; keep listening only if parent wants.
+				if len(leftover) >= 2 {
+					if len(leftover)%2 == 1 {
+						leftover = leftover[:len(leftover)-1]
+					}
+					_ = stream.Send(&vectorpb.ExternalAudioStreamRequest{
+						AudioRequestType: &vectorpb.ExternalAudioStreamRequest_AudioStreamChunk{
+							AudioStreamChunk: &vectorpb.ExternalAudioStreamChunk{
+								AudioChunkSizeBytes: uint32(len(leftover)),
+								AudioChunkSamples:   leftover,
+							},
+						},
+					})
+					leftover = nil
+				}
+				return nil
+			}
+			return readErr
+		}
+	}
+}

@@ -14,11 +14,11 @@ SYSROOT := /workspace/poky/build/tmp-glibc/work/armv7a-neon-vfpv4-oe-linux-gnuea
 endif
 
 CC      := $(CROSS)gcc
-CFLAGS  := -O2 -DNORMALUNIX -DLINUX -D_DEFAULT_SOURCE \
+CFLAGS  := -O2 -DNORMALUNIX -DLINUX -D_DEFAULT_SOURCE -DFEATURE_SOUND \
 	-DDOOMGENERIC_RESX=320 -DDOOMGENERIC_RESY=200 \
 	-march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=softfp \
 	-B/tmp/arm-cross-wrap/ \
-	--sysroot=$(SYSROOT) -I$(DOOM_SRC)
+	--sysroot=$(SYSROOT) -I$(DOOM_SRC) -Istubs
 LDFLAGS := --sysroot=$(SYSROOT) -Wl,--gc-sections \
 	-march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=softfp \
 	-B/tmp/arm-cross-wrap/
@@ -37,7 +37,9 @@ SRC_DOOM := dummy.c am_map.c doomdef.c doomstat.c dstrings.c d_event.c d_items.c
 	w_checksum.c w_file.c w_main.c w_wad.c z_zone.c w_file_stdc.c i_input.c \
 	i_video.c doomgeneric.c
 
-OBJS := $(addprefix $(BUILD)/,$(SRC_DOOM:.c=.o)) $(BUILD)/doomgeneric_vector.o
+OBJS := $(addprefix $(BUILD)/,$(SRC_DOOM:.c=.o)) \
+	$(BUILD)/doomgeneric_vector.o \
+	$(BUILD)/i_vectorsound.o
 
 .PHONY: all clean
 
@@ -50,6 +52,9 @@ $(BUILD)/%.o: $(DOOM_SRC)/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/doomgeneric_vector.o: doomgeneric_vector.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/i_vectorsound.o: i_vectorsound.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(OUT): $(OBJS)

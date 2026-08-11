@@ -23,6 +23,7 @@ import (
 const (
 	doomRunDir     = "/run/seek-doom"
 	doomFrameSock  = "/run/seek-doom/frames.sock"
+	doomAudioSock  = "/run/seek-doom/audio.sock"
 	doomKeysPath   = "/run/seek-doom/keys"
 	doomLogPath    = "/run/seek-doom/doom.log"
 	doomBin        = "/usr/bin/seek-doom"
@@ -31,6 +32,8 @@ const (
 	doomFaceH      = 96
 	doomFaceBytes  = doomFaceW * doomFaceH * 2
 	doomFrameMagic = "FRAM"
+	doomAudioRate  = 16000
+	doomAudioVol   = 90
 )
 
 // SeekDoom hosts Doom on Vector's face; start/stop/keys are web-dashboard only.
@@ -93,6 +96,7 @@ func (m *SeekDoom) Start() error {
 
 	_ = os.MkdirAll(doomRunDir, 0755)
 	_ = os.Remove(doomFrameSock)
+	_ = os.Remove(doomAudioSock)
 	_ = os.Remove(doomKeysPath)
 
 	if err := syscall.Mkfifo(doomKeysPath, 0666); err != nil && !errors.Is(err, os.ErrExist) {
@@ -100,17 +104,26 @@ func (m *SeekDoom) Start() error {
 		return fmt.Errorf("keys fifo: %w", err)
 	}
 
-	ln, err := net.Listen("unix", doomFrameSock)
+	frameLn, err := net.Listen("unix", doomFrameSock)
 	if err != nil {
 		dash.controlEnd()
 		return fmt.Errorf("frame socket: %w", err)
 	}
 	_ = os.Chmod(doomFrameSock, 0666)
 
+	audioLn, err := net.Listen("unix", doomAudioSock)
+	if err != nil {
+		_ = frameLn.Close()
+		dash.controlEnd()
+		return fmt.Errorf("audio socket: %w", err)
+	}
+	_ = os.Chmod(doomAudioSock, 0666)
+
 	// Keep a writer open so doom's O_RDONLY open never blocks waiting for a peer.
 	keysFd, err := os.OpenFile(doomKeysPath, os.O_RDWR, 0666)
 	if err != nil {
-		_ = ln.Close()
+		_ = frameLn.Close()
+		_ = audioLn.Close()
 		dash.controlEnd()
 		return fmt.Errorf("open keys: %w", err)
 	}
@@ -119,7 +132,7 @@ func (m *SeekDoom) Start() error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Warp straight into E1M1 so demos/title don't look like a mute video.
+	// Warp straight into E1M1. Keep -nomusic (SFX only — music needs a MIDI synth).
 	cmd := exec.CommandContext(ctx, doomBin,
 		"-iwad", doomWad,
 		"-skill", "3",
@@ -140,12 +153,14 @@ func (m *SeekDoom) Start() error {
 	m.cancel = cancel
 	m.mu.Unlock()
 
-	go m.serveFrames(ctx, ln, dash)
+	go m.serveFrames(ctx, frameLn, dash)
+	go m.serveAudio(ctx, audioLn, dash)
 
 	if err := cmd.Start(); err != nil {
 		cancel()
 		_ = keysFd.Close()
-		_ = ln.Close()
+		_ = frameLn.Close()
+		_ = audioLn.Close()
 		if logFile != nil {
 			_ = logFile.Close()
 		}
@@ -188,6 +203,9 @@ func (m *SeekDoom) Stop() {
 	if cancel != nil {
 		cancel()
 	}
+	if dash := findSeekDashboard(); dash != nil {
+		dash.stopAudio()
+	}
 	if cmd != nil && cmd.Process != nil {
 		_ = cmd.Process.Signal(syscall.SIGTERM)
 		time.Sleep(150 * time.Millisecond)
@@ -197,6 +215,7 @@ func (m *SeekDoom) Stop() {
 		_ = keysFd.Close()
 	}
 	_ = os.Remove(doomFrameSock)
+	_ = os.Remove(doomAudioSock)
 	if dash := findSeekDashboard(); dash != nil {
 		dash.controlEnd()
 	}
@@ -215,6 +234,38 @@ func (m *SeekDoom) serveFrames(ctx context.Context, ln net.Listener, dash *SeekD
 			return
 		}
 		go m.handleFrameConn(ctx, conn, dash)
+	}
+}
+
+func (m *SeekDoom) serveAudio(ctx context.Context, ln net.Listener, dash *SeekDashboard) {
+	defer ln.Close()
+	go func() {
+		<-ctx.Done()
+		_ = ln.Close()
+	}()
+
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		// One live stream at a time; new connect replaces old.
+		go func(c net.Conn) {
+			defer c.Close()
+			dash.mu.Lock()
+			v := dash.vec
+			dash.mu.Unlock()
+			if v == nil {
+				_ = dash.controlStartPriority(vectorpb.ControlRequest_OVERRIDE_BEHAVIORS)
+				dash.mu.Lock()
+				v = dash.vec
+				dash.mu.Unlock()
+			}
+			if v == nil {
+				return
+			}
+			_ = dash.streamPCMLive(ctx, v, c, doomAudioRate, doomAudioVol)
+		}(conn)
 	}
 }
 
@@ -265,7 +316,6 @@ func (m *SeekDoom) handleFrameConn(ctx context.Context, conn net.Conn, dash *See
 		select {
 		case frames <- face:
 		default:
-			// Drop stale frame waiting in the channel, keep newest.
 			select {
 			case <-frames:
 			default:
