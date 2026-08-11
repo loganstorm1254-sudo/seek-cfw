@@ -3,10 +3,13 @@ const SEEK_FACE_H = 96;
 const API = '/api/mods/SeekDashboard';
 
 let seekVideoAbort = null;
+let seekAudioCtrl = null; // AbortController for in-flight playPcm
 let keysDown = new Set();
+let padHeld = null; // {f,t} while touch pad pressed
 let cameraOn = false;
 let driveArmed = false;
 let lastDriveSent = '';
+let driveHeartbeat = null;
 
 function $(id) { return document.getElementById(id); }
 
@@ -34,18 +37,24 @@ async function api(path, opts) {
     const timeoutMs = opts.timeoutMs != null ? opts.timeoutMs : (opts.body ? 180000 : 10000);
     const maxAttempts = opts.retries != null ? opts.retries : (opts.body ? 1 : 3);
     const body = opts.body;
+    const externalSignal = opts.signal;
     // Only retry bodies we can safely resend.
     const canRetryBody = body == null || typeof body === 'string' || body instanceof ArrayBuffer ||
         ArrayBuffer.isView(body) || (typeof Blob !== 'undefined' && body instanceof Blob);
 
     let lastErr = null;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (externalSignal && externalSignal.aborted) {
+            throw new DOMException('Aborted', 'AbortError');
+        }
         const ctrl = new AbortController();
+        const onExternal = function () { ctrl.abort(); };
+        if (externalSignal) externalSignal.addEventListener('abort', onExternal);
         const timer = setTimeout(function () { ctrl.abort(); }, timeoutMs);
         try {
             const o = {};
             for (const k in opts) {
-                if (k === 'timeoutMs' || k === 'retries') continue;
+                if (k === 'timeoutMs' || k === 'retries' || k === 'signal') continue;
                 o[k] = opts[k];
             }
             o.cache = 'no-store';
@@ -53,10 +62,13 @@ async function api(path, opts) {
             if (body != null && attempt > 1 && canRetryBody) o.body = body;
             const res = await fetch(API + '/' + path, o);
             clearTimeout(timer);
+            if (externalSignal) externalSignal.removeEventListener('abort', onExternal);
             return res;
         } catch (e) {
             clearTimeout(timer);
+            if (externalSignal) externalSignal.removeEventListener('abort', onExternal);
             lastErr = e;
+            if (externalSignal && externalSignal.aborted) throw e;
             if (attempt >= maxAttempts) break;
             if (opts.body && !canRetryBody) break;
             await new Promise(function (r) { setTimeout(r, 250 * attempt); });
@@ -86,8 +98,43 @@ function startKeepalive() {
         if (e.persisted) recover('pageshow');
     });
     document.addEventListener('visibilitychange', function () {
-        if (!document.hidden) recover('visible');
+        if (!document.hidden) {
+            recover('visible');
+            return;
+        }
+        // Backgrounding the tab mid-drive used to leave wheels latched.
+        hardStopDrive('tab hidden');
     });
+    window.addEventListener('pagehide', function () {
+        hardStopDrive('leaving page');
+    });
+}
+
+function hardStopDrive(reason) {
+    keysDown.clear();
+    padHeld = null;
+    lastDriveSent = '';
+    if (driveArmed) {
+        fire('stopMotors');
+        updateWasdKeys();
+        if (reason) setSeekStatus('Stopped (' + reason + ').');
+    }
+}
+
+function startDriveHeartbeat() {
+    if (driveHeartbeat) return;
+    // Holding W only used to send once; robot motors latch that speed.
+    // Re-poke every 200ms so a dead phone path trips the server watchdog.
+    driveHeartbeat = setInterval(function () {
+        if (!driveArmed || document.hidden) return;
+        if (keysDown.size === 0 && !padHeld) return;
+        lastDriveSent = '';
+        if (padHeld) {
+            sendDrive(padHeld.f, padHeld.t);
+        } else {
+            syncKeysToDrive();
+        }
+    }, 200);
 }
 
 
@@ -229,6 +276,9 @@ async function seekPlayAudio() {
     const file = input.files[0];
     const vol = $('audioPlayVolume').value;
     setSeekStatus('Decoding on phone (faster)...');
+    if (seekAudioCtrl) seekAudioCtrl.abort();
+    seekAudioCtrl = new AbortController();
+    const ac = seekAudioCtrl;
     try {
         // Decode in the browser so the robot doesn't burn CPU on MP3.
         const pcm = await decodeFileToPcm16k(file);
@@ -238,7 +288,8 @@ async function seekPlayAudio() {
             headers: { 'Content-Type': 'application/octet-stream' },
             body: pcm,
             timeoutMs: 300000,
-            retries: 1
+            retries: 1,
+            signal: ac.signal
         });
         if (!res.ok) {
             const e = await res.json().catch(() => ({ message: 'audio failed' }));
@@ -247,7 +298,13 @@ async function seekPlayAudio() {
         }
         setSeekStatus('Audio finished.');
     } catch (e) {
+        if (e.name === 'AbortError' && ac.signal.aborted) {
+            setSeekStatus('Stopped.');
+            return;
+        }
         setSeekStatus('audio error: ' + (e.name === 'AbortError' ? 'timed out — toggle Wi‑Fi and retry' : e.message), true);
+    } finally {
+        if (seekAudioCtrl === ac) seekAudioCtrl = null;
     }
 }
 
@@ -358,7 +415,14 @@ async function decodeFileToPcm16k(file) {
 
 async function seekStopMedia() {
     if (seekVideoAbort) seekVideoAbort.abort = true;
-    try { await api('controlEnd'); } catch (_) {}
+    if (seekAudioCtrl) {
+        seekAudioCtrl.abort();
+        seekAudioCtrl = null;
+    }
+    // stopMedia cancels robot-side audio stream + releases control.
+    try { await api('stopMedia', { timeoutMs: 8000, retries: 2 }); } catch (_) {
+        try { await api('controlEnd'); } catch (__) {}
+    }
     setSeekStatus('Stopped.');
 }
 
@@ -410,18 +474,25 @@ async function seekPlayVideo() {
             throw new Error(e.message || 'controlStart failed');
         }
 
+        if (seekAudioCtrl) seekAudioCtrl.abort();
+        seekAudioCtrl = new AbortController();
+        const audioCtrl = seekAudioCtrl;
         const audioPromise = pcm
             ? api('playPcm?rate=16000&volume=' + encodeURIComponent(vol), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/octet-stream' },
                 body: pcm,
                 timeoutMs: 300000,
-                retries: 1
+                retries: 1,
+                signal: audioCtrl.signal
             }).then(async (audioRes) => {
                 if (!audioRes.ok) {
                     const e = await audioRes.json().catch(() => ({ message: 'audio failed' }));
                     throw new Error(e.message || 'audio failed');
                 }
+            }).catch(function (err) {
+                if (err && err.name === 'AbortError') return;
+                throw err;
             })
             : Promise.resolve();
 
@@ -460,6 +531,15 @@ async function seekPlayVideo() {
             if (wait > 0) await new Promise((r) => setTimeout(r, wait));
             else nextT = performance.now();
         }
+        if (token.abort) {
+            if (seekAudioCtrl) {
+                seekAudioCtrl.abort();
+                seekAudioCtrl = null;
+            }
+            try { await api('stopMedia', { timeoutMs: 8000, retries: 2 }); } catch (_) {}
+            setSeekStatus('Stopped.');
+            return;
+        }
         if (inFlight) {
             const last = await inFlight;
             if (!last.ok) {
@@ -469,9 +549,13 @@ async function seekPlayVideo() {
         }
         await audioPromise;
         await api('controlEnd', { timeoutMs: 8000, retries: 2 });
-        setSeekStatus(token.abort ? 'Stopped.' : 'Video finished.');
+        setSeekStatus('Video finished.');
     } catch (e) {
-        try { await api('controlEnd', { timeoutMs: 5000, retries: 1 }); } catch (_) {}
+        if (seekAudioCtrl) {
+            seekAudioCtrl.abort();
+            seekAudioCtrl = null;
+        }
+        try { await api('stopMedia', { timeoutMs: 5000, retries: 1 }); } catch (_) {}
         const msg = e.name === 'AbortError' ? 'timed out — toggle Wi‑Fi once, then retry' : e.message;
         setSeekStatus('video error: ' + msg, true);
     } finally {
@@ -479,6 +563,7 @@ async function seekPlayVideo() {
         URL.revokeObjectURL(url);
         btn.disabled = false;
         seekVideoAbort = null;
+        if (seekAudioCtrl) seekAudioCtrl = null;
     }
 }
 
@@ -512,6 +597,7 @@ async function armDrive() {
         }
         setArmedUI(true);
         setSeekStatus('Armed. Hold WASD to drive.');
+        startDriveHeartbeat();
         window.focus();
     } catch (e) {
         setArmedUI(false);
@@ -596,10 +682,7 @@ function bindKeyboard() {
     });
 
     window.addEventListener('blur', () => {
-        keysDown.clear();
-        lastDriveSent = '';
-        sendDrive(0, 0);
-        updateWasdKeys();
+        hardStopDrive('window blur');
     });
 }
 
@@ -806,7 +889,7 @@ async function activateVoice() {
 function bindTouchPad() {
     const pad = $('touchPad');
     if (!pad) return;
-    let held = null;
+    let heldBtn = null;
 
     function setHeld(btn, on) {
         if (!btn) return;
@@ -822,13 +905,14 @@ function bindTouchPad() {
             setSeekStatus('Tap Take control first.', true);
             return;
         }
-        if (held && held !== btn) {
-            setHeld(held, false);
+        if (heldBtn && heldBtn !== btn) {
+            setHeld(heldBtn, false);
         }
-        held = btn;
+        heldBtn = btn;
         setHeld(btn, true);
         const f = Number(btn.dataset.f) || 0;
         const t = Number(btn.dataset.t) || 0;
+        padHeld = { f: f, t: t };
         lastDriveSent = '';
         sendDrive(f, t);
     }
@@ -838,9 +922,10 @@ function bindTouchPad() {
             e.preventDefault();
             e.stopPropagation();
         }
-        if (!held) return;
-        setHeld(held, false);
-        held = null;
+        if (!heldBtn && !padHeld) return;
+        setHeld(heldBtn, false);
+        heldBtn = null;
+        padHeld = null;
         lastDriveSent = '';
         sendDrive(0, 0);
     }

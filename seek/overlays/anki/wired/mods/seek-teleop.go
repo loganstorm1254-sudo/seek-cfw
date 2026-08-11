@@ -43,16 +43,20 @@ func (m *SeekDashboard) handleStopMotors() error {
 	holding := m.holding
 	v := m.vec
 	m.mu.Unlock()
-	if !holding || v == nil {
-		return nil
+	if holding && v != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_, err := v.Conn.DriveWheels(ctx, &vectorpb.DriveWheelsRequest{
+			LeftWheelMmps:  0,
+			RightWheelMmps: 0,
+		})
+		if err == nil {
+			return nil
+		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_, err := v.Conn.DriveWheels(ctx, &vectorpb.DriveWheelsRequest{
-		LeftWheelMmps:  0,
-		RightWheelMmps: 0,
-	})
-	return err
+	// Fallback: fresh connection + StopAllMotors (covers control-lost / crash paths).
+	m.emergencyStopWheels()
+	return nil
 }
 
 func (m *SeekDashboard) handleMoveHead(r *http.Request) error {

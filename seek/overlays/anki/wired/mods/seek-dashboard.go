@@ -43,12 +43,17 @@ type SeekDashboard struct {
 	driveCancel  context.CancelFunc
 	driveL       float32
 	driveR       float32
+	lastDriveAt  time.Time // last client drive command (watchdog)
 
 	camMu      sync.Mutex
 	camRunning bool
 	camCancel  context.CancelFunc
 	camLatest  []byte
 	camSeq     uint64
+
+	audioMu     sync.Mutex
+	audioCancel context.CancelFunc
+	audioGen    uint64
 
 	lastActivity time.Time
 	idleOnce     sync.Once
@@ -189,6 +194,10 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case "controlEnd":
 		m.controlEnd()
+	case "stopMedia":
+		m.stopMedia()
+	case "stopAudio":
+		m.stopAudio()
 	case "frame":
 		if err := m.handleFrame(r); err != nil {
 			vars.HTTPError(w, r, err.Error())
@@ -200,7 +209,6 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "stopMotors":
-		m.setDriveIntent(0, 0)
 		if err := m.handleStopMotors(); err != nil {
 			vars.HTTPError(w, r, err.Error())
 			return
@@ -358,7 +366,7 @@ func (m *SeekDashboard) handlePlayAudio(w http.ResponseWriter, r *http.Request) 
 		return err
 	}
 	return m.withControl(func(ctx context.Context, v *vector.Vector) error {
-		return streamPCM(ctx, v, bytes.NewReader(pcm), rate, vol)
+		return m.streamPCM(ctx, v, bytes.NewReader(pcm), rate, vol)
 	})
 }
 
@@ -379,11 +387,28 @@ func (m *SeekDashboard) handlePlayPcm(r *http.Request) error {
 	v := m.vec
 	m.mu.Unlock()
 	if holding && v != nil {
-		return streamPCM(context.Background(), v, limited, rate, vol)
+		return m.streamPCM(context.Background(), v, limited, rate, vol)
 	}
 	return m.withControl(func(ctx context.Context, vec *vector.Vector) error {
-		return streamPCM(ctx, vec, limited, rate, vol)
+		return m.streamPCM(ctx, vec, limited, rate, vol)
 	})
+}
+
+func (m *SeekDashboard) stopAudio() {
+	m.audioMu.Lock()
+	cancel := m.audioCancel
+	m.audioCancel = nil
+	m.audioGen++
+	m.audioMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// stopMedia cancels audio + releases control (used by Stop on the Media tab).
+func (m *SeekDashboard) stopMedia() {
+	m.stopAudio()
+	m.controlEnd()
 }
 
 func parseAudioVolume(s string) uint32 {
@@ -432,7 +457,24 @@ func (m *SeekDashboard) handleFrame(r *http.Request) error {
 	return err
 }
 
-func streamPCM(ctx context.Context, v *vector.Vector, pcm io.Reader, rate uint32, volume uint32) error {
+func (m *SeekDashboard) streamPCM(parent context.Context, v *vector.Vector, pcm io.Reader, rate uint32, volume uint32) error {
+	// Replace any in-flight audio so Stop / a new play actually cuts off the old stream.
+	m.stopAudio()
+	ctx, cancel := context.WithCancel(parent)
+	m.audioMu.Lock()
+	m.audioCancel = cancel
+	m.audioGen++
+	myGen := m.audioGen
+	m.audioMu.Unlock()
+	defer func() {
+		m.audioMu.Lock()
+		if m.audioGen == myGen {
+			m.audioCancel = nil
+		}
+		m.audioMu.Unlock()
+		cancel()
+	}()
+
 	stream, err := v.Conn.ExternalAudioStreamPlayback(ctx)
 	if err != nil {
 		return err
@@ -454,6 +496,14 @@ func streamPCM(ctx context.Context, v *vector.Vector, pcm io.Reader, rate uint32
 		}
 	}()
 
+	sendCancel := func() {
+		_ = stream.Send(&vectorpb.ExternalAudioStreamRequest{
+			AudioRequestType: &vectorpb.ExternalAudioStreamRequest_AudioStreamCancel{
+				AudioStreamCancel: &vectorpb.ExternalAudioStreamCancel{},
+			},
+		})
+	}
+
 	if err := stream.Send(&vectorpb.ExternalAudioStreamRequest{
 		AudioRequestType: &vectorpb.ExternalAudioStreamRequest_AudioStreamPrepare{
 			AudioStreamPrepare: &vectorpb.ExternalAudioStreamPrepare{
@@ -472,6 +522,12 @@ func streamPCM(ctx context.Context, v *vector.Vector, pcm io.Reader, rate uint32
 	sentSamples := 0
 	totalRead := 0
 	for {
+		select {
+		case <-ctx.Done():
+			sendCancel()
+			return nil
+		default:
+		}
 		n, readErr := pcm.Read(buf)
 		if n > 0 {
 			totalRead += n
@@ -480,6 +536,12 @@ func streamPCM(ctx context.Context, v *vector.Vector, pcm io.Reader, rate uint32
 			}
 			chunk := append(leftover, buf[:n]...)
 			for len(chunk) >= 2 {
+				select {
+				case <-ctx.Done():
+					sendCancel()
+					return nil
+				default:
+				}
 				take := len(chunk)
 				if take > chunkBytes {
 					take = chunkBytes
@@ -500,6 +562,10 @@ func streamPCM(ctx context.Context, v *vector.Vector, pcm io.Reader, rate uint32
 						},
 					},
 				}); err != nil {
+					if ctx.Err() != nil {
+						sendCancel()
+						return nil
+					}
 					return err
 				}
 				sentSamples += len(send) / 2
@@ -507,7 +573,15 @@ func streamPCM(ctx context.Context, v *vector.Vector, pcm io.Reader, rate uint32
 				expected := elapsed * float64(rate)
 				ahead := (float64(sentSamples) - expected) / float64(rate)
 				if ahead > 0.75 {
-					time.Sleep(time.Duration((ahead - 0.35) * float64(time.Second)))
+					sleep := time.Duration((ahead - 0.35) * float64(time.Second))
+					timer := time.NewTimer(sleep)
+					select {
+					case <-ctx.Done():
+						timer.Stop()
+						sendCancel()
+						return nil
+					case <-timer.C:
+					}
 				}
 			}
 			leftover = chunk
@@ -518,6 +592,10 @@ func streamPCM(ctx context.Context, v *vector.Vector, pcm io.Reader, rate uint32
 			}
 			return readErr
 		}
+	}
+	if ctx.Err() != nil {
+		sendCancel()
+		return nil
 	}
 	if len(leftover) >= 2 {
 		if len(leftover)%2 == 1 {

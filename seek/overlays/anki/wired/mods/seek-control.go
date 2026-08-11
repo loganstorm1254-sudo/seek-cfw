@@ -91,6 +91,8 @@ func (m *SeekDashboard) controlStartPriority(priority vectorpb.ControlRequest_Pr
 					m.cancel = nil
 					m.mu.Unlock()
 					m.stopDriveLoop()
+					// Motors latch last speed when control dies mid-drive.
+					m.emergencyStopWheels()
 					if c != nil {
 						c()
 					}
@@ -121,6 +123,7 @@ func (m *SeekDashboard) controlStartPriority(priority vectorpb.ControlRequest_Pr
 	m.ctrlStream = stream
 	m.driveL = 0
 	m.driveR = 0
+	m.lastDriveAt = time.Now()
 	m.lastActivity = time.Now()
 	m.mu.Unlock()
 
@@ -141,12 +144,14 @@ func (m *SeekDashboard) controlStartPriority(priority vectorpb.ControlRequest_Pr
 		}
 		m.mu.Unlock()
 		m.stopDriveLoop()
+		m.emergencyStopWheels()
 	}()
 
 	return nil
 }
 
 func (m *SeekDashboard) controlEnd() {
+	m.stopAudio()
 	m.stopDriveLoop()
 
 	m.mu.Lock()
@@ -166,6 +171,8 @@ func (m *SeekDashboard) controlEnd() {
 		ctx, cancelW := context.WithTimeout(context.Background(), 2*time.Second)
 		_, _ = v.Conn.DriveWheels(ctx, &vectorpb.DriveWheelsRequest{})
 		cancelW()
+	} else {
+		m.emergencyStopWheels()
 	}
 	if stream != nil {
 		_ = stream.Send(&vectorpb.BehaviorControlRequest{
@@ -177,6 +184,25 @@ func (m *SeekDashboard) controlEnd() {
 	if cancel != nil {
 		cancel()
 	}
+}
+
+// emergencyStopWheels hard-stops motors via a fresh SDK connection when possible.
+// Used when control is lost / stream dies so Vector does not keep rolling.
+func (m *SeekDashboard) emergencyStopWheels() {
+	m.mu.Lock()
+	v := m.vec
+	m.mu.Unlock()
+	if v == nil {
+		nv, err := vars.GetVec()
+		if err != nil || nv == nil {
+			return
+		}
+		v = nv
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, _ = v.Conn.DriveWheels(ctx, &vectorpb.DriveWheelsRequest{})
+	_, _ = v.Conn.StopAllMotors(ctx, &vectorpb.StopAllMotorsRequest{})
 }
 
 func (m *SeekDashboard) withControl(fn func(context.Context, *vector.Vector) error) error {
@@ -252,10 +278,25 @@ func (m *SeekDashboard) driveLoop(ctx context.Context) {
 			v := m.vec
 			l := m.driveL
 			r := m.driveR
+			lastDrive := m.lastDriveAt
 			m.mu.Unlock()
 			// Never send wheel commands without an active grant.
 			if !holding || v == nil {
 				haveLast = false
+				continue
+			}
+			// Client heartbeat: if drive intent is stale, hard-stop so a
+			// crashed/tab-backgrounded phone cannot leave him rolling forever.
+			if (l != 0 || r != 0) && !lastDrive.IsZero() && time.Since(lastDrive) > 500*time.Millisecond {
+				m.mu.Lock()
+				m.driveL = 0
+				m.driveR = 0
+				m.mu.Unlock()
+				ctxW, cancelW := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+				_, _ = v.Conn.DriveWheels(ctxW, &vectorpb.DriveWheelsRequest{})
+				cancelW()
+				lastL, lastR = 0, 0
+				haveLast = true
 				continue
 			}
 			if haveLast && l == lastL && r == lastR {
@@ -294,6 +335,7 @@ func (m *SeekDashboard) setDriveIntent(left, right float32) {
 	m.mu.Lock()
 	m.driveL = left
 	m.driveR = right
+	m.lastDriveAt = time.Now()
 	holding := m.holding
 	if left != 0 || right != 0 {
 		m.lastActivity = time.Now()
