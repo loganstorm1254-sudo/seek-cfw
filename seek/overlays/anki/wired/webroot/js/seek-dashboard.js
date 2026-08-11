@@ -419,10 +419,17 @@ async function seekStopMedia() {
         seekAudioCtrl.abort();
         seekAudioCtrl = null;
     }
-    // stopMedia cancels robot-side audio stream + releases control.
-    try { await api('stopMedia', { timeoutMs: 8000, retries: 2 }); } catch (_) {
-        try { await api('controlEnd'); } catch (__) {}
-    }
+    setSeekStatus('Stopping…');
+    // Hammer every stop path — Stop must work even mid-Macarena.
+    try {
+        await Promise.all([
+            api('stopMedia', { timeoutMs: 4000, retries: 2 }).catch(function () {}),
+            api('stopMotors', { timeoutMs: 3000, retries: 1 }).catch(function () {}),
+            api('stopAudio', { timeoutMs: 3000, retries: 1 }).catch(function () {}),
+            api('controlEnd', { timeoutMs: 4000, retries: 1 }).catch(function () {})
+        ]);
+    } catch (_) {}
+    setArmedUI(false);
     setSeekStatus('Stopped.');
 }
 
@@ -430,33 +437,36 @@ async function seekMacarena() {
     if (cameraOn) stopCamera();
     setArmedUI(false);
     const vol = $('audioPlayVolume') ? $('audioPlayVolume').value : '100';
-    setSeekStatus('Macarena starting on Vector… clear the floor!');
+    setSeekStatus('Arming Macarena on Vector…');
     try {
         const res = await api('macarena?volume=' + encodeURIComponent(vol), {
-            timeoutMs: 20000,
-            retries: 2
+            timeoutMs: 30000,
+            retries: 1
         });
         if (!res.ok) {
             const e = await res.json().catch(() => ({ message: 'macarena failed' }));
             setSeekStatus((e.message || 'macarena failed'), true);
             return;
         }
-        setSeekStatus('Dale a tu cuerpo — dancing + music on Vector. Hit Stop to end.');
-        // Poll until dance ends (song ~4 min).
+        setSeekStatus('Macarena on Vector — music + dance. Hit Stop to end.');
         const started = Date.now();
         while (Date.now() - started < 280000) {
-            await new Promise((r) => setTimeout(r, 2000));
+            await new Promise((r) => setTimeout(r, 1500));
             try {
                 const st = await api('status', { timeoutMs: 5000, retries: 1 });
                 if (!st.ok) continue;
                 const j = await st.json();
+                if (j.danceErr) {
+                    setSeekStatus('Macarena error: ' + j.danceErr, true);
+                    return;
+                }
                 if (!j.dancing) {
                     setSeekStatus('Macarena finished.');
                     return;
                 }
             } catch (_) {}
         }
-        setSeekStatus('Macarena timed out on the page — check the robot / hit Stop.');
+        setSeekStatus('Macarena still going — hit Stop if you want out.');
     } catch (e) {
         setSeekStatus('macarena error: ' + e.message, true);
     }

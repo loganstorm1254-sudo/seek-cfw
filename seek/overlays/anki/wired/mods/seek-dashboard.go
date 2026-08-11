@@ -55,10 +55,11 @@ type SeekDashboard struct {
 	audioCancel context.CancelFunc
 	audioGen    uint64
 
-	danceMu     sync.Mutex
-	dancing     bool
-	danceCancel context.CancelFunc
-	actionID    uint32
+	danceMu      sync.Mutex
+	dancing      bool
+	danceCancel  context.CancelFunc
+	danceLastErr string
+	actionID     uint32
 
 	lastActivity time.Time
 	idleOnce     sync.Once
@@ -276,11 +277,12 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 		cam := m.camRunning
 		m.camMu.Unlock()
 		out, _ := json.Marshal(map[string]any{
-			"holding":  holding,
-			"camera":   cam,
-			"dancing":  m.isDancing(),
-			"ready":    vars.SDKReady(),
-			"macarena": true,
+			"holding":   holding,
+			"camera":    cam,
+			"dancing":   m.isDancing(),
+			"danceErr":  m.getDanceErr(),
+			"ready":     vars.SDKReady(),
+			"macarena":  true,
 		})
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
@@ -421,17 +423,13 @@ func (m *SeekDashboard) stopAudio() {
 	}
 }
 
-// stopMedia cancels audio + Macarena dance + releases control (Stop button).
+// stopMedia cancels audio + Macarena + motors + releases control (Stop button).
 func (m *SeekDashboard) stopMedia() {
-	wasDancing := m.isDancing()
 	m.stopDance()
 	m.stopAudio()
-	if !wasDancing {
-		m.controlEnd()
-	} else {
-		// Dance goroutine releases control in its defer; hard-stop wheels now.
-		m.emergencyStopWheels()
-	}
+	m.emergencyStopWheels()
+	// Always release — don't wait for the dance goroutine; Stop must feel instant.
+	m.controlEnd()
 }
 
 func parseAudioVolume(s string) uint32 {

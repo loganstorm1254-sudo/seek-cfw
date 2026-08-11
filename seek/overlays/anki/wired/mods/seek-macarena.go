@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"sync/atomic"
@@ -13,11 +14,11 @@ import (
 	"github.com/digital-dream-labs/vector-go-sdk/pkg/vectorpb"
 )
 
-// Bundled on the robot at /etc/wired/webroot/media/macarena.mp3 (Seek overlay).
-const macarenaPath = "/etc/wired/webroot/media/macarena.mp3"
+// Pre-decoded 16 kHz mono WAV on the robot (MP3 decode on Vector was too slow
+// and made Stop look dead while the CPU chewed the file).
+const macarenaWavPath = "/etc/wired/webroot/media/macarena.wav"
 
-// Los del Río Macarena is ~103 BPM. Vector dances the classic 16-count
-// phrase (arms → shoulders → hips → 90° turn) using lift, head, and wheels.
+// Los del Río Macarena ~103 BPM.
 const macarenaBPM = 103.0
 
 func (m *SeekDashboard) nextActionID() int32 {
@@ -30,6 +31,22 @@ func (m *SeekDashboard) isDancing() bool {
 	return m.dancing
 }
 
+func (m *SeekDashboard) setDanceErr(err error) {
+	m.danceMu.Lock()
+	if err != nil {
+		m.danceLastErr = err.Error()
+	} else {
+		m.danceLastErr = ""
+	}
+	m.danceMu.Unlock()
+}
+
+func (m *SeekDashboard) getDanceErr() string {
+	m.danceMu.Lock()
+	defer m.danceMu.Unlock()
+	return m.danceLastErr
+}
+
 func (m *SeekDashboard) stopDance() {
 	m.danceMu.Lock()
 	cancel := m.danceCancel
@@ -39,227 +56,242 @@ func (m *SeekDashboard) stopDance() {
 	}
 }
 
-// startMacarena plays the bundled Macarena on Vector's speaker and runs a
-// real choreography on lift/head/wheels. Returns immediately; use Stop to abort.
+// startMacarena loads the bundled WAV (fast), takes control, then dances + plays
+// audio on the real robot. Returns after arming so the UI gets real errors.
 func (m *SeekDashboard) startMacarena(volume uint32) error {
-	if _, err := os.Stat(macarenaPath); err != nil {
-		return errors.New("macarena.mp3 missing on robot (reinstall Seek OTA)")
-	}
-
 	m.danceMu.Lock()
 	if m.dancing {
 		m.danceMu.Unlock()
 		return errors.New("already dancing — hit Stop first")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	m.dancing = true
-	m.danceCancel = cancel
 	m.danceMu.Unlock()
 
-	m.touchActivity()
-	m.cameraStop()
-	m.stopAudio()
-
-	go m.runMacarena(ctx, cancel, volume)
-	return nil
-}
-
-func (m *SeekDashboard) runMacarena(ctx context.Context, cancel context.CancelFunc, volume uint32) {
-	defer cancel()
-	defer func() {
-		m.emergencyStopWheels()
-		m.stopAudio()
-		m.controlEnd()
-		m.danceMu.Lock()
-		m.dancing = false
-		m.danceCancel = nil
-		m.danceMu.Unlock()
-	}()
-
-	raw, err := os.ReadFile(macarenaPath)
+	raw, err := os.ReadFile(macarenaWavPath)
 	if err != nil {
-		return
+		return fmt.Errorf("macarena.wav missing on robot — reinstall Seek OTA (%v)", err)
 	}
-	pcm, rate, err := decodeAudioToPCM(raw, "macarena.mp3")
+	pcm, rate, err := decodeWAV(raw)
 	if err != nil {
-		return
+		return fmt.Errorf("macarena wav decode: %w", err)
 	}
+	pcm = normalizePCM16(pcm)
 	if volume == 0 {
 		volume = 100
 	}
 
+	m.touchActivity()
+	m.cameraStop()
+	m.stopAudio()
+	m.stopDriveLoop()
+
+	// Fresh control for the routine.
+	m.controlEnd()
+	time.Sleep(150 * time.Millisecond)
 	if err := m.controlStartPriority(vectorpb.ControlRequest_OVERRIDE_BEHAVIORS); err != nil {
-		return
+		return fmt.Errorf("could not take control: %w", err)
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	m.danceMu.Lock()
+	m.dancing = true
+	m.danceCancel = cancel
+	m.danceLastErr = ""
+	m.danceMu.Unlock()
+
 	m.mu.Lock()
 	v := m.vec
 	m.mu.Unlock()
 	if v == nil {
-		return
+		cancel()
+		m.danceMu.Lock()
+		m.dancing = false
+		m.danceCancel = nil
+		m.danceMu.Unlock()
+		return errors.New("no robot connection after control grant")
 	}
 
-	_ = m.macLift(ctx, v, 50, 0.35)
-	_ = m.macHead(ctx, v, 0.25, 0.35)
+	go m.runMacarena(ctx, cancel, v, pcm, rate, volume)
+	return nil
+}
 
-	audioDone := make(chan struct{})
+func (m *SeekDashboard) runMacarena(ctx context.Context, cancel context.CancelFunc, v *vector.Vector, pcm []byte, rate uint32, volume uint32) {
+	defer cancel()
+	defer func() {
+		// Always freeze motors / audio even if controlEnd races.
+		m.macFreeze(v)
+		m.stopAudio()
+		m.emergencyStopWheels()
+		// Clear dancing before controlEnd so controlEnd's stopDance is a no-op path.
+		m.danceMu.Lock()
+		m.dancing = false
+		m.danceCancel = nil
+		m.danceMu.Unlock()
+		m.controlEnd()
+	}()
+
+	audioDone := make(chan error, 1)
 	go func() {
-		defer close(audioDone)
-		_ = m.streamPCM(ctx, v, bytes.NewReader(pcm), rate, volume)
+		audioDone <- m.streamPCM(ctx, v, bytes.NewReader(pcm), rate, volume)
 	}()
 
 	samples := len(pcm) / 2
 	if samples < 1 {
 		samples = 1
 	}
-	dur := time.Duration(float64(samples)/float64(rate)*float64(time.Second)) + time.Second
+	dur := time.Duration(float64(samples)/float64(rate)*float64(time.Second)) + 2*time.Second
 	danceCtx, danceCancel := context.WithTimeout(ctx, dur)
 	defer danceCancel()
 
 	beat := time.Duration(math.Round(60000.0/macarenaBPM)) * time.Millisecond
-	_ = m.macarenaDanceLoop(danceCtx, v, beat)
+	if err := m.macarenaDanceLoop(danceCtx, v, beat); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		m.setDanceErr(err)
+	}
 
 	select {
-	case <-audioDone:
+	case err := <-audioDone:
+		if err != nil && !errors.Is(err, context.Canceled) && ctx.Err() == nil {
+			m.setDanceErr(err)
+		}
 	case <-ctx.Done():
-	case <-time.After(2 * time.Second):
+	case <-time.After(3 * time.Second):
 	}
 }
 
 func (m *SeekDashboard) macarenaDanceLoop(ctx context.Context, v *vector.Vector, beat time.Duration) error {
-	beatSec := float32(beat.Seconds())
 	phrase := 0
 	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
+		if err := ctx.Err(); err != nil {
+			m.macFreeze(v)
+			return err
 		}
 		m.touchActivity()
 		phrase++
 
-		// Counts 1–4: "arms" out / palms up via lift + head
-		if err := m.macLift(ctx, v, 62, beatSec); err != nil {
-			return err
+		// 16-count Macarena mapped to lift / head / wheels (non-blocking teleop
+		// so Stop can cancel between beats instead of sitting in SetLiftHeight).
+		steps := []func() error{
+			func() error { return m.macPulseLift(ctx, v, 3.5, beat) },
+			func() error { return m.macPulseLift(ctx, v, 4.5, beat) },
+			func() error { return m.macPulseHead(ctx, v, 3.0, beat) },
+			func() error { return m.macPulseHead(ctx, v, -2.5, beat) },
+			func() error { return m.macPulseLift(ctx, v, -3.0, beat) },
+			func() error { return m.macPulseHead(ctx, v, 2.0, beat) },
+			func() error { return m.macPulseLift(ctx, v, 3.0, beat) },
+			func() error { return m.macPulseHead(ctx, v, -3.0, beat) },
+			func() error { return m.macPulseLift(ctx, v, 2.5, beat*9/10) },
+			func() error { return m.macPulseLift(ctx, v, -2.5, beat*9/10) },
+			func() error { return m.macPulseLift(ctx, v, 3.5, beat*9/10) },
+			func() error { return m.macPulseLift(ctx, v, -2.0, beat*9/10) },
+			func() error { return m.macWiggle(ctx, v, beat) },
+			func() error {
+				turnDir := float32(1)
+				if phrase%2 == 0 {
+					turnDir = -1
+				}
+				return m.macSpin(ctx, v, turnDir, beat*2)
+			},
 		}
-		if err := m.macLift(ctx, v, 88, beatSec); err != nil {
-			return err
-		}
-		if err := m.macHead(ctx, v, 0.55, beatSec); err != nil {
-			return err
-		}
-		if err := m.macHead(ctx, v, 0.72, beatSec); err != nil {
-			return err
-		}
-
-		// Counts 5–8: shoulders / behind head
-		if err := m.macLift(ctx, v, 70, beatSec); err != nil {
-			return err
-		}
-		if err := m.macHead(ctx, v, 0.15, beatSec); err != nil {
-			return err
-		}
-		if err := m.macLift(ctx, v, 45, beatSec); err != nil {
-			return err
-		}
-		if err := m.macHead(ctx, v, -0.15, beatSec); err != nil {
-			return err
-		}
-
-		// Counts 9–12: hips (lift bounces)
-		if err := m.macLift(ctx, v, 55, beatSec*0.9); err != nil {
-			return err
-		}
-		if err := m.macLift(ctx, v, 40, beatSec*0.9); err != nil {
-			return err
-		}
-		if err := m.macLift(ctx, v, 70, beatSec*0.9); err != nil {
-			return err
-		}
-		if err := m.macLift(ctx, v, 50, beatSec*0.9); err != nil {
-			return err
-		}
-
-		// Counts 13–14: hip wiggle (wheels)
-		if err := m.macWiggle(ctx, v, beat); err != nil {
-			return err
-		}
-
-		// Counts 15–16: classic Macarena 90° jump-turn (alternate side each phrase)
-		turn := float32(math.Pi / 2)
-		if phrase%2 == 0 {
-			turn = -turn
-		}
-		if err := m.macTurn(ctx, v, turn); err != nil {
-			return err
+		for _, step := range steps {
+			if err := step(); err != nil {
+				m.macFreeze(v)
+				return err
+			}
 		}
 	}
 }
 
-func (m *SeekDashboard) macLift(ctx context.Context, v *vector.Vector, heightMm, durationSec float32) error {
-	if ctx.Err() != nil {
+func (m *SeekDashboard) macSleep(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
 		return ctx.Err()
+	case <-t.C:
+		return nil
 	}
-	if heightMm < 32 {
-		heightMm = 32
-	}
-	if heightMm > 92 {
-		heightMm = 92
-	}
-	cctx, cancel := context.WithTimeout(ctx, time.Duration(durationSec*float32(time.Second))+2*time.Second)
-	defer cancel()
-	_, err := v.Conn.SetLiftHeight(cctx, &vectorpb.SetLiftHeightRequest{
-		HeightMm:          heightMm,
-		MaxSpeedRadPerSec: 8,
-		AccelRadPerSec2:   20,
-		DurationSec:       durationSec,
-		IdTag:             m.nextActionID(),
-	})
-	return err
 }
 
-func (m *SeekDashboard) macHead(ctx context.Context, v *vector.Vector, angleRad, durationSec float32) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
+func (m *SeekDashboard) macFreeze(v *vector.Vector) {
+	if v == nil {
+		return
 	}
-	if angleRad < -0.38 {
-		angleRad = -0.38
-	}
-	if angleRad > 0.78 {
-		angleRad = 0.78
-	}
-	cctx, cancel := context.WithTimeout(ctx, time.Duration(durationSec*float32(time.Second))+2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
 	defer cancel()
-	_, err := v.Conn.SetHeadAngle(cctx, &vectorpb.SetHeadAngleRequest{
-		AngleRad:          angleRad,
-		MaxSpeedRadPerSec: 8,
-		AccelRadPerSec2:   20,
-		DurationSec:       durationSec,
-		IdTag:             m.nextActionID(),
-	})
-	return err
+	_, _ = v.Conn.MoveLift(ctx, &vectorpb.MoveLiftRequest{SpeedRadPerSec: 0})
+	_, _ = v.Conn.MoveHead(ctx, &vectorpb.MoveHeadRequest{SpeedRadPerSec: 0})
+	_, _ = v.Conn.DriveWheels(ctx, &vectorpb.DriveWheelsRequest{})
+	_, _ = v.Conn.StopAllMotors(ctx, &vectorpb.StopAllMotorsRequest{})
 }
 
-func (m *SeekDashboard) macTurn(ctx context.Context, v *vector.Vector, angleRad float32) error {
+func (m *SeekDashboard) macPulseLift(ctx context.Context, v *vector.Vector, speed float32, hold time.Duration) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	cctx, cancel := context.WithTimeout(ctx, 4*time.Second)
-	defer cancel()
-	_, err := v.Conn.TurnInPlace(cctx, &vectorpb.TurnInPlaceRequest{
-		AngleRad:        angleRad,
-		SpeedRadPerSec:  2.2,
-		AccelRadPerSec2: 6,
-		TolRad:          0.08,
-		IdTag:           m.nextActionID(),
+	cctx, cancel := context.WithTimeout(ctx, time.Second)
+	_, err := v.Conn.MoveLift(cctx, &vectorpb.MoveLiftRequest{SpeedRadPerSec: speed})
+	cancel()
+	if err != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	// Keep going even if one pulse fails (transient SDK blip).
+	if err := m.macSleep(ctx, hold); err != nil {
+		return err
+	}
+	cctx2, cancel2 := context.WithTimeout(ctx, 500*time.Millisecond)
+	_, _ = v.Conn.MoveLift(cctx2, &vectorpb.MoveLiftRequest{SpeedRadPerSec: 0})
+	cancel2()
+	return nil
+}
+
+func (m *SeekDashboard) macPulseHead(ctx context.Context, v *vector.Vector, speed float32, hold time.Duration) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	cctx, cancel := context.WithTimeout(ctx, time.Second)
+	_, err := v.Conn.MoveHead(cctx, &vectorpb.MoveHeadRequest{SpeedRadPerSec: speed})
+	cancel()
+	if err != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err := m.macSleep(ctx, hold); err != nil {
+		return err
+	}
+	cctx2, cancel2 := context.WithTimeout(ctx, 500*time.Millisecond)
+	_, _ = v.Conn.MoveHead(cctx2, &vectorpb.MoveHeadRequest{SpeedRadPerSec: 0})
+	cancel2()
+	return nil
+}
+
+func (m *SeekDashboard) macSpin(ctx context.Context, v *vector.Vector, dir float32, hold time.Duration) error {
+	// Wheel spin ≈ 90° turn without blocking TurnInPlace (which ignored Stop).
+	speed := float32(90) * dir
+	cctx, cancel := context.WithTimeout(ctx, time.Second)
+	_, _ = v.Conn.DriveWheels(cctx, &vectorpb.DriveWheelsRequest{
+		LeftWheelMmps:   -speed,
+		RightWheelMmps:  speed,
+		LeftWheelMmps2:  abs32(speed),
+		RightWheelMmps2: abs32(speed),
 	})
-	return err
+	cancel()
+	if err := m.macSleep(ctx, hold); err != nil {
+		cctx2, cancel2 := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		_, _ = v.Conn.DriveWheels(cctx2, &vectorpb.DriveWheelsRequest{})
+		cancel2()
+		return err
+	}
+	cctx2, cancel2 := context.WithTimeout(ctx, 500*time.Millisecond)
+	_, _ = v.Conn.DriveWheels(cctx2, &vectorpb.DriveWheelsRequest{})
+	cancel2()
+	return nil
 }
 
 func (m *SeekDashboard) macWiggle(ctx context.Context, v *vector.Vector, beat time.Duration) error {
 	half := beat / 2
 	steps := [][2]float32{
-		{70, -70},
-		{-70, 70},
-		{70, -70},
-		{-70, 70},
+		{75, -75},
+		{-75, 75},
+		{75, -75},
+		{-75, 75},
 	}
 	for _, s := range steps {
 		if ctx.Err() != nil {
@@ -273,10 +305,8 @@ func (m *SeekDashboard) macWiggle(ctx context.Context, v *vector.Vector, beat ti
 			RightWheelMmps2: abs32(s[1]),
 		})
 		cancel()
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(half):
+		if err := m.macSleep(ctx, half); err != nil {
+			return err
 		}
 	}
 	cctx, cancel := context.WithTimeout(ctx, time.Second)
