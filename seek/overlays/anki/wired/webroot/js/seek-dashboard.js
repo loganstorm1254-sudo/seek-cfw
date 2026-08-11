@@ -150,7 +150,7 @@ function switchTab(name) {
         panel.classList.toggle('active', on);
     });
     } else if (name === 'doom') {
-        setSeekStatus('Doom: Play on Vector’s face. WASD + Space to shoot.');
+        setSeekStatus('Doom: start/stop/control only from this tab (WASD).');
     } else if (name === 'drive') {
         setSeekStatus('Drive ready. Tap Take control, then hold the pad (or WASD).');
     } else if (name === 'moves') {
@@ -486,8 +486,8 @@ const DOOM_KEYS = {
     strafeR: 0xa1, // KEY_STRAFE_R
     use: 0xa2,     // KEY_USE
     fire: 0xa3,    // KEY_FIRE
-    esc: 27,
-    enter: 13
+    esc: 27,       // KEY_ESCAPE
+    enter: 13      // KEY_ENTER (menus / confirm — not USE)
 };
 const doomHeld = new Set();
 
@@ -511,7 +511,7 @@ async function doomStart() {
             setSeekStatus(e.message || 'Doom start failed', true);
             return;
         }
-        setSeekStatus('Doom running on his face. WASD / pad to play. Esc = menu.');
+        setSeekStatus('In game on his face. WASD move/turn · Space fire · Enter for menus.');
         switchTab('doom');
     } catch (e) {
         setSeekStatus('doom error: ' + e.message, true);
@@ -567,21 +567,26 @@ function bindDoomControls() {
         });
     }
 
+    function doomKeyName(e) {
+        const k = e.key;
+        if (k === ' ') return 'fire';
+        if (k === 'Enter') return 'enter';
+        if (k === 'Escape') return 'esc';
+        const lower = k.length === 1 ? k.toLowerCase() : k.toLowerCase();
+        const map = {
+            w: 'forward', s: 'back', a: 'left', d: 'right',
+            q: 'strafeL', e: 'strafeR', f: 'fire', u: 'use',
+            arrowup: 'forward', arrowdown: 'back', arrowleft: 'left', arrowright: 'right',
+            control: 'fire'
+        };
+        return map[lower] || null;
+    }
+
     window.addEventListener('keydown', function (e) {
         const doomTab = $('tab-doom');
         if (!doomTab || doomTab.hidden) return;
         if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
-        const k = e.key.toLowerCase();
-        const map = {
-            w: 'forward', s: 'back', a: 'left', d: 'right',
-            q: 'strafeL', e: 'strafeR', ' ': 'fire',
-            enter: 'use', escape: 'esc'
-        };
-        // E is both use and strafeR — prefer use on Shift+E? Keep e=strafeR, Enter=use, also 'f'=fire
-        map.f = 'fire';
-        map.u = 'use';
-        if (!map[k] && k !== 'enter' && k !== 'escape') return;
-        const name = map[k] || (k === 'enter' ? 'use' : (k === 'escape' ? 'esc' : null));
+        const name = doomKeyName(e);
         if (!name) return;
         e.preventDefault();
         if (e.repeat) return;
@@ -591,13 +596,7 @@ function bindDoomControls() {
     window.addEventListener('keyup', function (e) {
         const doomTab = $('tab-doom');
         if (!doomTab || doomTab.hidden) return;
-        const k = e.key.toLowerCase();
-        const map = {
-            w: 'forward', s: 'back', a: 'left', d: 'right',
-            q: 'strafeL', e: 'strafeR', ' ': 'fire', f: 'fire', u: 'use',
-            enter: 'use', escape: 'esc'
-        };
-        const name = map[k];
+        const name = doomKeyName(e);
         if (!name) return;
         doomPress(name, false);
     });

@@ -324,16 +324,7 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
 #endif
   ADD_MENU_ITEM(Main, IsXray() ? "CLEAR" : "CLEAR OUT SOUL", ClearUserData);
 
-  // SeekOS: launch Doom on the face (wired picks up /run/seek-doom/start).
-  FaceInfoScreen::MenuItemAction launchDoom = []() {
-    LOG_INFO("FaceInfoScreenManager.PlayDoom", "Requesting Seek Doom");
-    Util::FileUtils::CreateDirectory("/run/seek-doom", false, true);
-    if (!Util::FileUtils::WriteFile("/run/seek-doom/start", "1")) {
-      LOG_WARNING("FaceInfoScreenManager.PlayDoom.FailedWrite", "");
-    }
-    return ScreenName::None;
-  };
-  ADD_MENU_ITEM_WITH_ACTION(Main, "PLAY DOOM", launchDoom);
+  // SeekOS: Doom is started only from the web dashboard (not this face menu).
 
   // === Self test screen ===
   ADD_MENU_ITEM(SelfTest, "EXIT", Main);
