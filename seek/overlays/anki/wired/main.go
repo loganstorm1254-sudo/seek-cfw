@@ -36,21 +36,19 @@ func main() {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		lanIP := vars.PreferredLANIP()
-		phoneURL := vars.PreferredPhoneURL()
+		url := vars.PreferredPhoneURL()
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"addrs":        vars.ListNetAddrs(),
 			"lanIp":        lanIP,
-			"phoneUrl":     phoneURL,
-			"canonicalUrl": phoneURL,
-			"oneAddress":   phoneURL,
-			"hint":         "Use http://<vector-wifi-ip>:8080/seek.html on phone and PC (same Wi‑Fi). Hosted on the robot.",
+			"phoneUrl":     url,
+			"canonicalUrl": url,
+			"oneAddress":   url,
+			"hint":         "Open http://<vector-ip>:8080/seek.html in any browser on the same Wi‑Fi as Vector.",
 		})
 	})
 
 	vars.EnabledMods = EnabledMods
 	vars.InitMods()
-	// Optional LAN discovery only — never required. Prefer numeric Wi‑Fi IP.
-	vars.StartMDNS()
 	startweb()
 }
 
@@ -82,34 +80,19 @@ func setStaticContentType(w http.ResponseWriter, reqPath string) {
 }
 
 func startweb() {
-	fmt.Println("starting web at port 8080")
+	fmt.Println("starting web at port 8080 (all interfaces)")
 	fs := http.FileServer(http.Dir("/etc/wired/webroot"))
+	// Listen on every interface so http://192.168.42.209:8080 works from any
+	// browser that can reach Vector on the LAN (phone or PC).
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-
-		// One address for everyone: if opened via USB interface, bounce to Wi‑Fi IP.
-		// Escape hatch: ?noredirect=1
-		if r.URL.Query().Get("noredirect") == "" && vars.IsUSBHost(r.Host) {
-			if lan := vars.PreferredLANIP(); lan != "" {
-				q := r.URL.Query()
-				q.Set("from", "usb")
-				path := r.URL.Path
-				if path == "" {
-					path = "/"
-				}
-				target := "http://" + lan + ":8080" + path + "?" + q.Encode()
-				http.Redirect(w, r, target, http.StatusFound)
-				return
-			}
-		}
-
 		setStaticContentType(w, r.URL.Path)
 		fs.ServeHTTP(w, r)
 	})
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	if err := http.ListenAndServe("0.0.0.0:8080", nil); err != nil {
 		fmt.Println("ListenAndServe:", err)
 		panic(err)
 	}

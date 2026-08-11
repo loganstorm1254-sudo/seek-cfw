@@ -28,8 +28,8 @@
         <p>Click the tabs to navigate the options.</p>
         <p style="margin-top:14px;"><a href="/seek.html" style="color:#a855f7;font-weight:600;">Open Seek Dashboard →</a></p>
         <div id="netInfoHome" style="margin-top:16px;padding:12px;border:1px solid #333;background:#111;border-radius:6px;">
-            <p style="margin:0 0 8px;"><b>Vector Wi‑Fi IP (phone + PC)</b></p>
-            <p style="margin:0 0 8px;color:#aaa;font-size:0.92rem;">Dashboard is on the robot at port 8080. Use this IP on both devices (same Wi‑Fi):</p>
+            <p style="margin:0 0 8px;"><b>Open in any browser</b></p>
+            <p style="margin:0 0 8px;color:#aaa;font-size:0.92rem;">Same Wi‑Fi as Vector. Example: <code>http://192.168.42.209:8080/seek.html</code></p>
             <p id="netPhoneUrlHome" style="margin:0;word-break:break-all;font-weight:700;color:#a855f7;">Loading…</p>
             <ul id="netAddrListHome" style="margin:10px 0 0;padding-left:18px;color:#ccc;font-size:0.9rem;"></ul>
         </div>
@@ -37,17 +37,18 @@
         fetch('/api/netinfo', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (data) {
             var urlEl = document.getElementById('netPhoneUrlHome');
             var list = document.getElementById('netAddrListHome');
-            var one = data.canonicalUrl || data.phoneUrl || data.oneAddress;
-            if (data.lanIp && one) {
-                urlEl.innerHTML = '<div style="font-size:1.4rem;margin-bottom:6px;">' + data.lanIp + '</div><a href="' + one + '" style="color:#a855f7;">' + one + '</a>';
+            var ip = location.hostname || data.lanIp;
+            var one = ip ? ('http://' + ip + ':8080/seek.html') : (data.canonicalUrl || data.phoneUrl);
+            if (ip && one) {
+                urlEl.innerHTML = '<div style="font-size:1.4rem;margin-bottom:6px;">' + ip + '</div><a href="' + one + '" style="color:#a855f7;">' + one + '</a>';
             } else if (one) {
                 urlEl.innerHTML = '<a href="' + one + '" style="color:#a855f7;">' + one + '</a>';
             } else {
-                urlEl.textContent = 'No Wi‑Fi IP yet — connect Vector to home Wi‑Fi.';
+                urlEl.textContent = 'No IP yet.';
             }
             (data.addrs || []).forEach(function (a) {
                 var li = document.createElement('li');
-                li.textContent = a.iface + ' · ' + a.ip + ' · ' + (a.phoneOk ? 'use this' : (a.kind === 'usb' ? 'USB only' : a.kind));
+                li.textContent = a.iface + ' · ' + a.ip + ' · ' + a.kind;
                 list.appendChild(li);
             });
         }).catch(function () {

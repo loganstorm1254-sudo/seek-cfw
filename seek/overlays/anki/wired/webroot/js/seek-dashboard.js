@@ -767,33 +767,29 @@ async function loadNetInfo() {
         const res = await fetch('/api/netinfo', { cache: 'no-store' });
         if (!res.ok) return;
         const data = await res.json();
-        const lanIp = data.lanIp || '';
-        const one = data.canonicalUrl || data.phoneUrl || data.oneAddress ||
-            (lanIp ? ('http://' + lanIp + ':8080/seek.html') : '');
+        // Prefer the IP the browser already used (e.g. 192.168.42.209).
+        const hostIp = location.hostname;
+        const lanIp = hostIp && hostIp !== 'localhost' && hostIp !== '127.0.0.1'
+            ? hostIp
+            : (data.lanIp || '');
+        const one = 'http://' + lanIp + ':8080/seek.html';
         if (ipEl) {
-            if (lanIp) {
-                ipEl.hidden = false;
-                ipEl.textContent = lanIp;
-            } else {
-                ipEl.hidden = false;
-                ipEl.textContent = 'No Wi‑Fi IP — put Vector on your home Wi‑Fi';
-            }
+            ipEl.hidden = false;
+            ipEl.textContent = lanIp || 'waiting for IP…';
         }
         if (urlEl) {
-            if (one) {
-                urlEl.hidden = false;
-                urlEl.innerHTML = 'Open on phone + PC: <a href="' + one + '">' + one + '</a>';
+            urlEl.hidden = false;
+            if (lanIp) {
+                urlEl.innerHTML = '<a href="' + one + '">' + one + '</a>';
             } else {
-                urlEl.hidden = false;
-                urlEl.textContent = 'Connect Vector to the same Wi‑Fi as your phone, then refresh.';
+                urlEl.textContent = 'Connect Vector to Wi‑Fi, then refresh.';
             }
         }
         if (listEl) {
             listEl.textContent = '';
             (data.addrs || []).forEach((a) => {
                 const li = document.createElement('li');
-                const tag = a.phoneOk ? 'use this' : (a.kind === 'usb' ? 'USB only' : a.kind);
-                li.textContent = a.iface + ' · ' + a.ip + ' · ' + tag;
+                li.textContent = a.iface + ' · ' + a.ip + ' · ' + a.kind;
                 listEl.appendChild(li);
             });
         }

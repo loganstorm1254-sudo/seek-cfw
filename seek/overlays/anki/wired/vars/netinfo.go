@@ -14,21 +14,20 @@ type NetAddr struct {
 	URL     string `json:"url"`
 }
 
-func ifaceKind(name string) (kind string, phoneOK bool) {
+func ifaceKind(name string) string {
 	name = strings.ToLower(name)
 	switch {
 	case name == "wlan0" || strings.HasPrefix(name, "wlan"):
-		return "wifi", true
+		return "wifi"
 	case name == "usb0" || name == "rndis0" || name == "tether" || strings.HasPrefix(name, "usb"):
-		return "usb", false
+		return "usb"
 	default:
-		return "other", false
+		return "other"
 	}
 }
 
-// ListNetAddrs returns robot IPv4 addresses for the dashboard / phone help.
-// Kind is based on interface name (wlan* = wifi). Do NOT treat 192.168.42.x as
-// USB-only — some home routers use that subnet on Wi‑Fi.
+// ListNetAddrs returns robot IPv4 addresses. Every address is a valid dashboard
+// URL if the client can route to it (same LAN / Wi‑Fi as Vector).
 func ListNetAddrs() []NetAddr {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -44,7 +43,7 @@ func ListNetAddrs() []NetAddr {
 		if err != nil {
 			continue
 		}
-		kind, phoneOK := ifaceKind(name)
+		kind := ifaceKind(name)
 		for _, a := range addrs {
 			ipnet, ok := a.(*net.IPNet)
 			if !ok || ipnet.IP == nil {
@@ -59,7 +58,7 @@ func ListNetAddrs() []NetAddr {
 				Iface:   name,
 				IP:      ip,
 				Kind:    kind,
-				PhoneOK: phoneOK,
+				PhoneOK: true, // webpage is on the robot; any browser on the LAN can open it
 				URL:     "http://" + ip + ":8080/seek.html",
 			})
 		}
@@ -67,44 +66,36 @@ func ListNetAddrs() []NetAddr {
 	return out
 }
 
-// PreferredLANIP is the single address everyone should use (Wi‑Fi).
+// PreferredLANIP picks the address users should bookmark.
+// Prefer 192.168.42.209 / 192.168.42.x when present (common WireOS LAN), else Wi‑Fi, else any.
 func PreferredLANIP() string {
-	for _, a := range ListNetAddrs() {
-		if a.PhoneOK {
+	addrs := ListNetAddrs()
+	for _, a := range addrs {
+		if a.IP == "192.168.42.209" {
 			return a.IP
 		}
+	}
+	for _, a := range addrs {
+		if strings.HasPrefix(a.IP, "192.168.42.") {
+			return a.IP
+		}
+	}
+	for _, a := range addrs {
+		if a.Kind == "wifi" {
+			return a.IP
+		}
+	}
+	if len(addrs) > 0 {
+		return addrs[0].IP
 	}
 	return ""
 }
 
-// PreferredPhoneURL returns the Wi‑Fi dashboard URL when available.
+// PreferredPhoneURL is http://<PreferredLANIP>:8080/seek.html
 func PreferredPhoneURL() string {
 	ip := PreferredLANIP()
 	if ip == "" {
 		return ""
 	}
 	return "http://" + ip + ":8080/seek.html"
-}
-
-// CanonicalHostnames users can type instead of an IP (mDNS).
-func CanonicalHostnames() []string {
-	return []string{"seek.local", "vector.local"}
-}
-
-// IsUSBHost reports whether the HTTP Host is the USB/RNDIS interface.
-func IsUSBHost(host string) bool {
-	h := host
-	if i := strings.IndexByte(h, ':'); i >= 0 {
-		h = h[:i]
-	}
-	h = strings.TrimSpace(h)
-	if h == "" {
-		return false
-	}
-	for _, a := range ListNetAddrs() {
-		if a.Kind == "usb" && a.IP == h {
-			return true
-		}
-	}
-	return false
 }
