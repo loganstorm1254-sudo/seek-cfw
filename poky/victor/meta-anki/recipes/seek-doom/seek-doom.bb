@@ -9,17 +9,18 @@ SRC_URI = " \
     file://freedoom1.wad.gz \
 "
 
-S = "${WORKDIR}"
+S = "${UNPACKDIR}"
+#UNPACKDIR = "${S}"
 
 do_configure[noexec] = "1"
 do_compile[noexec] = "1"
 
 do_install() {
     install -d ${D}${bindir}
-    install -m 0755 ${WORKDIR}/seek-doom ${D}${bindir}/seek-doom
+    install -m 0755 ${UNPACKDIR}/seek-doom ${D}${bindir}/seek-doom
 
     install -d ${D}/usr/share/seek-doom
-    gzip -dc ${WORKDIR}/freedoom1.wad.gz > ${D}/usr/share/seek-doom/freedoom1.wad
+    gzip -dc ${UNPACKDIR}/freedoom1.wad.gz > ${D}/usr/share/seek-doom/freedoom1.wad
     chmod 0644 ${D}/usr/share/seek-doom/freedoom1.wad
 }
 
