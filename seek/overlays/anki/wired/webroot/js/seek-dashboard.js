@@ -68,9 +68,11 @@ function initTabs() {
 /* ---------------- Look / Speak / Media ---------------- */
 
 function seekEyeModeChanged() {
-    const mode = $('eyeMode').value;
-    $('eyeCustomControls').hidden = mode !== 'custom';
-    $('eyePresetControls').hidden = mode !== 'preset';
+    const modeEl = $('eyeMode');
+    if (!modeEl) return;
+    const mode = modeEl.value;
+    if ($('eyeCustomControls')) $('eyeCustomControls').hidden = mode !== 'custom';
+    if ($('eyePresetControls')) $('eyePresetControls').hidden = mode !== 'preset';
 }
 
 async function seekRefresh() {
@@ -512,32 +514,37 @@ function stopCamera() {
 }
 
 function bindUI() {
-    $('eyeMode').addEventListener('change', seekEyeModeChanged);
-    $('eyeHue').addEventListener('input', () => {
-        $('eyeHueVal').textContent = Number($('eyeHue').value).toFixed(2);
+    function on(id, ev, fn) {
+        const el = $(id);
+        if (el) el.addEventListener(ev, fn);
+    }
+
+    on('eyeMode', 'change', seekEyeModeChanged);
+    on('eyeHue', 'input', () => {
+        if ($('eyeHueVal')) $('eyeHueVal').textContent = Number($('eyeHue').value).toFixed(2);
     });
-    $('eyeSat').addEventListener('input', () => {
-        $('eyeSatVal').textContent = Number($('eyeSat').value).toFixed(2);
+    on('eyeSat', 'input', () => {
+        if ($('eyeSatVal')) $('eyeSatVal').textContent = Number($('eyeSat').value).toFixed(2);
     });
-    $('audioPlayVolume').addEventListener('input', () => {
-        $('audioPlayVolVal').textContent = $('audioPlayVolume').value;
+    on('audioPlayVolume', 'input', () => {
+        if ($('audioPlayVolVal')) $('audioPlayVolVal').textContent = $('audioPlayVolume').value;
     });
-    $('driveSpeed').addEventListener('input', () => {
-        $('driveSpeedVal').textContent = $('driveSpeed').value;
+    on('driveSpeed', 'input', () => {
+        if ($('driveSpeedVal')) $('driveSpeedVal').textContent = $('driveSpeed').value;
         lastDriveSent = '';
         syncKeysToDrive();
     });
 
-    $('btnEye').addEventListener('click', seekSetEyeColor);
-    $('btnVolume').addEventListener('click', seekSetVolume);
-    $('btnSay').addEventListener('click', seekSayText);
-    $('btnAudio').addEventListener('click', seekPlayAudio);
-    $('videoPlayBtn').addEventListener('click', seekPlayVideo);
-    $('btnStopMedia').addEventListener('click', seekStopMedia);
-    $('btnCamStart').addEventListener('click', startCamera);
-    $('btnCamStop').addEventListener('click', stopCamera);
-    $('btnArmDrive').addEventListener('click', armDrive);
-    $('btnRelease').addEventListener('click', async () => {
+    on('btnEye', 'click', seekSetEyeColor);
+    on('btnVolume', 'click', seekSetVolume);
+    on('btnSay', 'click', seekSayText);
+    on('btnAudio', 'click', seekPlayAudio);
+    on('videoPlayBtn', 'click', seekPlayVideo);
+    on('btnStopMedia', 'click', seekStopMedia);
+    on('btnCamStart', 'click', startCamera);
+    on('btnCamStop', 'click', stopCamera);
+    on('btnArmDrive', 'click', armDrive);
+    on('btnRelease', 'click', async () => {
         keysDown.clear();
         lastDriveSent = '';
         sendDrive(0, 0);
@@ -547,13 +554,10 @@ function bindUI() {
         setSeekStatus('Control released.');
         updateWasdKeys();
     });
-    $('btnListen').addEventListener('click', activateVoice);
-    const meetBtn = $('btnMeet');
-    if (meetBtn) {
-        meetBtn.addEventListener('click', () => {
-            runMove('intent', { id: 'intent_meet_victor', label: 'Meet Vector' });
-        });
-    }
+    on('btnListen', 'click', activateVoice);
+    on('btnMeet', 'click', () => {
+        runMove('intent', { id: 'intent_meet_victor', label: 'Meet Vector' });
+    });
     bindTouchPad();
 }
 
@@ -704,7 +708,10 @@ function bindTouchPad() {
     }
 
     function start(btn, e) {
-        if (e) e.preventDefault();
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
         if (!driveArmed) {
             setSeekStatus('Tap Take control first.', true);
             return;
@@ -721,7 +728,10 @@ function bindTouchPad() {
     }
 
     function stop(e) {
-        if (e) e.preventDefault();
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
         if (!held) return;
         setHeld(held, false);
         held = null;
@@ -730,22 +740,27 @@ function bindTouchPad() {
     }
 
     pad.querySelectorAll('.pad-btn').forEach((btn) => {
+        // pointer + touch + mouse so iOS Safari / old WebViews all work
         btn.addEventListener('pointerdown', (e) => {
             try { btn.setPointerCapture(e.pointerId); } catch (_) {}
             start(btn, e);
-        });
-        btn.addEventListener('pointerup', stop);
-        btn.addEventListener('pointercancel', stop);
+        }, { passive: false });
+        btn.addEventListener('pointerup', stop, { passive: false });
+        btn.addEventListener('pointercancel', stop, { passive: false });
         btn.addEventListener('lostpointercapture', stop);
-        // Avoid long-press callout / scroll steal on phones
+        btn.addEventListener('touchstart', (e) => start(btn, e), { passive: false });
+        btn.addEventListener('touchend', stop, { passive: false });
+        btn.addEventListener('touchcancel', stop, { passive: false });
+        btn.addEventListener('mousedown', (e) => start(btn, e));
+        btn.addEventListener('mouseup', stop);
+        btn.addEventListener('mouseleave', stop);
         btn.addEventListener('contextmenu', (e) => e.preventDefault());
     });
-    window.addEventListener('pointerup', stop);
 }
 
 async function waitForRobot() {
     setSeekStatus('Connecting to Vector…');
-    for (let i = 0; i < 45; i++) {
+    for (let i = 0; i < 30; i++) {
         try {
             const res = await fetch('/api/health', { cache: 'no-store' });
             if (res.ok) {
@@ -759,21 +774,33 @@ async function waitForRobot() {
                 setSeekStatus('Dashboard up — waiting for SDK…', true);
             }
         } catch (_) {
-            setSeekStatus('Cannot reach ' + location.host + ' — check Wi‑Fi / IP.', true);
+            setSeekStatus('Cannot reach ' + location.host + ' — use http://<ip>:8080/seek.html on Wi‑Fi.', true);
         }
-        await new Promise((r) => setTimeout(r, 1500));
+        await new Promise((r) => setTimeout(r, 1000));
     }
-    setSeekStatus('Still waking up. Open this page again in a minute.', true);
+    setSeekStatus('Still waking up — UI is usable; retry actions in a bit.', true);
     return false;
 }
 
 /* boot */
-(async function boot() {
-    initTabs();
-    bindUI();
-    bindKeyboard();
-    seekEyeModeChanged();
-    await waitForRobot();
-    seekRefresh();
-    loadMoves();
+window.__seekLoaded = true;
+(function boot() {
+    try {
+        initTabs();
+        bindUI();
+        bindKeyboard();
+        seekEyeModeChanged();
+        // Do not block the UI on phones while SDK wakes.
+        seekRefresh();
+        loadMoves();
+        waitForRobot().then(function (ok) {
+            if (ok) {
+                seekRefresh();
+                loadMoves();
+            }
+        });
+    } catch (e) {
+        setSeekStatus('Boot error: ' + (e && e.message ? e.message : e), true);
+        console.error(e);
+    }
 })();

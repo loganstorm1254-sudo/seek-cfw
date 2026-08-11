@@ -165,7 +165,6 @@ select {
 input[type="range"] {
     width: 100%;
     accent-color: var(--accent-2);
-    touch-action: none;
 }
 
 input[type="file"] {
