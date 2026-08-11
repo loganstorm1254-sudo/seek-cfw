@@ -2,12 +2,14 @@ package mods
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -22,6 +24,24 @@ const (
 	seekAIModel       = "gpt-4o-mini"
 	seekAIMaxAnswer   = 280 // keep SayText / KG answers short
 )
+
+// seekOpenAIHTTP reaches api.openai.com from the robot. Skip TLS verify: Vector's
+// CA bundle is often too old for current OpenAI certs.
+func seekOpenAIHTTP(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   12 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout: 12 * time.Second,
+			TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
+			ForceAttemptHTTP2:   true,
+		},
+	}
+}
 
 func seekOpenAIKeyConfigured() bool {
 	b, err := os.ReadFile(seekOpenAIKeyPath)
@@ -47,16 +67,27 @@ func (m *SeekDashboard) handleGetOpenAIKey(w http.ResponseWriter, r *http.Reques
 }
 
 func (m *SeekDashboard) handleSetOpenAIKey(r *http.Request) error {
+	_ = r.ParseMultipartForm(1 << 20)
+	_ = r.ParseForm()
 	key := strings.TrimSpace(r.FormValue("key"))
 	if key == "" {
-		// raw body fallback
-		body, _ := io.ReadAll(io.LimitReader(r.Body, 256))
+		// raw body fallback (plain text or JSON {"key":"..."})
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 8<<10))
 		key = strings.TrimSpace(string(body))
+		if strings.HasPrefix(key, "{") {
+			var j struct {
+				Key string `json:"key"`
+			}
+			if json.Unmarshal([]byte(key), &j) == nil {
+				key = strings.TrimSpace(j.Key)
+			}
+		}
 	}
 	if key == "" || strings.EqualFold(key, "clear") || strings.EqualFold(key, "delete") {
 		_ = os.Remove(seekOpenAIKeyPath)
 		return nil
 	}
+	// sk-… and sk-proj-… (project keys are long)
 	if !strings.HasPrefix(key, "sk-") || len(key) < 20 {
 		return errors.New("expected an OpenAI API key starting with sk-")
 	}
@@ -170,10 +201,9 @@ func seekChatGPT(question string) (string, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 45 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := seekOpenAIHTTP(45 * time.Second).Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("robot cannot reach OpenAI (%v) — use dashboard Ask (phone/PC internet)", err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -232,10 +262,9 @@ func seekWhisper(wav []byte) (string, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("Content-Type", w.FormDataContentType())
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := seekOpenAIHTTP(60 * time.Second).Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("robot cannot reach OpenAI (%v)", err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))

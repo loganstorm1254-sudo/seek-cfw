@@ -405,18 +405,47 @@ async function seekSayText() {
     }
 }
 
+const SEEK_OPENAI_KEY_LS = 'seekOpenAIKey';
+const SEEK_OPENAI_MODEL = 'gpt-4o-mini';
+
+function seekLocalOpenAIKey() {
+    try {
+        return (localStorage.getItem(SEEK_OPENAI_KEY_LS) || '').trim();
+    } catch (_) {
+        return '';
+    }
+}
+
+function seekStoreLocalOpenAIKey(key) {
+    try {
+        if (!key) localStorage.removeItem(SEEK_OPENAI_KEY_LS);
+        else localStorage.setItem(SEEK_OPENAI_KEY_LS, key);
+    } catch (_) {}
+}
+
+function seekResolveOpenAIKey() {
+    const typed = ($('openaiKey') && $('openaiKey').value || '').trim();
+    if (typed) return typed;
+    return seekLocalOpenAIKey();
+}
+
 async function seekRefreshOpenAIKey() {
     const st = $('openaiKeyStatus');
+    const local = seekLocalOpenAIKey();
+    let robot = null;
     try {
         const res = await api('getOpenAIKey');
-        if (!res.ok) return;
-        const info = await res.json();
-        if (st) {
-            st.textContent = info.configured
-                ? ('Key saved (' + info.masked + '). Hey Vector questions can use ChatGPT.')
-                : 'No key saved yet.';
-        }
+        if (res.ok) robot = await res.json();
     } catch (_) {}
+    if (!st) return;
+    if (local) {
+        st.textContent = 'Key ready in this browser' +
+            (robot && robot.configured ? ' (also saved on Vector).' : '.');
+    } else if (robot && robot.configured) {
+        st.textContent = 'Key on Vector only (' + robot.masked + '). Re-paste once so Ask can use your phone/PC internet.';
+    } else {
+        st.textContent = 'No key saved yet.';
+    }
 }
 
 async function seekSaveOpenAIKey() {
@@ -425,97 +454,283 @@ async function seekSaveOpenAIKey() {
         setSeekStatus('Paste your OpenAI API key first.', true);
         return;
     }
+    if (!key.startsWith('sk-') || key.length < 20) {
+        setSeekStatus('Key should start with sk- (or sk-proj-).', true);
+        return;
+    }
     setSeekStatus('Saving OpenAI key…');
+    seekStoreLocalOpenAIKey(key);
     try {
-        const res = await api('setOpenAIKey?key=' + encodeURIComponent(key));
+        const res = await api('setOpenAIKey', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'key=' + encodeURIComponent(key),
+            timeoutMs: 15000,
+            retries: 1
+        });
         if (!res.ok) {
-            const e = await res.json().catch(function () { return { message: 'save failed' }; });
-            setSeekStatus(e.message || 'save failed', true);
+            const e = await res.json().catch(function () { return { message: 'robot save failed' }; });
+            setSeekStatus('Saved in browser; robot save failed: ' + (e.message || 'error'), true);
+            seekRefreshOpenAIKey();
             return;
         }
         if ($('openaiKey')) $('openaiKey').value = '';
-        setSeekStatus('OpenAI key saved on Vector.');
+        setSeekStatus('OpenAI key saved — Ask will use your phone/PC internet.');
         seekRefreshOpenAIKey();
     } catch (e) {
-        setSeekStatus('key save error: ' + e.message, true);
+        setSeekStatus('Saved in browser only (robot unreachable): ' + e.message, true);
+        seekRefreshOpenAIKey();
     }
 }
 
 async function seekClearOpenAIKey() {
     setSeekStatus('Clearing OpenAI key…');
+    seekStoreLocalOpenAIKey('');
+    if ($('openaiKey')) $('openaiKey').value = '';
     try {
-        await api('setOpenAIKey?key=clear');
-        setSeekStatus('OpenAI key cleared.');
-        seekRefreshOpenAIKey();
+        await api('setOpenAIKey', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'key=clear',
+            timeoutMs: 10000,
+            retries: 1
+        });
+    } catch (_) {}
+    setSeekStatus('OpenAI key cleared.');
+    seekRefreshOpenAIKey();
+}
+
+async function seekBrowserChatGPT(question) {
+    const key = seekResolveOpenAIKey();
+    if (!key) {
+        throw new Error('Save your OpenAI key first (Speak tab).');
+    }
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + key,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model: SEEK_OPENAI_MODEL,
+            messages: [
+                {
+                    role: 'system',
+                    content: 'You are Vector, a small friendly robot. Answer briefly out loud (1-3 short sentences, under 220 characters). No markdown, no lists, no emojis.'
+                },
+                { role: 'user', content: question }
+            ],
+            max_tokens: 120,
+            temperature: 0.7
+        })
+    });
+    const raw = await res.text();
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch (_) {}
+    if (!res.ok) {
+        const msg = (parsed && parsed.error && parsed.error.message) || raw.slice(0, 180) || res.statusText;
+        throw new Error('OpenAI ' + res.status + ': ' + msg);
+    }
+    const ans = parsed && parsed.choices && parsed.choices[0] && parsed.choices[0].message
+        ? String(parsed.choices[0].message.content || '').trim()
+        : '';
+    if (!ans) throw new Error('Empty ChatGPT response');
+    return ans.replace(/\s+/g, ' ').slice(0, 280);
+}
+
+async function seekBrowserWhisper(blob) {
+    const key = seekResolveOpenAIKey();
+    if (!key) throw new Error('Save your OpenAI key first.');
+    const fd = new FormData();
+    fd.append('model', 'whisper-1');
+    fd.append('language', 'en');
+    fd.append('response_format', 'json');
+    fd.append('file', blob, 'vector.webm');
+    const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + key },
+        body: fd
+    });
+    const raw = await res.text();
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch (_) {}
+    if (!res.ok) {
+        const msg = (parsed && parsed.error && parsed.error.message) || raw.slice(0, 180) || res.statusText;
+        throw new Error('Whisper ' + res.status + ': ' + msg);
+    }
+    return String((parsed && parsed.text) || '').trim();
+}
+
+async function seekSpeakAnswer(answer) {
+    const res = await api(
+        'sayText?text=' + encodeURIComponent(answer) +
+        '&vectorVoice=' + encodeURIComponent(($('sayVectorVoice') && $('sayVectorVoice').value) || '1'),
+        { timeoutMs: 60000, retries: 1 }
+    );
+    if (!res.ok) {
+        const e = await res.json().catch(function () { return { message: 'speak failed' }; });
+        throw new Error(e.message || 'Vector could not speak');
+    }
+}
+
+async function seekTestOpenAI() {
+    setSeekStatus('Testing OpenAI from this browser…');
+    try {
+        const ans = await seekBrowserChatGPT('Reply with exactly: ok');
+        setSeekStatus('OpenAI OK — got: ' + ans);
+        if ($('askAIAnswer')) $('askAIAnswer').textContent = 'Test: ' + ans;
     } catch (e) {
-        setSeekStatus('clear error: ' + e.message, true);
+        setSeekStatus('OpenAI test failed: ' + e.message, true);
     }
 }
 
 async function seekAskAI(text) {
     const q = (text || ($('askAIText') && $('askAIText').value) || '').trim();
     if (!q) {
-        setSeekStatus('Type a question (or use the mic).', true);
+        setSeekStatus('Type a question (or use Hold to talk).', true);
         return;
     }
-    setSeekStatus('Asking ChatGPT…');
+    setSeekStatus('Asking ChatGPT from your phone/PC…');
     if ($('askAIAnswer')) $('askAIAnswer').textContent = '';
+    let answer = '';
+    let via = 'browser';
     try {
-        const res = await api('askAI?text=' + encodeURIComponent(q), { timeoutMs: 60000, retries: 1 });
-        if (!res.ok) {
-            const e = await res.json().catch(function () { return { message: 'ask failed' }; });
-            setSeekStatus(e.message || 'ask failed', true);
+        answer = await seekBrowserChatGPT(q);
+    } catch (browserErr) {
+        setSeekStatus('Browser OpenAI failed (' + browserErr.message + '). Trying robot…');
+        via = 'robot';
+        try {
+            const res = await api('askAI?text=' + encodeURIComponent(q) + '&speak=0', {
+                timeoutMs: 60000,
+                retries: 1
+            });
+            if (!res.ok) {
+                const e = await res.json().catch(function () { return { message: 'ask failed' }; });
+                setSeekStatus((e.message || 'ask failed') + ' — save key + ensure this device has internet.', true);
+                return;
+            }
+            const info = await res.json();
+            answer = (info.answer || '').trim();
+        } catch (e) {
+            setSeekStatus('Ask failed: ' + browserErr.message, true);
             return;
         }
-        const info = await res.json();
-        if ($('askAIAnswer')) $('askAIAnswer').textContent = 'Vector: ' + (info.answer || '');
+    }
+    if (!answer) {
+        setSeekStatus('Empty answer.', true);
+        return;
+    }
+    if ($('askAIAnswer')) $('askAIAnswer').textContent = 'Vector: ' + answer;
+    setSeekStatus('Got answer via ' + via + ' — speaking…');
+    try {
+        await seekSpeakAnswer(answer);
         setSeekStatus('Answer spoken.');
     } catch (e) {
-        setSeekStatus('ask error: ' + e.message, true);
+        setSeekStatus('Answer ready but speak failed: ' + e.message, true);
     }
 }
 
 function bindAskAIMic() {
     const btn = $('btnAskAIMic');
     if (!btn) return;
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-        btn.disabled = true;
-        btn.title = 'Speech recognition not supported in this browser';
-        return;
-    }
-    let rec = null;
-    function start(e) {
+
+    // Prefer MediaRecorder + Whisper (works when SpeechRecognition is blocked on http://).
+    let mediaStream = null;
+    let recorder = null;
+    let chunks = [];
+    let usingSR = false;
+    let recSR = null;
+
+    async function start(e) {
         if (e) { e.preventDefault(); e.stopPropagation(); }
+        chunks = [];
+        btn.classList.add('held');
+        setSeekStatus('Listening… ask your question, then release.');
+
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder) {
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                recorder = new MediaRecorder(mediaStream);
+                recorder.ondataavailable = function (ev) {
+                    if (ev.data && ev.data.size) chunks.push(ev.data);
+                };
+                recorder.start();
+                usingSR = false;
+                return;
+            } catch (err) {
+                // fall through to SpeechRecognition
+            }
+        }
+
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) {
+            btn.classList.remove('held');
+            setSeekStatus('Mic blocked on http:// — type the question, or use HTTPS/localhost.', true);
+            return;
+        }
         try {
-            if (rec) { try { rec.abort(); } catch (_) {} }
-            rec = new SR();
-            rec.lang = 'en-US';
-            rec.interimResults = false;
-            rec.maxAlternatives = 1;
-            rec.onresult = function (ev) {
+            usingSR = true;
+            if (recSR) { try { recSR.abort(); } catch (_) {} }
+            recSR = new SR();
+            recSR.lang = 'en-US';
+            recSR.interimResults = false;
+            recSR.maxAlternatives = 1;
+            recSR.onresult = function (ev) {
                 const t = ev.results[0][0].transcript;
                 if ($('askAIText')) $('askAIText').value = t;
                 seekAskAI(t);
             };
-            rec.onerror = function () {
+            recSR.onerror = function () {
                 setSeekStatus('Mic/speech error — type the question instead.', true);
             };
-            rec.start();
-            btn.classList.add('held');
-            setSeekStatus('Listening… ask your question.');
+            recSR.start();
         } catch (err) {
+            btn.classList.remove('held');
             setSeekStatus('mic error: ' + err.message, true);
         }
     }
-    function stop(e) {
+
+    async function stop(e) {
         if (e) { e.preventDefault(); e.stopPropagation(); }
         btn.classList.remove('held');
-        if (rec) {
-            try { rec.stop(); } catch (_) {}
-            rec = null;
+        if (usingSR) {
+            if (recSR) {
+                try { recSR.stop(); } catch (_) {}
+                recSR = null;
+            }
+            return;
+        }
+        if (!recorder) return;
+        const rec = recorder;
+        recorder = null;
+        await new Promise(function (resolve) {
+            rec.onstop = resolve;
+            try { rec.stop(); } catch (_) { resolve(); }
+        });
+        if (mediaStream) {
+            mediaStream.getTracks().forEach(function (t) { t.stop(); });
+            mediaStream = null;
+        }
+        if (!chunks.length) {
+            setSeekStatus('No audio captured — type the question instead.', true);
+            return;
+        }
+        const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+        chunks = [];
+        setSeekStatus('Transcribing with Whisper…');
+        try {
+            const t = await seekBrowserWhisper(blob);
+            if (!t) {
+                setSeekStatus('Could not hear a question — try again or type it.', true);
+                return;
+            }
+            if ($('askAIText')) $('askAIText').value = t;
+            await seekAskAI(t);
+        } catch (err) {
+            setSeekStatus('Whisper failed: ' + err.message + ' — type the question.', true);
         }
     }
+
     btn.addEventListener('pointerdown', start, { passive: false });
     btn.addEventListener('pointerup', stop, { passive: false });
     btn.addEventListener('pointercancel', stop, { passive: false });
@@ -1172,6 +1387,7 @@ function bindUI() {
     on('btnSay', 'click', seekSayText);
     on('btnSaveOpenAI', 'click', seekSaveOpenAIKey);
     on('btnClearOpenAI', 'click', seekClearOpenAIKey);
+    on('btnTestOpenAI', 'click', seekTestOpenAI);
     on('btnAskAI', 'click', function () { seekAskAI(); });
     bindAskAIMic();
     on('btnAudio', 'click', seekPlayAudio);
