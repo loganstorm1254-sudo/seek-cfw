@@ -121,6 +121,7 @@ func (m *SeekDashboard) controlStartPriority(priority vectorpb.ControlRequest_Pr
 	m.ctrlStream = stream
 	m.driveL = 0
 	m.driveR = 0
+	m.lastActivity = time.Now()
 	m.mu.Unlock()
 
 	go func() {
@@ -294,9 +295,15 @@ func (m *SeekDashboard) setDriveIntent(left, right float32) {
 	m.driveL = left
 	m.driveR = right
 	holding := m.holding
+	if left != 0 || right != 0 {
+		m.lastActivity = time.Now()
+	}
 	m.mu.Unlock()
 	if holding && (left != 0 || right != 0) {
 		m.startDriveLoop()
+	}
+	if holding && left == 0 && right == 0 {
+		m.stopDriveLoop()
 	}
 }
 

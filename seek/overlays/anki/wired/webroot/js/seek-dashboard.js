@@ -289,7 +289,7 @@ async function seekPlayVideo() {
         return;
     }
     const file = input.files[0];
-    const fps = Math.max(1, Math.min(15, Number($('videoFps').value) || 12));
+    const fps = Math.max(1, Math.min(12, Number($('videoFps').value) || 8));
     const withAudio = $('videoWithAudio').value !== '0';
     const fit = $('videoFit').value;
     const canvas = $('seekVideoCanvas');

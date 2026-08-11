@@ -49,10 +49,13 @@ type SeekDashboard struct {
 	camCancel  context.CancelFunc
 	camLatest  []byte
 	camSeq     uint64
+
+	lastActivity time.Time
+	idleOnce     sync.Once
 }
 
 func NewSeekDashboard() *SeekDashboard {
-	return &SeekDashboard{}
+	return &SeekDashboard{lastActivity: time.Now()}
 }
 
 func (modu *SeekDashboard) Name() string {
@@ -63,8 +66,43 @@ func (modu *SeekDashboard) Description() string {
 	return "Seek web dashboard: eyes, volume, speak, media, drive, camera"
 }
 
-func (modu *SeekDashboard) Load() error {
+func (m *SeekDashboard) Load() error {
+	m.touchActivity()
+	m.idleOnce.Do(func() {
+		go m.idleWatch()
+	})
 	return nil
+}
+
+func (m *SeekDashboard) touchActivity() {
+	m.mu.Lock()
+	m.lastActivity = time.Now()
+	m.mu.Unlock()
+}
+
+// idleWatch gently releases SDK control + camera after a few quiet minutes
+// so long dashboard sessions don't keep the robot warm. Thermal safety stays intact.
+func (m *SeekDashboard) idleWatch() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		m.mu.Lock()
+		holding := m.holding
+		idleFor := time.Since(m.lastActivity)
+		m.mu.Unlock()
+		m.camMu.Lock()
+		cam := m.camRunning
+		m.camMu.Unlock()
+		if idleFor < 3*time.Minute {
+			continue
+		}
+		if cam {
+			m.cameraStop()
+		}
+		if holding {
+			m.controlEnd()
+		}
+	}
 }
 
 func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +110,12 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	action := strings.TrimPrefix(r.URL.Path, "/api/mods/"+m.Name()+"/")
+	switch action {
+	case "status", "moves", "getEyeColor", "getVolume", "cameraFrame", "cameraMjpeg":
+		// read-only / streaming — don't count as "user activity" for idle release
+	default:
+		m.touchActivity()
+	}
 	switch action {
 	case "getEyeColor":
 		resp, err := getEyeColor()
