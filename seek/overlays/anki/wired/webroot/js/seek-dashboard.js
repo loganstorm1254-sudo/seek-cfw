@@ -334,6 +334,39 @@ async function seekClearEyeOverlay() {
     }
 }
 
+async function seekRefreshLightsStatus() {
+    const el = $('seekLightsStatus');
+    if (!el) return;
+    try {
+        const res = await api('getSeekLights');
+        if (!res.ok) return;
+        const info = await res.json();
+        if (info.ankiLights) {
+            el.textContent = 'Anki stock lights flag is set — Seek WireOS pack is not active.';
+        } else if (info.customActive) {
+            el.textContent = 'Custom /data lights are active (often leftover LD green). Tap Apply Seek lights.';
+        } else {
+            el.textContent = 'Using Seek OTA backpack lights (orange / red).';
+        }
+    } catch (_) {}
+}
+
+async function seekApplySeekLights() {
+    setSeekStatus('Clearing LD custom lights and restarting Vector…');
+    try {
+        const res = await api('applySeekLights');
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'apply failed' }; });
+            setSeekStatus(e.message || 'apply failed', true);
+            return;
+        }
+        setSeekStatus('Seek lights applied — Vector is restarting (~10s). Idle should go orange/red.');
+        setTimeout(seekRefreshLightsStatus, 12000);
+    } catch (e) {
+        setSeekStatus('lights error: ' + e.message, true);
+    }
+}
+
 async function seekSetVolume() {
     setSeekStatus('Setting volume...');
     try {
@@ -1127,6 +1160,8 @@ function bindUI() {
     on('btnEye', 'click', seekSetEyeColor);
     on('btnEyeOverlayApply', 'click', seekApplyEyeOverlay);
     on('btnEyeOverlayClear', 'click', seekClearEyeOverlay);
+    on('btnApplySeekLights', 'click', seekApplySeekLights);
+    seekRefreshLightsStatus();
     on('eyeOverlayFile', 'change', function () {
         const f = $('eyeOverlayFile');
         if (f && f.files && f.files[0]) {

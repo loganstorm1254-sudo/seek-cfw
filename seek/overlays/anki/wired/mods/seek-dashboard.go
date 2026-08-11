@@ -21,13 +21,16 @@ import (
 )
 
 const (
-	seekFaceWidth      = 184
-	seekFaceHeight     = 96
-	seekFaceBytes      = seekFaceWidth * seekFaceHeight * 2
-	seekMaxUpload      = 32 << 20 // 32 MiB
-	seekEyeOverlayPath = "/data/data/customFaceOverlay.jpg"
-	seekEyeReloadFlag  = "/run/seek-eyes/reload"
-	seekEyeMaxJPEG     = 2 << 20 // 2 MiB resized JPEG
+	seekFaceWidth         = 184
+	seekFaceHeight        = 96
+	seekFaceBytes         = seekFaceWidth * seekFaceHeight * 2
+	seekMaxUpload         = 32 << 20 // 32 MiB
+	seekEyeOverlayPath    = "/data/data/customFaceOverlay.jpg"
+	seekEyeReloadFlag     = "/run/seek-eyes/reload"
+	seekEyeMaxJPEG        = 2 << 20 // 2 MiB resized JPEG
+	seekCustomLightsDir   = "/data/data/customBackpackLights"
+	seekAnkiLightsFlag    = "/data/data/enableankilights"
+	seekLightsClearedMark = "/data/data/com.anki.victor/persistent/seek/cleared_ld_lights_v1"
 )
 
 // SeekDashboard hosts eye color, volume, TTS, media, drive, and camera on Vector's IP.
@@ -130,12 +133,30 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	action := strings.TrimPrefix(r.URL.Path, "/api/mods/"+m.Name()+"/")
 	switch action {
-	case "status", "moves", "getEyeColor", "getVolume", "cameraFrame", "cameraMjpeg", "getEyeOverlay", "getOpenAIKey":
+	case "status", "moves", "getEyeColor", "getVolume", "cameraFrame", "cameraMjpeg", "getEyeOverlay", "getOpenAIKey", "getSeekLights":
 		// read-only / streaming — don't count as "user activity" for idle release
 	default:
 		m.touchActivity()
 	}
 	switch action {
+	case "getSeekLights":
+		_, errOff := os.Stat(filepath.Join(seekCustomLightsDir, "off.json"))
+		_, errAnki := os.Stat(seekAnkiLightsFlag)
+		out, _ := json.Marshal(map[string]any{
+			"customActive": errOff == nil,
+			"ankiLights":   errAnki == nil,
+			"path":         seekCustomLightsDir,
+		})
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(out)
+		return
+	case "applySeekLights":
+		if err := m.handleApplySeekLights(); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+		vars.HTTPSuccess(w, r)
+		return
 	case "getEyeColor":
 		resp, err := getEyeColor()
 		if err != nil {
@@ -426,6 +447,21 @@ func (m *SeekDashboard) handleClearEyeOverlay() error {
 	_ = os.Remove(seekEyeOverlayPath)
 	_ = os.MkdirAll("/run/seek-eyes", 0755)
 	_ = os.WriteFile(seekEyeReloadFlag, []byte("1"), 0644)
+	return nil
+}
+
+// handleApplySeekLights removes LD/other custom backpack light packs under /data
+// so anim loads Seek WireOS orange/red from the OTA, then restarts anki-robot.
+func (m *SeekDashboard) handleApplySeekLights() error {
+	_ = os.RemoveAll(seekCustomLightsDir)
+	_ = os.Remove(seekAnkiLightsFlag)
+	if err := os.MkdirAll(filepath.Dir(seekLightsClearedMark), 0755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(seekLightsClearedMark, []byte("1\n"), 0644); err != nil {
+		return err
+	}
+	go vars.RestartVic()
 	return nil
 }
 
