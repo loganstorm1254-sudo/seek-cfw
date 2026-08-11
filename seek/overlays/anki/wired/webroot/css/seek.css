@@ -382,6 +382,25 @@ button.danger { color: var(--err); border-color: rgba(255, 143, 143, 0.35); }
 
 .net-list li { margin: 0.2rem 0; }
 
+.macarena-card {
+    margin: 0.75rem 0 1.25rem;
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background:
+        linear-gradient(135deg, rgba(240, 163, 94, 0.14), transparent 55%),
+        linear-gradient(225deg, rgba(62, 207, 178, 0.1), transparent 50%),
+        var(--panel);
+}
+
+.macarena-title {
+    margin: 0 0 0.75rem;
+    font-family: var(--display);
+    font-size: 1.15rem;
+    letter-spacing: 0.02em;
+    color: var(--accent);
+}
+
 @media (max-width: 720px) {
     .drive-layout,
     .grid2,

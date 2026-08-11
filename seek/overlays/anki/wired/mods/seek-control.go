@@ -151,6 +151,7 @@ func (m *SeekDashboard) controlStartPriority(priority vectorpb.ControlRequest_Pr
 }
 
 func (m *SeekDashboard) controlEnd() {
+	m.stopDance()
 	m.stopAudio()
 	m.stopDriveLoop()
 

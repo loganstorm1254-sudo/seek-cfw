@@ -426,6 +426,42 @@ async function seekStopMedia() {
     setSeekStatus('Stopped.');
 }
 
+async function seekMacarena() {
+    if (cameraOn) stopCamera();
+    setArmedUI(false);
+    const vol = $('audioPlayVolume') ? $('audioPlayVolume').value : '100';
+    setSeekStatus('Macarena starting on Vector… clear the floor!');
+    try {
+        const res = await api('macarena?volume=' + encodeURIComponent(vol), {
+            timeoutMs: 20000,
+            retries: 2
+        });
+        if (!res.ok) {
+            const e = await res.json().catch(() => ({ message: 'macarena failed' }));
+            setSeekStatus((e.message || 'macarena failed'), true);
+            return;
+        }
+        setSeekStatus('Dale a tu cuerpo — dancing + music on Vector. Hit Stop to end.');
+        // Poll until dance ends (song ~4 min).
+        const started = Date.now();
+        while (Date.now() - started < 280000) {
+            await new Promise((r) => setTimeout(r, 2000));
+            try {
+                const st = await api('status', { timeoutMs: 5000, retries: 1 });
+                if (!st.ok) continue;
+                const j = await st.json();
+                if (!j.dancing) {
+                    setSeekStatus('Macarena finished.');
+                    return;
+                }
+            } catch (_) {}
+        }
+        setSeekStatus('Macarena timed out on the page — check the robot / hit Stop.');
+    } catch (e) {
+        setSeekStatus('macarena error: ' + e.message, true);
+    }
+}
+
 async function seekPlayVideo() {
     const input = $('videoFile');
     if (!input.files || !input.files[0]) {
@@ -744,6 +780,8 @@ function bindUI() {
         updateWasdKeys();
     });
     on('btnListen', 'click', activateVoice);
+    on('btnMacarena', 'click', seekMacarena);
+    on('btnMacarenaStop', 'click', seekStopMedia);
     on('btnMeet', 'click', () => {
         runMove('intent', { id: 'intent_meet_victor', label: 'Meet Vector' });
     });

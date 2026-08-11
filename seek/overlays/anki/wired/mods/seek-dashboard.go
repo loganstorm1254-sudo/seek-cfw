@@ -55,6 +55,11 @@ type SeekDashboard struct {
 	audioCancel context.CancelFunc
 	audioGen    uint64
 
+	danceMu     sync.Mutex
+	dancing     bool
+	danceCancel context.CancelFunc
+	actionID    uint32
+
 	lastActivity time.Time
 	idleOnce     sync.Once
 }
@@ -99,6 +104,9 @@ func (m *SeekDashboard) idleWatch() {
 		cam := m.camRunning
 		m.camMu.Unlock()
 		if idleFor < 2*time.Minute {
+			continue
+		}
+		if m.isDancing() {
 			continue
 		}
 		if cam {
@@ -198,6 +206,12 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 		m.stopMedia()
 	case "stopAudio":
 		m.stopAudio()
+	case "macarena":
+		vol := parseAudioVolume(r.FormValue("volume"))
+		if err := m.startMacarena(vol); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
 	case "frame":
 		if err := m.handleFrame(r); err != nil {
 			vars.HTTPError(w, r, err.Error())
@@ -262,9 +276,11 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 		cam := m.camRunning
 		m.camMu.Unlock()
 		out, _ := json.Marshal(map[string]any{
-			"holding": holding,
-			"camera":  cam,
-			"ready":   vars.SDKReady(),
+			"holding":  holding,
+			"camera":   cam,
+			"dancing":  m.isDancing(),
+			"ready":    vars.SDKReady(),
+			"macarena": true,
 		})
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
@@ -405,10 +421,17 @@ func (m *SeekDashboard) stopAudio() {
 	}
 }
 
-// stopMedia cancels audio + releases control (used by Stop on the Media tab).
+// stopMedia cancels audio + Macarena dance + releases control (Stop button).
 func (m *SeekDashboard) stopMedia() {
+	wasDancing := m.isDancing()
+	m.stopDance()
 	m.stopAudio()
-	m.controlEnd()
+	if !wasDancing {
+		m.controlEnd()
+	} else {
+		// Dance goroutine releases control in its defer; hard-stop wheels now.
+		m.emergencyStopWheels()
+	}
 }
 
 func parseAudioVolume(s string) uint32 {

@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#07131a">
     <title>Seek Dashboard</title>
-    <link rel="stylesheet" href="css/seek.css?v=17d">
+    <link rel="stylesheet" href="css/seek.css?v=19d">
 </head>
 <body>
     <div class="bg" aria-hidden="true"></div>
@@ -150,7 +150,18 @@
         </section>
 
         <section id="tab-moves" class="panel" role="tabpanel" hidden>
-            <h2>Voice &amp; listen</h2>
+            <h2>Macarena</h2>
+            <p class="hint">Plays <b>Los del Río — Macarena</b> on Vector and dances the real routine (lift, head, 90° turns) on this robot — not a website.</p>
+            <div class="macarena-card">
+                <p class="macarena-title">Dale a tu cuerpo alegría</p>
+                <div class="actions">
+                    <button type="button" class="primary" id="btnMacarena">Dance Macarena</button>
+                    <button type="button" class="ghost danger" id="btnMacarenaStop">Stop</button>
+                </div>
+                <p class="hint">Give him clear floor space. ~4 minutes. Hit Stop anytime.</p>
+            </div>
+
+            <h2 class="spaced">Voice &amp; listen</h2>
             <p class="hint">Frees SDK control so Vector can hear you. Then say <b>Hey Vector</b> or press his backpack.</p>
             <div class="actions">
                 <button type="button" class="primary" id="btnListen">Activate voice</button>
@@ -220,7 +231,7 @@
         </section>
     </main>
     <noscript><p class="status err">JavaScript is required for Seek Dashboard.</p></noscript>
-    <script src="js/seek-dashboard.js?v=17d" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
+    <script src="js/seek-dashboard.js?v=19d" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
     <script>
     setTimeout(function () {
         if (!window.__seekLoaded) {
