@@ -760,32 +760,36 @@ function bindTouchPad() {
 
 async function loadNetInfo() {
     const urlEl = $('netPhoneUrl');
+    const hostEl = $('netHostUrl');
     const listEl = $('netAddrList');
     if (!urlEl && !listEl) return;
     try {
         const res = await fetch('/api/netinfo', { cache: 'no-store' });
         if (!res.ok) return;
         const data = await res.json();
+        const one = data.canonicalUrl || data.phoneUrl || data.oneAddress;
         if (urlEl) {
-            if (data.phoneUrl) {
+            if (one) {
                 urlEl.hidden = false;
-                urlEl.innerHTML = 'Phone URL: <a href="' + data.phoneUrl + '">' + data.phoneUrl + '</a>';
+                urlEl.innerHTML = 'Shared URL: <a href="' + one + '">' + one + '</a>';
             } else {
                 urlEl.hidden = false;
-                urlEl.textContent = 'No Wi‑Fi IP found — put Vector on the same Wi‑Fi as your phone (not USB).';
+                urlEl.textContent = 'No Wi‑Fi IP yet — connect Vector to your home Wi‑Fi (same network as phone + PC).';
             }
+        }
+        if (hostEl) {
+            const hu = (data.hostnameUrls && data.hostnameUrls[0]) || 'http://seek.local:8080/seek.html';
+            hostEl.hidden = false;
+            hostEl.innerHTML = 'Or hostname: <a href="' + hu + '">' + hu + '</a>';
         }
         if (listEl) {
             listEl.textContent = '';
             (data.addrs || []).forEach((a) => {
                 const li = document.createElement('li');
-                li.textContent = a.iface + ' · ' + a.ip + ' · ' + a.kind + (a.phoneOk ? ' (use on phone)' : ' (PC/USB only)');
+                const tag = a.phoneOk ? 'shared Wi‑Fi' : (a.kind === 'usb' ? 'USB/PC only' : a.kind);
+                li.textContent = a.iface + ' · ' + a.ip + ' · ' + tag;
                 listEl.appendChild(li);
             });
-        }
-        // If this page was opened on the USB IP, make that obvious.
-        if (location.hostname.indexOf('192.168.42.') === 0) {
-            setSeekStatus('You are on the USB address (PC only). Open the Wi‑Fi URL above on your phone.', true);
         }
     } catch (_) { /* ignore */ }
 }

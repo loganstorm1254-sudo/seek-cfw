@@ -23,7 +23,6 @@ var EnabledMods []vars.Modification = []vars.Modification{
 }
 
 func main() {
-	// Health endpoint first so phones can probe while mods load / SDK wakes.
 	http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -36,23 +35,32 @@ func main() {
 	http.HandleFunc("/api/netinfo", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		addrs := vars.ListNetAddrs()
+		lanIP := vars.PreferredLANIP()
+		phoneURL := vars.PreferredPhoneURL()
+		hostnames := vars.CanonicalHostnames()
+		hostnameURLs := make([]string, 0, len(hostnames))
+		for _, h := range hostnames {
+			hostnameURLs = append(hostnameURLs, "http://"+h+":8080/seek.html")
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"addrs":    addrs,
-			"phoneUrl": vars.PreferredPhoneURL(),
-			"hint":     "192.168.42.x is USB (PC only). Use the wifi IP on your phone, same Wi‑Fi as Vector.",
+			"addrs":         vars.ListNetAddrs(),
+			"lanIp":         lanIP,
+			"phoneUrl":      phoneURL,
+			"canonicalUrl":  phoneURL,
+			"hostnames":     hostnames,
+			"hostnameUrls":  hostnameURLs,
+			"oneAddress":    phoneURL,
+			"hint":          "Use the Wi‑Fi IP (or http://seek.local:8080/seek.html) on BOTH phone and PC. USB/RNDIS is PC-only.",
 		})
 	})
 
 	vars.EnabledMods = EnabledMods
 	vars.InitMods()
+	vars.StartMDNS()
 	startweb()
 }
 
 func setStaticContentType(w http.ResponseWriter, reqPath string) {
-	// Embedded Linux /etc/mime.types is often missing .js/.css.
-	// Safari/Chrome on phones refuse to execute scripts with the wrong MIME type;
-	// desktop browsers are more lenient — which looks like "PC works, phone doesn't".
 	clean := path.Clean("/" + strings.TrimPrefix(reqPath, "/"))
 	ext := strings.ToLower(path.Ext(clean))
 	switch {
@@ -86,8 +94,24 @@ func startweb() {
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
-		// Helpful for file:// weirdness and some WebView wrappers; harmless same-origin.
 		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		// One address for everyone: if opened via USB interface, bounce to Wi‑Fi IP.
+		// Escape hatch: ?noredirect=1
+		if r.URL.Query().Get("noredirect") == "" && vars.IsUSBHost(r.Host) {
+			if lan := vars.PreferredLANIP(); lan != "" {
+				q := r.URL.Query()
+				q.Set("from", "usb")
+				path := r.URL.Path
+				if path == "" {
+					path = "/"
+				}
+				target := "http://" + lan + ":8080" + path + "?" + q.Encode()
+				http.Redirect(w, r, target, http.StatusFound)
+				return
+			}
+		}
+
 		setStaticContentType(w, r.URL.Path)
 		fs.ServeHTTP(w, r)
 	})
