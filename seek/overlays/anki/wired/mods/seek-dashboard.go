@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,10 +21,13 @@ import (
 )
 
 const (
-	seekFaceWidth  = 184
-	seekFaceHeight = 96
-	seekFaceBytes  = seekFaceWidth * seekFaceHeight * 2
-	seekMaxUpload  = 32 << 20 // 32 MiB
+	seekFaceWidth      = 184
+	seekFaceHeight     = 96
+	seekFaceBytes      = seekFaceWidth * seekFaceHeight * 2
+	seekMaxUpload      = 32 << 20 // 32 MiB
+	seekEyeOverlayPath = "/data/data/customFaceOverlay.jpg"
+	seekEyeReloadFlag  = "/run/seek-eyes/reload"
+	seekEyeMaxJPEG     = 2 << 20 // 2 MiB resized JPEG
 )
 
 // SeekDashboard hosts eye color, volume, TTS, media, drive, and camera on Vector's IP.
@@ -30,13 +35,13 @@ type SeekDashboard struct {
 	vars.Modification
 
 	mu         sync.Mutex
-	starting  bool
-	holding   bool
-	vec       *vector.Vector
-	cancel    context.CancelFunc
+	starting   bool
+	holding    bool
+	vec        *vector.Vector
+	cancel     context.CancelFunc
 	ctrlStream vectorpb.ExternalInterface_BehaviorControlClient
-	ctrlLost  chan struct{}
-	ctrlErr   chan error
+	ctrlLost   chan struct{}
+	ctrlErr    chan error
 
 	driveMu      sync.Mutex
 	driveRunning bool
@@ -125,7 +130,7 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	action := strings.TrimPrefix(r.URL.Path, "/api/mods/"+m.Name()+"/")
 	switch action {
-	case "status", "moves", "getEyeColor", "getVolume", "cameraFrame", "cameraMjpeg":
+	case "status", "moves", "getEyeColor", "getVolume", "cameraFrame", "cameraMjpeg", "getEyeOverlay":
 		// read-only / streaming — don't count as "user activity" for idle release
 	default:
 		m.touchActivity()
@@ -143,6 +148,30 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case "setEyeColor":
 		if err := m.handleSetEyeColor(r); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+	case "getEyeOverlay":
+		st, err := os.Stat(seekEyeOverlayPath)
+		active := err == nil && st.Size() > 0
+		var nbytes int64
+		if active {
+			nbytes = st.Size()
+		}
+		out, _ := json.Marshal(map[string]any{
+			"active": active,
+			"bytes":  nbytes,
+		})
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(out)
+		return
+	case "setEyeOverlay":
+		if err := m.handleSetEyeOverlay(r); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+	case "clearEyeOverlay":
+		if err := m.handleClearEyeOverlay(); err != nil {
 			vars.HTTPError(w, r, err.Error())
 			return
 		}
@@ -277,12 +306,12 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 		cam := m.camRunning
 		m.camMu.Unlock()
 		out, _ := json.Marshal(map[string]any{
-			"holding":   holding,
-			"camera":    cam,
-			"dancing":   m.isDancing(),
-			"danceErr":  m.getDanceErr(),
-			"ready":     vars.SDKReady(),
-			"macarena":  true,
+			"holding":  holding,
+			"camera":   cam,
+			"dancing":  m.isDancing(),
+			"danceErr": m.getDanceErr(),
+			"ready":    vars.SDKReady(),
+			"macarena": true,
 		})
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
@@ -323,6 +352,60 @@ func (m *SeekDashboard) handleSetEyeColor(r *http.Request) error {
 		hue, sat,
 	)
 	return setSettingSDKJSON(payload)
+}
+
+func (m *SeekDashboard) handleSetEyeOverlay(r *http.Request) error {
+	// Prefer raw JPEG body (from canvas.toBlob). Also accept multipart "file".
+	var data []byte
+	ct := r.Header.Get("Content-Type")
+	if strings.HasPrefix(ct, "multipart/") {
+		if err := r.ParseMultipartForm(seekEyeMaxJPEG + (1 << 20)); err != nil {
+			return errors.New("bad multipart upload")
+		}
+		f, _, err := r.FormFile("file")
+		if err != nil {
+			return errors.New("missing file")
+		}
+		defer f.Close()
+		data, err = io.ReadAll(io.LimitReader(f, seekEyeMaxJPEG+1))
+		if err != nil {
+			return err
+		}
+	} else {
+		data, _ = io.ReadAll(io.LimitReader(r.Body, seekEyeMaxJPEG+1))
+	}
+	if len(data) == 0 {
+		return errors.New("empty image")
+	}
+	if len(data) > seekEyeMaxJPEG {
+		return errors.New("image too large (max 2 MiB after resize)")
+	}
+	// Soft check for JPEG SOI
+	if len(data) < 3 || data[0] != 0xff || data[1] != 0xd8 {
+		return errors.New("expected JPEG image (resize in the browser first)")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(seekEyeOverlayPath), 0755); err != nil {
+		return err
+	}
+	tmp := seekEyeOverlayPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, seekEyeOverlayPath); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	_ = os.MkdirAll("/run/seek-eyes", 0755)
+	_ = os.WriteFile(seekEyeReloadFlag, []byte("1"), 0644)
+	return nil
+}
+
+func (m *SeekDashboard) handleClearEyeOverlay() error {
+	_ = os.Remove(seekEyeOverlayPath)
+	_ = os.MkdirAll("/run/seek-eyes", 0755)
+	_ = os.WriteFile(seekEyeReloadFlag, []byte("1"), 0644)
+	return nil
 }
 
 func setSettingSDKJSON(payload string) error {

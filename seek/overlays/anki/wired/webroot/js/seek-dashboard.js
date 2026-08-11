@@ -203,6 +203,7 @@ async function seekRefresh() {
         }
         const volRes = await api('getVolume');
         if (volRes.ok) $('masterVolume').value = (await volRes.text()).trim();
+        seekRefreshEyeOverlay();
     } catch (e) {
         console.log('seekRefresh', e);
     }
@@ -224,10 +225,111 @@ async function seekSetEyeColor() {
             setSeekStatus(`${e.status}: ${e.message}`, true);
             return;
         }
-        setSeekStatus('Eye color updated.');
-        seekRefresh();
+        setSeekStatus('Eye color applied.');
     } catch (e) {
-        setSeekStatus('network error: ' + e.message, true);
+        setSeekStatus('eye color error: ' + e.message, true);
+    }
+}
+
+function resizeImageToFaceJPEG(file) {
+    return new Promise(function (resolve, reject) {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = function () {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = 184;
+                canvas.height = 96;
+                const ctx = canvas.getContext('2d');
+                // Cover-fit: fill the face, crop overflow (better for eye textures).
+                const scale = Math.max(184 / img.width, 96 / img.height);
+                const w = img.width * scale;
+                const h = img.height * scale;
+                const x = (184 - w) / 2;
+                const y = (96 - h) / 2;
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, 184, 96);
+                ctx.drawImage(img, x, y, w, h);
+                const preview = $('eyeOverlayPreview');
+                if (preview) {
+                    preview.hidden = false;
+                    preview.getContext('2d').drawImage(canvas, 0, 0);
+                }
+                canvas.toBlob(function (blob) {
+                    URL.revokeObjectURL(url);
+                    if (!blob) reject(new Error('could not encode JPEG'));
+                    else resolve(blob);
+                }, 'image/jpeg', 0.92);
+            } catch (e) {
+                URL.revokeObjectURL(url);
+                reject(e);
+            }
+        };
+        img.onerror = function () {
+            URL.revokeObjectURL(url);
+            reject(new Error('could not load image'));
+        };
+        img.src = url;
+    });
+}
+
+async function seekRefreshEyeOverlay() {
+    const status = $('eyeOverlayStatus');
+    try {
+        const res = await api('getEyeOverlay');
+        if (!res.ok) return;
+        const info = await res.json();
+        if (status) {
+            status.textContent = info.active
+                ? 'Texture active on his eyes (' + Math.round(info.bytes / 1024) + ' KB).'
+                : 'No custom eye texture.';
+        }
+    } catch (_) {}
+}
+
+async function seekApplyEyeOverlay() {
+    const input = $('eyeOverlayFile');
+    if (!input || !input.files || !input.files[0]) {
+        setSeekStatus('Choose an image first.', true);
+        return;
+    }
+    setSeekStatus('Resizing & applying eye texture…');
+    try {
+        const blob = await resizeImageToFaceJPEG(input.files[0]);
+        const res = await fetch('/api/mods/SeekDashboard/setEyeOverlay', {
+            method: 'POST',
+            headers: { 'Content-Type': 'image/jpeg' },
+            body: blob,
+            cache: 'no-store'
+        });
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'upload failed' }; });
+            setSeekStatus(e.message || 'eye texture failed', true);
+            return;
+        }
+        setSeekStatus('Eye texture applied — watch his face (blinks keep working).');
+        seekRefreshEyeOverlay();
+    } catch (e) {
+        setSeekStatus('eye texture error: ' + e.message, true);
+    }
+}
+
+async function seekClearEyeOverlay() {
+    setSeekStatus('Clearing eye texture…');
+    try {
+        const res = await api('clearEyeOverlay');
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'clear failed' }; });
+            setSeekStatus(e.message || 'clear failed', true);
+            return;
+        }
+        const preview = $('eyeOverlayPreview');
+        if (preview) preview.hidden = true;
+        if ($('eyeOverlayFile')) $('eyeOverlayFile').value = '';
+        setSeekStatus('Eye texture cleared — back to normal eye color.');
+        seekRefreshEyeOverlay();
+    } catch (e) {
+        setSeekStatus('clear texture error: ' + e.message, true);
     }
 }
 
@@ -902,6 +1004,14 @@ function bindUI() {
     });
 
     on('btnEye', 'click', seekSetEyeColor);
+    on('btnEyeOverlayApply', 'click', seekApplyEyeOverlay);
+    on('btnEyeOverlayClear', 'click', seekClearEyeOverlay);
+    on('eyeOverlayFile', 'change', function () {
+        const f = $('eyeOverlayFile');
+        if (f && f.files && f.files[0]) {
+            resizeImageToFaceJPEG(f.files[0]).catch(function () {});
+        }
+    });
     on('btnVolume', 'click', seekSetVolume);
     on('btnSay', 'click', seekSayText);
     on('btnAudio', 'click', seekPlayAudio);

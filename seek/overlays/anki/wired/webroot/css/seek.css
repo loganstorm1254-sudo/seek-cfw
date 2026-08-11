@@ -422,6 +422,17 @@ button.danger { color: var(--err); border-color: rgba(255, 143, 143, 0.35); }
     border-color: rgba(240, 163, 94, 0.45);
 }
 
+.eye-overlay-preview {
+    display: block;
+    width: 184px;
+    max-width: 100%;
+    height: auto;
+    margin-top: 0.75rem;
+    image-rendering: pixelated;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: #000;
+}
+
 @media (max-width: 720px) {
     .drive-layout,
     .grid2,

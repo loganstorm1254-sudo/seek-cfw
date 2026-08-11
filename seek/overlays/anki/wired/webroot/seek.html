@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#07131a">
     <title>Seek Dashboard</title>
-    <link rel="stylesheet" href="css/seek.css?v=24d">
+    <link rel="stylesheet" href="css/seek.css?v=25d">
 </head>
 <body>
     <div class="bg" aria-hidden="true"></div>
@@ -73,6 +73,19 @@
                 </label>
             </div>
             <button type="button" class="primary" id="btnEye">Apply eyes</button>
+
+            <h2 class="spaced">Eye texture</h2>
+            <p class="hint">Pick any image — it is resized to Vector’s face and painted onto his eye shapes (blinks still work).</p>
+            <label class="field">
+                <span>Image</span>
+                <input type="file" id="eyeOverlayFile" accept="image/*">
+            </label>
+            <canvas id="eyeOverlayPreview" width="184" height="96" class="eye-overlay-preview" hidden></canvas>
+            <p id="eyeOverlayStatus" class="hint"></p>
+            <div class="actions">
+                <button type="button" class="primary" id="btnEyeOverlayApply">Apply texture</button>
+                <button type="button" class="ghost danger" id="btnEyeOverlayClear">Clear texture</button>
+            </div>
 
             <h2 class="spaced">Volume</h2>
             <label class="field">
@@ -254,7 +267,7 @@
         </section>
     </main>
     <noscript><p class="status err">JavaScript is required for Seek Dashboard.</p></noscript>
-    <script src="js/seek-dashboard.js?v=24d" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
+    <script src="js/seek-dashboard.js?v=25d" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
     <script>
     setTimeout(function () {
         if (!window.__seekLoaded) {
