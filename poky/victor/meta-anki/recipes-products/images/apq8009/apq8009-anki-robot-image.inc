@@ -22,6 +22,7 @@ IMAGE_INSTALL += "victor"
 
 # Wire things
 IMAGE_INSTALL += "wired"
+IMAGE_INSTALL += "seek-doom"
 IMAGE_INSTALL += "libpvictor"
 
 IMAGE_INSTALL += "avahi-daemon"

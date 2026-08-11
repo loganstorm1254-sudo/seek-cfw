@@ -21,6 +21,7 @@ var EnabledMods []vars.Modification = []vars.Modification{
 	mods.NewJdocSettings(),
 	mods.NewFaces(),
 	mods.NewSeekDashboard(),
+	mods.NewSeekDoom(),
 }
 
 func main() {

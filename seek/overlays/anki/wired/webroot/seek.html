@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#07131a">
     <title>Seek Dashboard</title>
-    <link rel="stylesheet" href="css/seek.css?v=20d">
+    <link rel="stylesheet" href="css/seek.css?v=21d">
 </head>
 <body>
     <div class="bg" aria-hidden="true"></div>
@@ -31,6 +31,7 @@
             <button type="button" class="tab" data-tab="speak" role="tab">Speak</button>
             <button type="button" class="tab" data-tab="media" role="tab">Media</button>
             <button type="button" class="tab" data-tab="moves" role="tab">Moves</button>
+            <button type="button" class="tab" data-tab="doom" role="tab">Doom</button>
             <button type="button" class="tab" data-tab="drive" role="tab">Drive</button>
         </nav>
 
@@ -187,6 +188,26 @@
             <div id="movesAnims" class="move-grid"></div>
         </section>
 
+        <section id="tab-doom" class="panel" role="tabpanel" hidden>
+            <h2>Doom</h2>
+            <p class="hint">Runs <b>Freedoom</b> on Vector’s face. Also available from the charger double‑click menu → <b>PLAY DOOM</b> (roll to select, lift to confirm).</p>
+            <div class="actions">
+                <button type="button" class="primary" id="btnDoomStart">Play Doom</button>
+                <button type="button" class="ghost danger" id="btnDoomStop">Quit</button>
+            </div>
+            <p class="hint">Controls (hold keys): W/S move · A/D turn · Q/E strafe · Space fire · E use · Esc menu</p>
+            <div class="doom-pad" id="doomPad" aria-label="Doom controls">
+                <button type="button" class="pad-btn" data-doom="forward">▲</button>
+                <button type="button" class="pad-btn" data-doom="left">◀</button>
+                <button type="button" class="pad-btn" data-doom="back">▼</button>
+                <button type="button" class="pad-btn" data-doom="right">▶</button>
+                <button type="button" class="pad-btn pad-fire" data-doom="fire">FIRE</button>
+                <button type="button" class="pad-btn" data-doom="use">USE</button>
+                <button type="button" class="pad-btn" data-doom="strafeL">SL</button>
+                <button type="button" class="pad-btn" data-doom="strafeR">SR</button>
+            </div>
+        </section>
+
         <section id="tab-drive" class="panel" role="tabpanel" hidden>
             <h2>Drive</h2>
             <p class="hint">1) <b>Take control</b> · 2) Hold the pad (phone) or WASD · Camera optional</p>
@@ -231,7 +252,7 @@
         </section>
     </main>
     <noscript><p class="status err">JavaScript is required for Seek Dashboard.</p></noscript>
-    <script src="js/seek-dashboard.js?v=20d" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
+    <script src="js/seek-dashboard.js?v=21d" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
     <script>
     setTimeout(function () {
         if (!window.__seekLoaded) {

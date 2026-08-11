@@ -149,7 +149,9 @@ function switchTab(name) {
         panel.hidden = !on;
         panel.classList.toggle('active', on);
     });
-    if (name === 'drive') {
+    } else if (name === 'doom') {
+        setSeekStatus('Doom: Play on Vector’s face. WASD + Space to shoot.');
+    } else if (name === 'drive') {
         setSeekStatus('Drive ready. Tap Take control, then hold the pad (or WASD).');
     } else if (name === 'moves') {
         setSeekStatus('Moves: Activate voice, or tap a behavior.');
@@ -472,6 +474,136 @@ async function seekMacarena() {
     }
 }
 
+/* ---------------- Doom ---------------- */
+
+const DOOM_API = '/api/mods/SeekDoom';
+const DOOM_KEYS = {
+    forward: 0xad, // KEY_UPARROW
+    back: 0xaf,    // KEY_DOWNARROW
+    left: 0xac,    // KEY_LEFTARROW
+    right: 0xae,   // KEY_RIGHTARROW
+    strafeL: 0xa0, // KEY_STRAFE_L
+    strafeR: 0xa1, // KEY_STRAFE_R
+    use: 0xa2,     // KEY_USE
+    fire: 0xa3,    // KEY_FIRE
+    esc: 27,
+    enter: 13
+};
+const doomHeld = new Set();
+
+function doomFire(path) {
+    return fetch(DOOM_API + '/' + path, { cache: 'no-store' }).catch(function () {});
+}
+
+function doomKey(code, pressed) {
+    const q = 'key?code=' + code + '&pressed=' + (pressed ? '1' : '0');
+    return doomFire(q);
+}
+
+async function doomStart() {
+    if (cameraOn) stopCamera();
+    setArmedUI(false);
+    setSeekStatus('Starting Doom on Vector…');
+    try {
+        const res = await fetch(DOOM_API + '/start', { cache: 'no-store' });
+        if (!res.ok) {
+            const e = await res.json().catch(() => ({ message: 'start failed' }));
+            setSeekStatus(e.message || 'Doom start failed', true);
+            return;
+        }
+        setSeekStatus('Doom running on his face. WASD / pad to play. Esc = menu.');
+        switchTab('doom');
+    } catch (e) {
+        setSeekStatus('doom error: ' + e.message, true);
+    }
+}
+
+async function doomStop() {
+    doomHeld.forEach(function (code) { doomKey(code, false); });
+    doomHeld.clear();
+    await doomFire('stop');
+    setSeekStatus('Doom quit.');
+}
+
+function doomPress(name, on) {
+    const code = DOOM_KEYS[name];
+    if (code == null) return;
+    if (on) {
+        if (doomHeld.has(code)) return;
+        doomHeld.add(code);
+        doomKey(code, true);
+    } else {
+        if (!doomHeld.has(code)) return;
+        doomHeld.delete(code);
+        doomKey(code, false);
+    }
+}
+
+function bindDoomControls() {
+    const pad = $('doomPad');
+    if (pad) {
+        pad.querySelectorAll('[data-doom]').forEach(function (btn) {
+            const name = btn.dataset.doom;
+            function down(e) {
+                if (e) { e.preventDefault(); e.stopPropagation(); }
+                btn.classList.add('held');
+                doomPress(name, true);
+            }
+            function up(e) {
+                if (e) { e.preventDefault(); e.stopPropagation(); }
+                btn.classList.remove('held');
+                doomPress(name, false);
+            }
+            btn.addEventListener('pointerdown', function (e) {
+                try { btn.setPointerCapture(e.pointerId); } catch (_) {}
+                down(e);
+            }, { passive: false });
+            btn.addEventListener('pointerup', up, { passive: false });
+            btn.addEventListener('pointercancel', up, { passive: false });
+            btn.addEventListener('lostpointercapture', up);
+            btn.addEventListener('touchstart', down, { passive: false });
+            btn.addEventListener('touchend', up, { passive: false });
+            btn.addEventListener('touchcancel', up, { passive: false });
+        });
+    }
+
+    window.addEventListener('keydown', function (e) {
+        const doomTab = $('tab-doom');
+        if (!doomTab || doomTab.hidden) return;
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+        const k = e.key.toLowerCase();
+        const map = {
+            w: 'forward', s: 'back', a: 'left', d: 'right',
+            q: 'strafeL', e: 'strafeR', ' ': 'fire',
+            enter: 'use', escape: 'esc'
+        };
+        // E is both use and strafeR — prefer use on Shift+E? Keep e=strafeR, Enter=use, also 'f'=fire
+        map.f = 'fire';
+        map.u = 'use';
+        if (!map[k] && k !== 'enter' && k !== 'escape') return;
+        const name = map[k] || (k === 'enter' ? 'use' : (k === 'escape' ? 'esc' : null));
+        if (!name) return;
+        e.preventDefault();
+        if (e.repeat) return;
+        doomPress(name, true);
+    }, { passive: false });
+
+    window.addEventListener('keyup', function (e) {
+        const doomTab = $('tab-doom');
+        if (!doomTab || doomTab.hidden) return;
+        const k = e.key.toLowerCase();
+        const map = {
+            w: 'forward', s: 'back', a: 'left', d: 'right',
+            q: 'strafeL', e: 'strafeR', ' ': 'fire', f: 'fire', u: 'use',
+            enter: 'use', escape: 'esc'
+        };
+        const name = map[k];
+        if (!name) return;
+        doomPress(name, false);
+    });
+}
+
+
 async function seekPlayVideo() {
     const input = $('videoFile');
     if (!input.files || !input.files[0]) {
@@ -792,10 +924,13 @@ function bindUI() {
     on('btnListen', 'click', activateVoice);
     on('btnMacarena', 'click', seekMacarena);
     on('btnMacarenaStop', 'click', seekStopMedia);
+    on('btnDoomStart', 'click', doomStart);
+    on('btnDoomStop', 'click', doomStop);
     on('btnMeet', 'click', () => {
         runMove('intent', { id: 'intent_meet_victor', label: 'Meet Vector' });
     });
     bindTouchPad();
+    bindDoomControls();
 }
 
 /* ---------------- Moves (behaviors + anims) ---------------- */

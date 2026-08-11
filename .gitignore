@@ -10,3 +10,8 @@ bb-files.txt
 /vm-deps-installed
 /anki-deps
 /old-toolchain
+seek/third_party/
+seek/doom/build-vector/
+seek/doom/seek-doom
+seek/doom/wad/freedoom1.wad
+seek/doom/wad/*.zip
