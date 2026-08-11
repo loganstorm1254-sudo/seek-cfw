@@ -20,13 +20,13 @@
         <button data-target="#sensitivity">Wakeword Sensitivity</button>
         <button data-target="#jdocsettings">User Preferences</button>
         <button data-target="#faces">Face Manager</button>
-        <button data-target="#seekdash">Seek Dashboard</button>
     </div>
 
     <div id="home" class="container tab-content active">
         <h2><code>wired</code></h2>
         <p>This is where extra configuration options exist.</p>
         <p>Click the tabs to navigate the options.</p>
+        <p style="margin-top:14px;"><a href="/seek.html" style="color:#a855f7;font-weight:600;">Open Seek Dashboard →</a></p>
     </div>
 
     <div id="mainmods" class="container mod-section tab-content">
@@ -171,102 +171,6 @@
     </div>
 
 
-    <div id="seekdash" class="container mod-section tab-content">
-        <h2>Seek Dashboard</h2>
-        <p>Control eyes, volume, speech, and media on this robot.</p>
-        <div id="seekStatus" class="faces-status" style="display:none;"></div>
-
-        <hr class="smallhr">
-        <h3 style="margin: 8px 0; color: #a855f7;">Eye color</h3>
-        <div class="button-container" style="gap: 6px;">
-            <label for="eyeMode">Mode:</label>
-            <select id="eyeMode" onchange="seekEyeModeChanged()">
-                <option value="custom">Custom</option>
-                <option value="preset">Preset</option>
-            </select>
-            <div id="eyeCustomControls">
-                <label for="eyeHue">Hue:</label>
-                <input type="range" id="eyeHue" min="0" max="1" step="0.01" value="0.35"
-                    oninput="document.getElementById('eyeHueVal').textContent=this.value">
-                <span id="eyeHueVal">0.35</span>
-                <label for="eyeSat">Sat:</label>
-                <input type="range" id="eyeSat" min="0" max="1" step="0.01" value="1"
-                    oninput="document.getElementById('eyeSatVal').textContent=this.value">
-                <span id="eyeSatVal">1</span>
-            </div>
-            <div id="eyePresetControls" style="display:none;">
-                <label for="eyePreset">Preset:</label>
-                <select id="eyePreset">
-                    <option value="0">Tip Over Teal</option>
-                    <option value="1">Overfit Orange</option>
-                    <option value="2">Uncanny Yellow</option>
-                    <option value="3">Non Linear Lime</option>
-                    <option value="4">Singularity Sapphire</option>
-                    <option value="5">False Positive Purple</option>
-                    <option value="6">Confusion Matrix Green</option>
-                    <option value="7">Rainbow Eyes</option>
-                    <option value="8">Robot Red</option>
-                </select>
-            </div>
-            <button type="button" onclick="seekSetEyeColor()">Apply Eyes</button>
-        </div>
-
-        <hr class="smallhr">
-        <h3 style="margin: 8px 0; color: #a855f7;">Volume</h3>
-        <div class="button-container" style="gap: 6px;">
-            <label for="masterVolume">Master volume:</label>
-            <select id="masterVolume">
-                <option value="0">Mute</option>
-                <option value="1">Low</option>
-                <option value="2">Medium Low</option>
-                <option value="3" selected>Medium</option>
-                <option value="4">Medium High</option>
-                <option value="5">High</option>
-            </select>
-            <button type="button" onclick="seekSetVolume()">Apply Volume</button>
-        </div>
-
-        <hr class="smallhr">
-        <h3 style="margin: 8px 0; color: #a855f7;">Say something</h3>
-        <div class="button-container" style="gap: 6px;">
-            <input type="text" id="sayText" placeholder="Hello from SeekOS" style="min-width: 220px;">
-            <label for="sayVectorVoice">Voice:</label>
-            <select id="sayVectorVoice">
-                <option value="1" selected>Vector voice</option>
-                <option value="0">Normal TTS</option>
-            </select>
-            <button type="button" onclick="seekSayText()">Say It</button>
-        </div>
-
-        <hr class="smallhr">
-        <h3 style="margin: 8px 0; color: #a855f7;">Play MP3 / WAV</h3>
-        <div class="button-container" style="gap: 6px;">
-            <input type="file" id="audioFile" accept=".mp3,.wav,audio/mpeg,audio/wav">
-            <label for="audioPlayVolume">Play vol:</label>
-            <input type="range" id="audioPlayVolume" min="0" max="100" value="80"
-                oninput="document.getElementById('audioPlayVolVal').textContent=this.value">
-            <span id="audioPlayVolVal">80</span>
-            <button type="button" onclick="seekPlayAudio()">Play Audio</button>
-        </div>
-
-        <hr class="smallhr">
-        <h3 style="margin: 8px 0; color: #a855f7;">Play MP4 on face</h3>
-        <p style="font-size: 13px; opacity: 0.85;">Decodes in your browser to 184×96 frames + optional audio, then streams to Vector.</p>
-        <div class="button-container" style="gap: 6px;">
-            <input type="file" id="videoFile" accept=".mp4,video/mp4,video/*">
-            <label for="videoFps">FPS:</label>
-            <input type="number" id="videoFps" min="1" max="15" value="8" style="width: 64px;">
-            <label for="videoWithAudio">Audio:</label>
-            <select id="videoWithAudio">
-                <option value="1" selected>With audio</option>
-                <option value="0">Video only</option>
-            </select>
-            <button type="button" id="videoPlayBtn" onclick="seekPlayVideo()">Play Video</button>
-            <button type="button" onclick="seekStopMedia()">Stop</button>
-        </div>
-        <canvas id="seekVideoCanvas" width="184" height="96" style="margin-top:10px; image-rendering:pixelated; background:#111; border:1px solid #444;"></canvas>
-    </div>
-
     <div id="showDuringVicRestart" class="container" style="display: none;">
         <h1>Vector is restarting, please wait...</h1>
     </div>
@@ -281,7 +185,6 @@
     <script src="js/sensitivity-pv.js"></script>
     <script src="js/jdoc-settings.js"></script>
     <script src="js/faces.js"></script>
-    <script src="js/seek-dashboard.js"></script>
 </body>
 
 </html>

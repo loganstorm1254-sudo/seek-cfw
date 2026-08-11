@@ -22,7 +22,7 @@ const (
 	seekFaceWidth  = 184
 	seekFaceHeight = 96
 	seekFaceBytes  = seekFaceWidth * seekFaceHeight * 2
-	seekMaxUpload  = 12 << 20 // 12 MiB
+	seekMaxUpload  = 32 << 20 // 32 MiB
 )
 
 // SeekDashboard hosts eye color, volume, TTS, and media controls on Vector's IP.
@@ -220,7 +220,7 @@ func (m *SeekDashboard) sayText(text string, useVectorVoice bool) error {
 func (m *SeekDashboard) handlePlayAudio(w http.ResponseWriter, r *http.Request) error {
 	_ = w
 	if err := r.ParseMultipartForm(seekMaxUpload); err != nil {
-		return errors.New("invalid multipart form (max 12MB)")
+		return errors.New("invalid multipart form (max 32MB)")
 	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
@@ -240,7 +240,7 @@ func (m *SeekDashboard) handlePlayAudio(w http.ResponseWriter, r *http.Request) 
 		return err
 	}
 	return m.withControl(func(ctx context.Context, v *vector.Vector) error {
-		return streamPCM(ctx, v, pcm, rate, vol)
+		return streamPCM(ctx, v, bytes.NewReader(pcm), rate, vol)
 	})
 }
 
@@ -254,33 +254,27 @@ func (m *SeekDashboard) handlePlayPcm(r *http.Request) error {
 		rate = uint32(n)
 	}
 	vol := parseAudioVolume(r.FormValue("volume"))
-	data, err := io.ReadAll(io.LimitReader(r.Body, seekMaxUpload))
-	if err != nil {
-		return err
-	}
-	if len(data) < 2 || len(data)%2 != 0 {
-		return errors.New("pcm must be 16-bit little-endian mono")
-	}
+	limited := io.LimitReader(r.Body, seekMaxUpload)
 
 	m.mu.Lock()
 	holding := m.holding
 	v := m.vec
 	m.mu.Unlock()
 	if holding && v != nil {
-		return streamPCM(context.Background(), v, data, rate, vol)
+		return streamPCM(context.Background(), v, limited, rate, vol)
 	}
 	return m.withControl(func(ctx context.Context, vec *vector.Vector) error {
-		return streamPCM(ctx, vec, data, rate, vol)
+		return streamPCM(ctx, vec, limited, rate, vol)
 	})
 }
 
 func parseAudioVolume(s string) uint32 {
 	if s == "" {
-		return 80
+		return 100
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil || n < 0 {
-		return 80
+		return 100
 	}
 	if n > 100 {
 		return 100
@@ -419,11 +413,28 @@ func (m *SeekDashboard) withControl(fn func(context.Context, *vector.Vector) err
 	return fn(ctx, v)
 }
 
-func streamPCM(ctx context.Context, v *vector.Vector, pcm []byte, rate uint32, volume uint32) error {
+func streamPCM(ctx context.Context, v *vector.Vector, pcm io.Reader, rate uint32, volume uint32) error {
 	stream, err := v.Conn.ExternalAudioStreamPlayback(ctx)
 	if err != nil {
 		return err
 	}
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			resp, err := stream.Recv()
+			if err != nil {
+				return
+			}
+			_ = resp
+		}
+	}()
+
 	if err := stream.Send(&vectorpb.ExternalAudioStreamRequest{
 		AudioRequestType: &vectorpb.ExternalAudioStreamRequest_AudioStreamPrepare{
 			AudioStreamPrepare: &vectorpb.ExternalAudioStreamPrepare{
@@ -435,33 +446,77 @@ func streamPCM(ctx context.Context, v *vector.Vector, pcm []byte, rate uint32, v
 		return err
 	}
 
-	const chunkSamples = 512 // 1024 bytes max
-	chunkBytes := chunkSamples * 2
+	const chunkBytes = 1024 // engine max
+	buf := make([]byte, chunkBytes)
+	var leftover []byte
 	start := time.Now()
 	sentSamples := 0
-	for offset := 0; offset < len(pcm); offset += chunkBytes {
-		end := offset + chunkBytes
-		if end > len(pcm) {
-			end = len(pcm)
+	totalRead := 0
+	for {
+		n, readErr := pcm.Read(buf)
+		if n > 0 {
+			totalRead += n
+			if totalRead > seekMaxUpload {
+				return errors.New("audio too large")
+			}
+			chunk := append(leftover, buf[:n]...)
+			for len(chunk) >= 2 {
+				take := len(chunk)
+				if take > chunkBytes {
+					take = chunkBytes
+				}
+				if take%2 == 1 {
+					take--
+				}
+				if take < 2 {
+					break
+				}
+				send := append([]byte(nil), chunk[:take]...)
+				chunk = chunk[take:]
+				if err := stream.Send(&vectorpb.ExternalAudioStreamRequest{
+					AudioRequestType: &vectorpb.ExternalAudioStreamRequest_AudioStreamChunk{
+						AudioStreamChunk: &vectorpb.ExternalAudioStreamChunk{
+							AudioChunkSizeBytes: uint32(len(send)),
+							AudioChunkSamples:   send,
+						},
+					},
+				}); err != nil {
+					return err
+				}
+				sentSamples += len(send) / 2
+				elapsed := time.Since(start).Seconds()
+				expected := elapsed * float64(rate)
+				ahead := (float64(sentSamples) - expected) / float64(rate)
+				if ahead > 0.75 {
+					time.Sleep(time.Duration((ahead - 0.35) * float64(time.Second)))
+				}
+			}
+			leftover = chunk
 		}
-		chunk := pcm[offset:end]
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+			return readErr
+		}
+	}
+	if len(leftover) >= 2 {
+		if len(leftover)%2 == 1 {
+			leftover = leftover[:len(leftover)-1]
+		}
 		if err := stream.Send(&vectorpb.ExternalAudioStreamRequest{
 			AudioRequestType: &vectorpb.ExternalAudioStreamRequest_AudioStreamChunk{
 				AudioStreamChunk: &vectorpb.ExternalAudioStreamChunk{
-					AudioChunkSizeBytes: uint32(len(chunk)),
-					AudioChunkSamples:   chunk,
+					AudioChunkSizeBytes: uint32(len(leftover)),
+					AudioChunkSamples:   leftover,
 				},
 			},
 		}); err != nil {
 			return err
 		}
-		sentSamples += len(chunk) / 2
-		elapsed := time.Since(start).Seconds()
-		expected := elapsed * float64(rate)
-		ahead := (float64(sentSamples) - expected) / float64(rate)
-		if ahead > 1.0 {
-			time.Sleep(time.Duration((ahead - 0.5) * float64(time.Second)))
-		}
+	}
+	if sentSamples == 0 {
+		return errors.New("no pcm audio received")
 	}
 	if err := stream.Send(&vectorpb.ExternalAudioStreamRequest{
 		AudioRequestType: &vectorpb.ExternalAudioStreamRequest_AudioStreamComplete{
@@ -470,22 +525,6 @@ func streamPCM(ctx context.Context, v *vector.Vector, pcm []byte, rate uint32, v
 	}); err != nil {
 		return err
 	}
-	for {
-		resp, err := stream.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-			return err
-		}
-		if resp.GetAudioStreamPlaybackComplete() != nil {
-			return nil
-		}
-		if resp.GetAudioStreamPlaybackFailyer() != nil {
-			return errors.New("audio playback failure")
-		}
-		if resp.GetAudioStreamBufferOverrun() != nil {
-			return errors.New("audio buffer overrun")
-		}
-	}
+	time.Sleep(200 * time.Millisecond)
+	return nil
 }

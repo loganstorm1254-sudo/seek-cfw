@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Seek Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/seek.css">
+</head>
+<body>
+    <div class="bg"></div>
+    <main class="page">
+        <header class="hero">
+            <p class="brand">SeekAra</p>
+            <h1>Seek Dashboard</h1>
+            <p class="lede">Eyes, voice, volume, and media — straight from this robot’s IP.</p>
+            <p class="meta"><a href="/">← wired settings</a></p>
+        </header>
+
+        <p id="seekStatus" class="status" hidden></p>
+
+        <section class="block">
+            <h2>Eye color</h2>
+            <div class="row">
+                <label for="eyeMode">Mode</label>
+                <select id="eyeMode" onchange="seekEyeModeChanged()">
+                    <option value="custom">Custom</option>
+                    <option value="preset">Preset</option>
+                </select>
+            </div>
+            <div id="eyeCustomControls" class="stack">
+                <div class="row">
+                    <label for="eyeHue">Hue <span id="eyeHueVal">0.35</span></label>
+                    <input type="range" id="eyeHue" min="0" max="1" step="0.01" value="0.35"
+                        oninput="document.getElementById('eyeHueVal').textContent=Number(this.value).toFixed(2)">
+                </div>
+                <div class="row">
+                    <label for="eyeSat">Saturation <span id="eyeSatVal">1.00</span></label>
+                    <input type="range" id="eyeSat" min="0" max="1" step="0.01" value="1"
+                        oninput="document.getElementById('eyeSatVal').textContent=Number(this.value).toFixed(2)">
+                </div>
+            </div>
+            <div id="eyePresetControls" class="row" hidden>
+                <label for="eyePreset">Preset</label>
+                <select id="eyePreset">
+                    <option value="0">Tip Over Teal</option>
+                    <option value="1">Overfit Orange</option>
+                    <option value="2">Uncanny Yellow</option>
+                    <option value="3">Non Linear Lime</option>
+                    <option value="4">Singularity Sapphire</option>
+                    <option value="5">False Positive Purple</option>
+                    <option value="6">Confusion Matrix Green</option>
+                    <option value="7">Rainbow Eyes</option>
+                    <option value="8">Robot Red</option>
+                </select>
+            </div>
+            <button type="button" class="primary" onclick="seekSetEyeColor()">Apply eyes</button>
+        </section>
+
+        <section class="block">
+            <h2>Volume</h2>
+            <div class="row">
+                <label for="masterVolume">Master volume</label>
+                <select id="masterVolume">
+                    <option value="0">Mute</option>
+                    <option value="1">Low</option>
+                    <option value="2">Medium Low</option>
+                    <option value="3" selected>Medium</option>
+                    <option value="4">Medium High</option>
+                    <option value="5">High</option>
+                </select>
+            </div>
+            <button type="button" class="primary" onclick="seekSetVolume()">Apply volume</button>
+        </section>
+
+        <section class="block">
+            <h2>Say something</h2>
+            <div class="row">
+                <input type="text" id="sayText" placeholder="Hello from SeekOS">
+            </div>
+            <div class="row">
+                <label for="sayVectorVoice">Voice</label>
+                <select id="sayVectorVoice">
+                    <option value="1" selected>Vector voice</option>
+                    <option value="0">Normal TTS</option>
+                </select>
+            </div>
+            <button type="button" class="primary" onclick="seekSayText()">Say it</button>
+        </section>
+
+        <section class="block">
+            <h2>Play MP3 / WAV</h2>
+            <div class="row">
+                <input type="file" id="audioFile" accept=".mp3,.wav,audio/mpeg,audio/wav,audio/*">
+            </div>
+            <div class="row">
+                <label for="audioPlayVolume">Stream volume <span id="audioPlayVolVal">100</span></label>
+                <input type="range" id="audioPlayVolume" min="0" max="100" value="100"
+                    oninput="document.getElementById('audioPlayVolVal').textContent=this.value">
+            </div>
+            <button type="button" class="primary" onclick="seekPlayAudio()">Play audio</button>
+        </section>
+
+        <section class="block">
+            <h2>Play video on face</h2>
+            <p class="hint">Browser-decodes to 184×96 RGB565 (SDK byte order) + 16 kHz mono audio.</p>
+            <div class="row">
+                <input type="file" id="videoFile" accept=".mp4,video/mp4,video/*">
+            </div>
+            <div class="row wrap">
+                <label for="videoFps">FPS</label>
+                <input type="number" id="videoFps" min="1" max="15" value="12">
+                <label for="videoFit">Fit</label>
+                <select id="videoFit">
+                    <option value="cover" selected>Cover</option>
+                    <option value="contain">Contain</option>
+                </select>
+                <label for="videoWithAudio">Audio</label>
+                <select id="videoWithAudio">
+                    <option value="1" selected>With audio</option>
+                    <option value="0">Video only</option>
+                </select>
+            </div>
+            <div class="row actions">
+                <button type="button" class="primary" id="videoPlayBtn" onclick="seekPlayVideo()">Play video</button>
+                <button type="button" class="ghost" onclick="seekStopMedia()">Stop</button>
+            </div>
+            <canvas id="seekVideoCanvas" width="184" height="96" aria-label="Face preview"></canvas>
+        </section>
+    </main>
+    <script src="js/seek-dashboard.js"></script>
+</body>
+</html>

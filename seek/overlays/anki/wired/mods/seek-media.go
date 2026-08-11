@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 
 	mp3 "github.com/hajimehoshi/go-mp3"
@@ -13,21 +14,29 @@ import (
 
 func decodeAudioToPCM(data []byte, filename string) ([]byte, uint32, error) {
 	lower := strings.ToLower(filename)
+	var (
+		pcm  []byte
+		rate uint32
+		err  error
+	)
 	switch {
 	case strings.HasSuffix(lower, ".wav"):
-		return decodeWAV(data)
+		pcm, rate, err = decodeWAV(data)
 	case strings.HasSuffix(lower, ".mp3"):
-		return decodeMP3(data)
+		pcm, rate, err = decodeMP3(data)
 	default:
-		// sniff
 		if len(data) >= 12 && string(data[0:4]) == "RIFF" && string(data[8:12]) == "WAVE" {
-			return decodeWAV(data)
+			pcm, rate, err = decodeWAV(data)
+		} else if len(data) >= 3 && (string(data[0:3]) == "ID3" || (data[0] == 0xFF && (data[1]&0xE0) == 0xE0)) {
+			pcm, rate, err = decodeMP3(data)
+		} else {
+			return nil, 0, errors.New("unsupported audio type (use .mp3 or .wav)")
 		}
-		if len(data) >= 3 && (string(data[0:3]) == "ID3" || (data[0] == 0xFF && (data[1]&0xE0) == 0xE0)) {
-			return decodeMP3(data)
-		}
-		return nil, 0, errors.New("unsupported audio type (use .mp3 or .wav)")
 	}
+	if err != nil {
+		return nil, 0, err
+	}
+	return normalizePCM16(pcm), rate, nil
 }
 
 func decodeMP3(data []byte) ([]byte, uint32, error) {
@@ -42,10 +51,7 @@ func decodeMP3(data []byte) ([]byte, uint32, error) {
 	srcRate := dec.SampleRate()
 	// go-mp3 always outputs stereo 16-bit LE; Vector needs mono.
 	mono := stereoToMono(raw)
-	target := 16000
-	if srcRate >= 8000 && srcRate <= 16025 {
-		target = srcRate
-	}
+	target := pickRobotRate(srcRate)
 	out := resamplePCM16(mono, srcRate, target)
 	return out, uint32(target), nil
 }
@@ -120,14 +126,30 @@ func decodeWAV(data []byte) ([]byte, uint32, error) {
 	} else if numChannels != 1 {
 		return nil, 0, errors.New("wav must be mono or stereo")
 	}
-	target := uint32(16000)
-	if sampleRate >= 8000 && sampleRate <= 16025 {
-		target = sampleRate
-	}
-	out := resamplePCM16(mono, int(sampleRate), int(target))
-	return out, target, nil
+	target := pickRobotRate(int(sampleRate))
+	out := resamplePCM16(mono, int(sampleRate), target)
+	return out, uint32(target), nil
 }
 
+func pickRobotRate(srcRate int) int {
+	if srcRate >= 8000 && srcRate <= 16025 {
+		return srcRate
+	}
+	// Prefer 16000 for common media rates (44.1/48k).
+	return 16000
+}
+
+func sampleAt(in []byte, inSamples, idx int) float64 {
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= inSamples {
+		idx = inSamples - 1
+	}
+	return float64(int16(binary.LittleEndian.Uint16(in[idx*2:])))
+}
+
+// Cubic hermite resampling — much cleaner than linear for 44.1k→16k.
 func resamplePCM16(in []byte, srcRate, dstRate int) []byte {
 	if srcRate <= 0 || dstRate <= 0 || len(in) < 2 {
 		return in
@@ -143,19 +165,60 @@ func resamplePCM16(in []byte, srcRate, dstRate int) []byte {
 	out := make([]byte, outSamples*2)
 	for i := 0; i < outSamples; i++ {
 		srcPos := float64(i) * float64(srcRate) / float64(dstRate)
-		i0 := int(srcPos)
-		if i0 >= inSamples {
-			i0 = inSamples - 1
+		i1 := int(math.Floor(srcPos))
+		mu := srcPos - float64(i1)
+		y0 := sampleAt(in, inSamples, i1-1)
+		y1 := sampleAt(in, inSamples, i1)
+		y2 := sampleAt(in, inSamples, i1+1)
+		y3 := sampleAt(in, inSamples, i1+2)
+		s := hermite(y0, y1, y2, y3, mu)
+		if s > 32767 {
+			s = 32767
+		} else if s < -32768 {
+			s = -32768
 		}
-		i1 := i0 + 1
-		if i1 >= inSamples {
-			i1 = inSamples - 1
+		binary.LittleEndian.PutUint16(out[i*2:], uint16(int16(s)))
+	}
+	return out
+}
+
+func hermite(y0, y1, y2, y3, mu float64) float64 {
+	mu2 := mu * mu
+	a0 := -0.5*y0 + 1.5*y1 - 1.5*y2 + 0.5*y3
+	a1 := y0 - 2.5*y1 + 2*y2 - 0.5*y3
+	a2 := -0.5*y0 + 0.5*y2
+	a3 := y1
+	return a0*mu*mu2 + a1*mu2 + a2*mu + a3
+}
+
+func normalizePCM16(pcm []byte) []byte {
+	if len(pcm) < 2 {
+		return pcm
+	}
+	n := len(pcm) / 2
+	var peak int32
+	for i := 0; i < n; i++ {
+		s := int32(int16(binary.LittleEndian.Uint16(pcm[i*2:])))
+		if s < 0 {
+			s = -s
 		}
-		frac := srcPos - float64(i0)
-		s0 := int16(binary.LittleEndian.Uint16(in[i0*2:]))
-		s1 := int16(binary.LittleEndian.Uint16(in[i1*2:]))
-		s := int16(float64(s0)*(1-frac) + float64(s1)*frac)
-		binary.LittleEndian.PutUint16(out[i*2:], uint16(s))
+		if s > peak {
+			peak = s
+		}
+	}
+	if peak < 1024 || peak >= 32000 {
+		return pcm
+	}
+	out := make([]byte, len(pcm))
+	scale := 30000.0 / float64(peak)
+	for i := 0; i < n; i++ {
+		s := float64(int16(binary.LittleEndian.Uint16(pcm[i*2:]))) * scale
+		if s > 32767 {
+			s = 32767
+		} else if s < -32768 {
+			s = -32768
+		}
+		binary.LittleEndian.PutUint16(out[i*2:], uint16(int16(s)))
 	}
 	return out
 }

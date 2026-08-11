@@ -35,7 +35,6 @@ async function UpdateAllMods() {
     getLocation()
     getTempUnits()
     facesRefresh()
-    if (typeof seekRefresh === 'function') seekRefresh()
 }
 
 UpdateAllMods();

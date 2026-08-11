@@ -36,19 +36,21 @@ The first static early-boot screen (rampost `anki_dev_unit`) is the **SeekAra** 
 
 ## Web dashboard
 
-After installing a SeekOS OTA that includes this feature, open Vector’s IP on port **8080**:
+After installing a SeekOS OTA that includes this feature, open:
 
 ```text
-http://<vector-ip>:8080/
+http://<vector-ip>:8080/seek.html
 ```
 
-Use the **Seek Dashboard** tab to:
+From there you can:
 
 - Change eye color (custom hue/saturation or presets)
 - Change master volume
 - Make Vector say text (TTS)
 - Upload and play **MP3/WAV** through his speaker
 - Play **MP4** (and other browser-decodable video) on his 184×96 face screen
+
+The classic `wired` settings UI remains at `http://<vector-ip>:8080/` and links to the Seek Dashboard.
 
 MP4 playback is decoded in your browser, then streamed to the robot as RGB565 frames (optional audio track included).
 
