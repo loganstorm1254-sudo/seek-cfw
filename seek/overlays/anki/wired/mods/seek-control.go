@@ -237,8 +237,8 @@ func (m *SeekDashboard) stopDriveLoop() {
 }
 
 func (m *SeekDashboard) driveLoop(ctx context.Context) {
-	// 10 Hz is enough; faster rates hammer the gateway and can destabilize the bot.
-	ticker := time.NewTicker(100 * time.Millisecond)
+	// 5 Hz drive loop — enough for teleop, cooler than 10 Hz.
+	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 	var lastL, lastR float32
 	var haveLast bool

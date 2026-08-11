@@ -206,7 +206,7 @@ func (m *SeekDashboard) handleCameraMjpeg(w http.ResponseWriter, r *http.Request
 	flusher.Flush()
 
 	var lastSeq uint64
-	ticker := time.NewTicker(100 * time.Millisecond) // 10 fps
+	ticker := time.NewTicker(200 * time.Millisecond) // 5 fps — cooler than 10
 	defer ticker.Stop()
 	for {
 		select {

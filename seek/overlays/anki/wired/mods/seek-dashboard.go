@@ -93,7 +93,7 @@ func (m *SeekDashboard) idleWatch() {
 		m.camMu.Lock()
 		cam := m.camRunning
 		m.camMu.Unlock()
-		if idleFor < 3*time.Minute {
+		if idleFor < 2*time.Minute {
 			continue
 		}
 		if cam {
@@ -263,7 +263,7 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 		w.Write(out)
 		return
 	default:
-		vars.HTTPError(w, r, "404 not found")
+		vars.HTTPError(w, r, "unknown action (try /seek.html or /)")
 		return
 	}
 	vars.HTTPSuccess(w, r)

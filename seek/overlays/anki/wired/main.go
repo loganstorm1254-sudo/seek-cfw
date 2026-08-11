@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -43,7 +44,7 @@ func main() {
 			"phoneUrl":     url,
 			"canonicalUrl": url,
 			"oneAddress":   url,
-			"hint":         "Open http://<vector-ip>:8080/seek.html in any browser on the same Wi‑Fi as Vector.",
+			"hint":         "Open http://192.168.42.209:8080/ in any browser on the same Wi‑Fi.",
 		})
 	})
 
@@ -60,7 +61,7 @@ func setStaticContentType(w http.ResponseWriter, reqPath string) {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 	case ext == ".css":
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	case ext == ".html" || clean == "/" || clean == "/index.html" || clean == "/seek.html":
+	case ext == ".html" || clean == "/" || clean == "/index.html" || clean == "/seek.html" || clean == "/seek":
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	case ext == ".json":
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -76,20 +77,63 @@ func setStaticContentType(w http.ResponseWriter, reqPath string) {
 		w.Header().Set("Content-Type", "audio/mpeg")
 	case ext == ".wav":
 		w.Header().Set("Content-Type", "audio/wav")
+	case ext == ".ico":
+		w.Header().Set("Content-Type", "image/x-icon")
 	}
+}
+
+func serveFile(w http.ResponseWriter, r *http.Request, name string) {
+	setStaticContentType(w, name)
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	http.ServeFile(w, r, path.Join("/etc/wired/webroot", name))
 }
 
 func startweb() {
 	fmt.Println("starting web at port 8080 (all interfaces)")
-	fs := http.FileServer(http.Dir("/etc/wired/webroot"))
-	// Listen on every interface so http://192.168.42.209:8080 works from any
-	// browser that can reach Vector on the LAN (phone or PC).
+	root := http.Dir("/etc/wired/webroot")
+	fs := http.FileServer(root)
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		setStaticContentType(w, r.URL.Path)
+
+		p := path.Clean("/" + strings.TrimPrefix(r.URL.Path, "/"))
+		if p == "/" {
+			p = "/"
+		}
+
+		switch p {
+		case "/favicon.ico":
+			w.WriteHeader(http.StatusNoContent)
+			return
+		case "/", "/seek", "/seek/":
+			// Phone-friendly: bare IP:8080 opens Seek (avoids "404" confusion).
+			serveFile(w, r, "seek.html")
+			return
+		case "/settings", "/settings/", "/wired", "/wired/":
+			serveFile(w, r, "index.html")
+			return
+		}
+
+		// If someone requests a missing path, send Seek instead of a bare 404 page.
+		full := path.Join("/etc/wired/webroot", strings.TrimPrefix(p, "/"))
+		if !strings.HasPrefix(full, "/etc/wired/webroot") {
+			serveFile(w, r, "seek.html")
+			return
+		}
+		if st, err := os.Stat(full); err != nil || st.IsDir() {
+			// Don't mask real asset 404s for css/js — only HTML-ish navigations.
+			if path.Ext(p) == "" || path.Ext(p) == ".html" {
+				serveFile(w, r, "seek.html")
+				return
+			}
+			http.NotFound(w, r)
+			return
+		}
+
+		setStaticContentType(w, p)
 		fs.ServeHTTP(w, r)
 	})
 	if err := http.ListenAndServe("0.0.0.0:8080", nil); err != nil {
