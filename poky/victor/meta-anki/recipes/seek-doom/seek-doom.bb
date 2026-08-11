@@ -19,9 +19,9 @@ do_install() {
     install -d ${D}${bindir}
     install -m 0755 ${UNPACKDIR}/seek-doom ${D}${bindir}/seek-doom
 
+    # bitbake auto-decompresses *.gz from SRC_URI into UNPACKDIR
     install -d ${D}/usr/share/seek-doom
-    gzip -dc ${UNPACKDIR}/freedoom1.wad.gz > ${D}/usr/share/seek-doom/freedoom1.wad
-    chmod 0644 ${D}/usr/share/seek-doom/freedoom1.wad
+    install -m 0644 ${UNPACKDIR}/freedoom1.wad ${D}/usr/share/seek-doom/freedoom1.wad
 }
 
 FILES:${PN} += "${bindir}/seek-doom /usr/share/seek-doom/*"
