@@ -149,7 +149,7 @@ function switchTab(name) {
         panel.hidden = !on;
         panel.classList.toggle('active', on);
     });
-    } else if (name === 'doom') {
+    if (name === 'doom') {
         setSeekStatus('Doom: start/stop/control only from this tab (WASD).');
     } else if (name === 'drive') {
         setSeekStatus('Drive ready. Tap Take control, then hold the pad (or WASD).');
