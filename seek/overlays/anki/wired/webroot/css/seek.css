@@ -122,6 +122,7 @@ h2 {
 }
 
 h2.spaced { margin-top: 1.4rem; }
+.field.spaced { margin-top: 1rem; }
 
 .field {
     display: flex;

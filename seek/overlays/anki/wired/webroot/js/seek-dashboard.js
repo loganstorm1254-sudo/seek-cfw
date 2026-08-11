@@ -204,6 +204,7 @@ async function seekRefresh() {
         const volRes = await api('getVolume');
         if (volRes.ok) $('masterVolume').value = (await volRes.text()).trim();
         seekRefreshEyeOverlay();
+        seekRefreshOpenAIKey();
     } catch (e) {
         console.log('seekRefresh', e);
     }
@@ -369,6 +370,124 @@ async function seekSayText() {
     } catch (e) {
         setSeekStatus('network error: ' + e.message, true);
     }
+}
+
+async function seekRefreshOpenAIKey() {
+    const st = $('openaiKeyStatus');
+    try {
+        const res = await api('getOpenAIKey');
+        if (!res.ok) return;
+        const info = await res.json();
+        if (st) {
+            st.textContent = info.configured
+                ? ('Key saved (' + info.masked + '). Hey Vector questions can use ChatGPT.')
+                : 'No key saved yet.';
+        }
+    } catch (_) {}
+}
+
+async function seekSaveOpenAIKey() {
+    const key = ($('openaiKey') && $('openaiKey').value || '').trim();
+    if (!key) {
+        setSeekStatus('Paste your OpenAI API key first.', true);
+        return;
+    }
+    setSeekStatus('Saving OpenAI key…');
+    try {
+        const res = await api('setOpenAIKey?key=' + encodeURIComponent(key));
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'save failed' }; });
+            setSeekStatus(e.message || 'save failed', true);
+            return;
+        }
+        if ($('openaiKey')) $('openaiKey').value = '';
+        setSeekStatus('OpenAI key saved on Vector.');
+        seekRefreshOpenAIKey();
+    } catch (e) {
+        setSeekStatus('key save error: ' + e.message, true);
+    }
+}
+
+async function seekClearOpenAIKey() {
+    setSeekStatus('Clearing OpenAI key…');
+    try {
+        await api('setOpenAIKey?key=clear');
+        setSeekStatus('OpenAI key cleared.');
+        seekRefreshOpenAIKey();
+    } catch (e) {
+        setSeekStatus('clear error: ' + e.message, true);
+    }
+}
+
+async function seekAskAI(text) {
+    const q = (text || ($('askAIText') && $('askAIText').value) || '').trim();
+    if (!q) {
+        setSeekStatus('Type a question (or use the mic).', true);
+        return;
+    }
+    setSeekStatus('Asking ChatGPT…');
+    if ($('askAIAnswer')) $('askAIAnswer').textContent = '';
+    try {
+        const res = await api('askAI?text=' + encodeURIComponent(q), { timeoutMs: 60000, retries: 1 });
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'ask failed' }; });
+            setSeekStatus(e.message || 'ask failed', true);
+            return;
+        }
+        const info = await res.json();
+        if ($('askAIAnswer')) $('askAIAnswer').textContent = 'Vector: ' + (info.answer || '');
+        setSeekStatus('Answer spoken.');
+    } catch (e) {
+        setSeekStatus('ask error: ' + e.message, true);
+    }
+}
+
+function bindAskAIMic() {
+    const btn = $('btnAskAIMic');
+    if (!btn) return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+        btn.disabled = true;
+        btn.title = 'Speech recognition not supported in this browser';
+        return;
+    }
+    let rec = null;
+    function start(e) {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        try {
+            if (rec) { try { rec.abort(); } catch (_) {} }
+            rec = new SR();
+            rec.lang = 'en-US';
+            rec.interimResults = false;
+            rec.maxAlternatives = 1;
+            rec.onresult = function (ev) {
+                const t = ev.results[0][0].transcript;
+                if ($('askAIText')) $('askAIText').value = t;
+                seekAskAI(t);
+            };
+            rec.onerror = function () {
+                setSeekStatus('Mic/speech error — type the question instead.', true);
+            };
+            rec.start();
+            btn.classList.add('held');
+            setSeekStatus('Listening… ask your question.');
+        } catch (err) {
+            setSeekStatus('mic error: ' + err.message, true);
+        }
+    }
+    function stop(e) {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        btn.classList.remove('held');
+        if (rec) {
+            try { rec.stop(); } catch (_) {}
+            rec = null;
+        }
+    }
+    btn.addEventListener('pointerdown', start, { passive: false });
+    btn.addEventListener('pointerup', stop, { passive: false });
+    btn.addEventListener('pointercancel', stop, { passive: false });
+    btn.addEventListener('touchstart', start, { passive: false });
+    btn.addEventListener('touchend', stop, { passive: false });
 }
 
 async function seekPlayAudio() {
@@ -1016,6 +1135,10 @@ function bindUI() {
     });
     on('btnVolume', 'click', seekSetVolume);
     on('btnSay', 'click', seekSayText);
+    on('btnSaveOpenAI', 'click', seekSaveOpenAIKey);
+    on('btnClearOpenAI', 'click', seekClearOpenAIKey);
+    on('btnAskAI', 'click', function () { seekAskAI(); });
+    bindAskAIMic();
     on('btnAudio', 'click', seekPlayAudio);
     on('videoPlayBtn', 'click', seekPlayVideo);
     on('btnStopMedia', 'click', seekStopMedia);

@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#07131a">
     <title>Seek Dashboard</title>
-    <link rel="stylesheet" href="css/seek.css?v=26d">
+    <link rel="stylesheet" href="css/seek.css?v=27d">
 </head>
 <body>
     <div class="bg" aria-hidden="true"></div>
@@ -116,6 +116,27 @@
                 </select>
             </label>
             <button type="button" class="primary" id="btnSay">Say it</button>
+
+            <h2 class="spaced">ChatGPT (Hey Vector AI)</h2>
+            <p class="hint">Save your OpenAI key, then ask out loud after <b>Hey Vector</b>, type below, or use the mic. Vector answers with his voice.</p>
+            <label class="field">
+                <span>OpenAI API key</span>
+                <input type="password" id="openaiKey" placeholder="sk-…" autocomplete="off">
+            </label>
+            <p id="openaiKeyStatus" class="hint"></p>
+            <div class="actions">
+                <button type="button" class="primary" id="btnSaveOpenAI">Save key</button>
+                <button type="button" class="ghost danger" id="btnClearOpenAI">Clear key</button>
+            </div>
+            <label class="field spaced">
+                <span>Ask ChatGPT</span>
+                <input type="text" id="askAIText" placeholder="What is the capital of France?" autocomplete="off">
+            </label>
+            <div class="actions">
+                <button type="button" class="primary" id="btnAskAI">Ask &amp; speak</button>
+                <button type="button" class="ghost" id="btnAskAIMic">Hold to talk</button>
+            </div>
+            <p id="askAIAnswer" class="hint"></p>
 
             <h2 class="spaced">Play MP3 / WAV</h2>
             <label class="field">
@@ -271,7 +292,7 @@
         </section>
     </main>
     <noscript><p class="status err">JavaScript is required for Seek Dashboard.</p></noscript>
-    <script src="js/seek-dashboard.js?v=26d" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
+    <script src="js/seek-dashboard.js?v=27d" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
     <script>
     setTimeout(function () {
         if (!window.__seekLoaded) {

@@ -130,7 +130,7 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	action := strings.TrimPrefix(r.URL.Path, "/api/mods/"+m.Name()+"/")
 	switch action {
-	case "status", "moves", "getEyeColor", "getVolume", "cameraFrame", "cameraMjpeg", "getEyeOverlay":
+	case "status", "moves", "getEyeColor", "getVolume", "cameraFrame", "cameraMjpeg", "getEyeOverlay", "getOpenAIKey":
 		// read-only / streaming — don't count as "user activity" for idle release
 	default:
 		m.touchActivity()
@@ -151,6 +151,27 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 			vars.HTTPError(w, r, err.Error())
 			return
 		}
+	case "getOpenAIKey":
+		m.handleGetOpenAIKey(w, r)
+		return
+	case "setOpenAIKey":
+		if err := m.handleSetOpenAIKey(r); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+	case "askAI":
+		answer, err := m.handleAskAI(r)
+		if err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+		out, _ := json.Marshal(map[string]string{"answer": answer})
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(out)
+		return
+	case "voiceAsk":
+		m.handleVoiceAsk(w, r)
+		return
 	case "getEyeOverlay":
 		st, err := os.Stat(seekEyeOverlayPath)
 		active := err == nil && st.Size() > 0
