@@ -34,6 +34,24 @@ The first static early-boot screen (rampost `anki_dev_unit`) is the **SeekAra** 
 - Overlay: `seek/overlays/anki/rampost/anki_dev_unit.h` (184×96 RGB565)
 - Applied automatically by `seek/apply-overlay.sh` before `./build/build.sh`
 
+## Web dashboard
+
+After installing a SeekOS OTA that includes this feature, open Vector’s IP on port **8080**:
+
+```text
+http://<vector-ip>:8080/
+```
+
+Use the **Seek Dashboard** tab to:
+
+- Change eye color (custom hue/saturation or presets)
+- Change master volume
+- Make Vector say text (TTS)
+- Upload and play **MP3/WAV** through his speaker
+- Play **MP4** (and other browser-decodable video) on his 184×96 face screen
+
+MP4 playback is decoded in your browser, then streamed to the robot as RGB565 frames (optional audio track included).
+
 ## Prerequisites
 
 - Linux x86_64 (recommended) with **git**, **docker**, **wget**

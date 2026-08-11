@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mods</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <header>
+        <h1>Robot Settings</h1>
+    </header>
+    <div class="tabs">
+        <button class="active" data-target="#home"><code>wired</code></button>
+        <button data-target="#mainmods">Performance Profiles</button>
+        <button data-target="#cww">Custom Wake Word</button>
+        <button data-target="#aud">Auto Updates</button>
+        <button data-target="#sensitivity">Wakeword Sensitivity</button>
+        <button data-target="#jdocsettings">User Preferences</button>
+        <button data-target="#faces">Face Manager</button>
+        <button data-target="#seekdash">Seek Dashboard</button>
+    </div>
+
+    <div id="home" class="container tab-content active">
+        <h2><code>wired</code></h2>
+        <p>This is where extra configuration options exist.</p>
+        <p>Click the tabs to navigate the options.</p>
+    </div>
+
+    <div id="mainmods" class="container mod-section tab-content">
+        <div id="modStatus"></div>
+        <div id="mods">
+            <h2>Performance Profiles</h2>
+            <p>Brings better SDK performance, but may cause overheating.</p>
+            <form>
+                <input type="radio" id="regular" name="frequency" value="0" onchange="FreqChange_Submit()">
+                <label class="buttonlabel" for="regular">Regular</label>
+                <input type="radio" id="balanced" name="frequency" value="1" onchange="FreqChange_Submit()">
+                <label class="buttonlabel" for="balanced">Balanced</label>
+                <input type="radio" id="performance" name="frequency" value="2" onchange="FreqChange_Submit()">
+                <label class="buttonlabel" for="performance">Performance</label>
+            </form>
+        </div>
+    </div>
+
+    <div id="cww" class="container mod-section tab-content">
+        <h2>Custom Wake Word</h2>
+        <p>At least two syllables, at least 5 letters.</p>
+        <hr class="smallhr">
+        <div id="wakeWordStatus"></div>
+        <div class="button-container">
+            <label id="keywordLabel" for="keyword">Desired wake word:</label>
+            <input type="text" placeholder="Hey Vector" id="keyword">
+            <button id="genWakeWord" onclick="genWakeWord()">Generate Wake Word</button>
+            <button id="revertDefaultWakeWord" onclick="revertDefaultWakeWord()">Revert To Default</button>
+        </div>
+    </div>
+
+    <div id="aud" class="container mod-section tab-content">
+        <h2>Auto Updates</h2>
+        <div id="autoUpdateStatus"></div>
+        <div class="button-container">
+            <button id="autoUpdateInhibit" onclick="autoUpdateInhibit()">Disable</button>
+            <button id="autoUpdateAllow" onclick="autoUpdateAllow()">Enable</button>
+        </div>
+    </div>
+
+    <div id="sensitivity" class="container mod-section tab-content">
+        <h2>Wakeword Sensitivity</h2>
+        <p>Default is 0.45. 0.999 is max, 0.001 is minimum.</p>
+        <div class="button-container">
+            <input type="range" id="sensitivitySlider" min="0.001" max="0.999" step="0.001" value="0.500"
+                oninput="document.getElementById('sensitivityInput').value = this.value">
+            <input type="number" id="sensitivityInput" min="0.001" max="0.999" step="0.001" value="0.500"
+                oninput="document.getElementById('sensitivitySlider').value = this.value">
+            <button id="setSensitivityBtn" onclick="sendSensitivity()">Set</button>
+        </div>
+    </div>
+
+    <div id="jdocsettings" class="container mod-section tab-content">
+        <h2>User Preferences</h2>
+        <div id="jdocStatus"></div>
+        <div class="button-container">
+            <label id="locationLabel" for="location">Location:</label>
+            <input type="text" placeholder="San Francisco, California" id="location">
+            <button id="locationSet" onclick="setLocation()">Set Location</button>
+            <hr class="smallhr">
+            <label id="timezoneLabel" for="timezone">Time Zone:</label>
+            <select name="timezone" id="timezone">
+                <option value="Pacific/Honolulu">Pacific/Honolulu</option>
+                <option value="America/Juneau">America/Juneau</option>
+                <option value="America/Los_Angeles">America/Los_Angeles</option>
+                <option value="America/Phoenix">America/Phoenix</option>
+                <option value="America/Denver">America/Denver</option>
+                <option value="America/Lima">America/Lima</option>
+                <option value="America/Chicago">America/Chicago</option>
+                <option value="America/Bogota">America/Bogota</option>
+                <option value="America/New_York">America/New_York</option>
+                <option value="America/Argentina/Buenos_Aires">America/Argentina/Buenos_Aires</option>
+                <option value="America/Santiago">America/Santiago</option>
+                <option value="America/Sao_Paulo">America/Sao_Paulo</option>
+                <option value="America/Halifax">America/Halifax</option>
+                <option value="America/St_Johns">America/St_Johns</option>
+                <option value="GMT">GMT</option>
+                <option value="Europe/Lisbon">Europe/Lisbon</option>
+                <option value="Europe/London">Europe/London</option>
+                <option value="Europe/Paris">Europe/Paris</option>
+                <option value="Europe/Athens">Europe/Athens</option>
+                <option value="Europe/Istanbul">Europe/Istanbul</option>
+                <option value="Europe/Moscow">Europe/Moscow</option>
+                <option value="Africa/Lagos">Africa/Lagos</option>
+                <option value="Africa/Harare">Africa/Harare</option>
+                <option value="Africa/Addis_Ababa">Africa/Addis_Ababa</option>
+                <option value="Asia/Dubai">Asia/Dubai</option>
+                <option value="Asia/Tehran">Asia/Tehran</option>
+                <option value="Asia/Karachi">Asia/Karachi</option>
+                <option value="Asia/Kolkata">Asia/Kolkata</option>
+                <option value="Asia/Dhaka">Asia/Dhaka</option>
+                <option value="Asia/Bangkok">Asia/Bangkok</option>
+                <option value="Asia/Jakarta">Asia/Jakarta</option>
+                <option value="Asia/Hong_Kong">Asia/Hong_Kong</option>
+                <option value="Asia/Singapore">Asia/Singapore</option>
+                <option value="Asia/Manila">Asia/Manila</option>
+                <option value="Asia/Seoul">Asia/Seoul</option>
+                <option value="Asia/Tokyo">Asia/Tokyo</option>
+                <option value="Australia/Perth">Australia/Perth</option>
+                <option value="Australia/Darwin">Australia/Darwin</option>
+                <option value="Australia/Adelaide">Australia/Adelaide</option>
+                <option value="Australia/Brisbane">Australia/Brisbane</option>
+                <option value="Australia/Sydney">Australia/Sydney</option>
+                <option value="Australia/Auckland">Australia/Auckland</option>
+            </select>
+            <button id="timezoneSet" onclick="setTimezone()">Set Timezone</button>
+            <hr class="smallhr">
+            <label id="tempLabel" for="tUnits">Temp Units:</label>
+            <select name="tUnits" id="tUnits">
+                <option value="f">Fahrenheit</option>
+                <option value="c">Celsius</option>
+            </select>
+            <button id="timezoneSet" onclick="setTempUnits()">Set Temp Units</button>
+        </div>
+    </div>
+
+    <div id="faces" class="container mod-section tab-content">
+        <h2>Face Manager</h2>
+        <p>Manage enrolled faces: list, rename, delete, or enroll a new one.</p>
+        <hr class="smallhr">
+
+        <div id="facesStatus" class="faces-status" style="display:none;"></div>
+
+        <div style="margin-top: 10px;">
+            <h3 style="margin: 8px 0; color: #a855f7;">Enroll new face</h3>
+            <div class="button-container" style="gap: 6px;">
+                <label for="faceNewName">Name:</label>
+                <input type="text" id="faceNewName" placeholder="Jeff">
+                <button type="button" onclick="faceTrain()">Start Enroll</button>
+            </div>
+        </div>
+        <hr class="smallhr">
+
+
+        <div style="margin-top: 12px;">
+            <h3 style="margin: 8px 0; color: #a855f7;">Currently enrolled faces:</h3>
+            <div class="button-container" style="gap: 6px;">
+                <button type="button" id="facesRefreshBtn" onclick="facesRefresh()">Refresh</button>
+            </div>
+            <div id="facesList" class="faces-list"></div>
+        </div>
+    </div>
+
+
+    <div id="seekdash" class="container mod-section tab-content">
+        <h2>Seek Dashboard</h2>
+        <p>Control eyes, volume, speech, and media on this robot.</p>
+        <div id="seekStatus" class="faces-status" style="display:none;"></div>
+
+        <hr class="smallhr">
+        <h3 style="margin: 8px 0; color: #a855f7;">Eye color</h3>
+        <div class="button-container" style="gap: 6px;">
+            <label for="eyeMode">Mode:</label>
+            <select id="eyeMode" onchange="seekEyeModeChanged()">
+                <option value="custom">Custom</option>
+                <option value="preset">Preset</option>
+            </select>
+            <div id="eyeCustomControls">
+                <label for="eyeHue">Hue:</label>
+                <input type="range" id="eyeHue" min="0" max="1" step="0.01" value="0.35"
+                    oninput="document.getElementById('eyeHueVal').textContent=this.value">
+                <span id="eyeHueVal">0.35</span>
+                <label for="eyeSat">Sat:</label>
+                <input type="range" id="eyeSat" min="0" max="1" step="0.01" value="1"
+                    oninput="document.getElementById('eyeSatVal').textContent=this.value">
+                <span id="eyeSatVal">1</span>
+            </div>
+            <div id="eyePresetControls" style="display:none;">
+                <label for="eyePreset">Preset:</label>
+                <select id="eyePreset">
+                    <option value="0">Tip Over Teal</option>
+                    <option value="1">Overfit Orange</option>
+                    <option value="2">Uncanny Yellow</option>
+                    <option value="3">Non Linear Lime</option>
+                    <option value="4">Singularity Sapphire</option>
+                    <option value="5">False Positive Purple</option>
+                    <option value="6">Confusion Matrix Green</option>
+                    <option value="7">Rainbow Eyes</option>
+                    <option value="8">Robot Red</option>
+                </select>
+            </div>
+            <button type="button" onclick="seekSetEyeColor()">Apply Eyes</button>
+        </div>
+
+        <hr class="smallhr">
+        <h3 style="margin: 8px 0; color: #a855f7;">Volume</h3>
+        <div class="button-container" style="gap: 6px;">
+            <label for="masterVolume">Master volume:</label>
+            <select id="masterVolume">
+                <option value="0">Mute</option>
+                <option value="1">Low</option>
+                <option value="2">Medium Low</option>
+                <option value="3" selected>Medium</option>
+                <option value="4">Medium High</option>
+                <option value="5">High</option>
+            </select>
+            <button type="button" onclick="seekSetVolume()">Apply Volume</button>
+        </div>
+
+        <hr class="smallhr">
+        <h3 style="margin: 8px 0; color: #a855f7;">Say something</h3>
+        <div class="button-container" style="gap: 6px;">
+            <input type="text" id="sayText" placeholder="Hello from SeekOS" style="min-width: 220px;">
+            <label for="sayVectorVoice">Voice:</label>
+            <select id="sayVectorVoice">
+                <option value="1" selected>Vector voice</option>
+                <option value="0">Normal TTS</option>
+            </select>
+            <button type="button" onclick="seekSayText()">Say It</button>
+        </div>
+
+        <hr class="smallhr">
+        <h3 style="margin: 8px 0; color: #a855f7;">Play MP3 / WAV</h3>
+        <div class="button-container" style="gap: 6px;">
+            <input type="file" id="audioFile" accept=".mp3,.wav,audio/mpeg,audio/wav">
+            <label for="audioPlayVolume">Play vol:</label>
+            <input type="range" id="audioPlayVolume" min="0" max="100" value="80"
+                oninput="document.getElementById('audioPlayVolVal').textContent=this.value">
+            <span id="audioPlayVolVal">80</span>
+            <button type="button" onclick="seekPlayAudio()">Play Audio</button>
+        </div>
+
+        <hr class="smallhr">
+        <h3 style="margin: 8px 0; color: #a855f7;">Play MP4 on face</h3>
+        <p style="font-size: 13px; opacity: 0.85;">Decodes in your browser to 184×96 frames + optional audio, then streams to Vector.</p>
+        <div class="button-container" style="gap: 6px;">
+            <input type="file" id="videoFile" accept=".mp4,video/mp4,video/*">
+            <label for="videoFps">FPS:</label>
+            <input type="number" id="videoFps" min="1" max="15" value="8" style="width: 64px;">
+            <label for="videoWithAudio">Audio:</label>
+            <select id="videoWithAudio">
+                <option value="1" selected>With audio</option>
+                <option value="0">Video only</option>
+            </select>
+            <button type="button" id="videoPlayBtn" onclick="seekPlayVideo()">Play Video</button>
+            <button type="button" onclick="seekStopMedia()">Stop</button>
+        </div>
+        <canvas id="seekVideoCanvas" width="184" height="96" style="margin-top:10px; image-rendering:pixelated; background:#111; border:1px solid #444;"></canvas>
+    </div>
+
+    <div id="showDuringVicRestart" class="container" style="display: none;">
+        <h1>Vector is restarting, please wait...</h1>
+    </div>
+    <div id="restartNeeded" class="container" style="display: none;">
+        <h2>A vic restart is required for changes to take affect.</h2>
+        <input type="button" value="Restart" id="restartButton" onclick="RestartVic()">
+    </div>
+    <script src="js/main.js"></script>
+    <script src="js/freq.js"></script>
+    <script src="js/wakeword-pv.js"></script>
+    <script src="js/auto-update.js"></script>
+    <script src="js/sensitivity-pv.js"></script>
+    <script src="js/jdoc-settings.js"></script>
+    <script src="js/faces.js"></script>
+    <script src="js/seek-dashboard.js"></script>
+</body>
+
+</html>
