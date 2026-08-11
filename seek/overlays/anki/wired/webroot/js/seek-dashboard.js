@@ -605,9 +605,11 @@ function doomKey(code, pressed) {
 async function doomStart() {
     if (cameraOn) stopCamera();
     setArmedUI(false);
-    setSeekStatus('Starting Doom on Vector…');
+    const sfx = $('doomSfx') && $('doomSfx').checked;
+    setSeekStatus(sfx ? 'Starting Doom with SFX…' : 'Starting Doom (silent)…');
     try {
-        const res = await fetch(DOOM_API + '/start', { cache: 'no-store' });
+        const q = sfx ? '/start?sfx=1' : '/start';
+        const res = await fetch(DOOM_API + q, { cache: 'no-store' });
         if (!res.ok) {
             const e = await res.json().catch(() => ({ message: 'start failed' }));
             setSeekStatus(e.message || 'Doom start failed', true);

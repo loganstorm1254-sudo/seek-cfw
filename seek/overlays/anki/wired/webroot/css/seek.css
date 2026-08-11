@@ -433,6 +433,17 @@ button.danger { color: var(--err); border-color: rgba(255, 143, 143, 0.35); }
     background: #000;
 }
 
+.field.checkbox {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    margin-top: 0.75rem;
+}
+
+.field.checkbox input {
+    margin-top: 0.2rem;
+}
+
 @media (max-width: 720px) {
     .drive-layout,
     .grid2,

@@ -33,18 +33,23 @@ const (
 	doomFaceBytes  = doomFaceW * doomFaceH * 2
 	doomFrameMagic = "FRAM"
 	doomAudioRate  = 16000
-	doomAudioVol   = 90
+	doomAudioVol   = 70
+	// Keep face updates gentle — DisplayFaceImageRGB spam was crashing units.
+	doomMinFrameGap = 160 * time.Millisecond // ~6 fps
+	doomFaceHoldMs  = 200
 )
 
 // SeekDoom hosts Doom on Vector's face; start/stop/keys are web-dashboard only.
 type SeekDoom struct {
 	vars.Modification
 
-	mu      sync.Mutex
-	running bool
-	cmd     *exec.Cmd
-	keysFd  *os.File
-	cancel  context.CancelFunc
+	mu       sync.Mutex
+	running  bool
+	wantSFX  bool
+	cmd      *exec.Cmd
+	keysFd   *os.File
+	cancel   context.CancelFunc
+	lastFace time.Time
 }
 
 func NewSeekDoom() *SeekDoom {
@@ -59,7 +64,6 @@ func (m *SeekDoom) Description() string {
 
 func (m *SeekDoom) Load() error {
 	_ = os.MkdirAll(doomRunDir, 0755)
-	// Face-menu start flag intentionally not watched — web dashboard only.
 	_ = os.Remove(doomRunDir + "/start")
 	return nil
 }
@@ -70,7 +74,7 @@ func (m *SeekDoom) IsRunning() bool {
 	return m.running
 }
 
-func (m *SeekDoom) Start() error {
+func (m *SeekDoom) Start(withSFX bool) error {
 	m.mu.Lock()
 	if m.running {
 		m.mu.Unlock()
@@ -89,8 +93,14 @@ func (m *SeekDoom) Start() error {
 	if dash == nil {
 		return errors.New("Seek dashboard not loaded")
 	}
-	// Grab the face before launching so the first frames aren't dropped.
-	if err := dash.controlStartPriority(vectorpb.ControlRequest_OVERRIDE_BEHAVIORS); err != nil {
+
+	// Stop anything else using the speaker/face before we take control.
+	dash.stopMedia()
+	dash.stopAudio()
+
+	// Long-lived session: DEFAULT priority only.
+	// OVERRIDE + re-assert was rebooting units (same bug as Drive).
+	if err := dash.controlStartPriority(vectorpb.ControlRequest_DEFAULT); err != nil {
 		return fmt.Errorf("behavior control: %w", err)
 	}
 
@@ -111,19 +121,23 @@ func (m *SeekDoom) Start() error {
 	}
 	_ = os.Chmod(doomFrameSock, 0666)
 
-	audioLn, err := net.Listen("unix", doomAudioSock)
-	if err != nil {
-		_ = frameLn.Close()
-		dash.controlEnd()
-		return fmt.Errorf("audio socket: %w", err)
+	var audioLn net.Listener
+	if withSFX {
+		audioLn, err = net.Listen("unix", doomAudioSock)
+		if err != nil {
+			_ = frameLn.Close()
+			dash.controlEnd()
+			return fmt.Errorf("audio socket: %w", err)
+		}
+		_ = os.Chmod(doomAudioSock, 0666)
 	}
-	_ = os.Chmod(doomAudioSock, 0666)
 
-	// Keep a writer open so doom's O_RDONLY open never blocks waiting for a peer.
 	keysFd, err := os.OpenFile(doomKeysPath, os.O_RDWR, 0666)
 	if err != nil {
 		_ = frameLn.Close()
-		_ = audioLn.Close()
+		if audioLn != nil {
+			_ = audioLn.Close()
+		}
 		dash.controlEnd()
 		return fmt.Errorf("open keys: %w", err)
 	}
@@ -132,13 +146,17 @@ func (m *SeekDoom) Start() error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Warp straight into E1M1. Keep -nomusic (SFX only — music needs a MIDI synth).
-	cmd := exec.CommandContext(ctx, doomBin,
+	args := []string{
 		"-iwad", doomWad,
 		"-skill", "3",
 		"-warp", "1", "1",
 		"-nomusic",
-	)
+	}
+	if !withSFX {
+		args = append(args, "-nosound")
+	}
+
+	cmd := exec.CommandContext(ctx, doomBin, args...)
 	cmd.Dir = doomRunDir
 	cmd.Env = append(os.Environ(), "HOME="+doomRunDir)
 	if logFile != nil {
@@ -148,30 +166,42 @@ func (m *SeekDoom) Start() error {
 
 	m.mu.Lock()
 	m.running = true
+	m.wantSFX = withSFX
 	m.cmd = cmd
 	m.keysFd = keysFd
 	m.cancel = cancel
+	m.lastFace = time.Time{}
 	m.mu.Unlock()
 
 	go m.serveFrames(ctx, frameLn, dash)
-	go m.serveAudio(ctx, audioLn, dash)
+	if audioLn != nil {
+		go m.serveAudio(ctx, audioLn, dash)
+	}
 
 	if err := cmd.Start(); err != nil {
 		cancel()
 		_ = keysFd.Close()
 		_ = frameLn.Close()
-		_ = audioLn.Close()
+		if audioLn != nil {
+			_ = audioLn.Close()
+		}
 		if logFile != nil {
 			_ = logFile.Close()
 		}
 		dash.controlEnd()
 		m.mu.Lock()
 		m.running = false
+		m.wantSFX = false
 		m.cmd = nil
 		m.keysFd = nil
 		m.cancel = nil
 		m.mu.Unlock()
 		return fmt.Errorf("start doom: %w", err)
+	}
+
+	// Lower CPU priority so victor/anim keep the robot stable.
+	if cmd.Process != nil {
+		_ = syscall.Setpriority(syscall.PRIO_PROCESS, cmd.Process.Pid, 10)
 	}
 
 	go func() {
@@ -192,6 +222,7 @@ func (m *SeekDoom) Stop() {
 	keysFd := m.keysFd
 	was := m.running
 	m.running = false
+	m.wantSFX = false
 	m.cancel = nil
 	m.cmd = nil
 	m.keysFd = nil
@@ -244,24 +275,26 @@ func (m *SeekDoom) serveAudio(ctx context.Context, ln net.Listener, dash *SeekDa
 		_ = ln.Close()
 	}()
 
+	// Give the game a moment to settle before opening the speaker stream.
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(1500 * time.Millisecond):
+	}
+
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			return
 		}
-		// One live stream at a time; new connect replaces old.
 		go func(c net.Conn) {
 			defer c.Close()
 			dash.mu.Lock()
 			v := dash.vec
+			holding := dash.holding
 			dash.mu.Unlock()
-			if v == nil {
-				_ = dash.controlStartPriority(vectorpb.ControlRequest_OVERRIDE_BEHAVIORS)
-				dash.mu.Lock()
-				v = dash.vec
-				dash.mu.Unlock()
-			}
-			if v == nil {
+			// Never re-request control here — that fight reboots units.
+			if !holding || v == nil {
 				return
 			}
 			_ = dash.streamPCMLive(ctx, v, c, doomAudioRate, doomAudioVol)
@@ -272,7 +305,6 @@ func (m *SeekDoom) serveAudio(ctx context.Context, ln net.Listener, dash *SeekDa
 func (m *SeekDoom) handleFrameConn(ctx context.Context, conn net.Conn, dash *SeekDashboard) {
 	defer conn.Close()
 
-	// Latest-frame-wins display so RPC latency doesn't stall the socket / game.
 	frames := make(chan []byte, 1)
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -332,24 +364,28 @@ func (m *SeekDoom) showFace(dash *SeekDashboard, face []byte) {
 	if dash == nil || len(face) != doomFaceBytes {
 		return
 	}
+
+	m.mu.Lock()
+	if !m.lastFace.IsZero() && time.Since(m.lastFace) < doomMinFrameGap {
+		m.mu.Unlock()
+		return
+	}
+	m.lastFace = time.Now()
+	m.mu.Unlock()
+
 	dash.mu.Lock()
 	v := dash.vec
 	holding := dash.holding
 	dash.mu.Unlock()
+	// Never re-acquire control mid-session — OVERRIDE/re-assert reboots Vector.
 	if !holding || v == nil {
-		_ = dash.controlStartPriority(vectorpb.ControlRequest_OVERRIDE_BEHAVIORS)
-		dash.mu.Lock()
-		v = dash.vec
-		dash.mu.Unlock()
-		if v == nil {
-			return
-		}
+		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 350*time.Millisecond)
 	defer cancel()
 	_, _ = v.Conn.DisplayFaceImageRGB(ctx, &vectorpb.DisplayFaceImageRGBRequest{
 		FaceData:         face,
-		DurationMs:       45,
+		DurationMs:       doomFaceHoldMs,
 		InterruptRunning: true,
 	})
 }
@@ -378,8 +414,13 @@ func (m *SeekDoom) HTTP(w http.ResponseWriter, r *http.Request) {
 	action := strings.TrimPrefix(r.URL.Path, prefix)
 	switch action {
 	case "status":
+		m.mu.Lock()
+		running := m.running
+		sfx := m.wantSFX
+		m.mu.Unlock()
 		out, _ := json.Marshal(map[string]any{
-			"running": m.IsRunning(),
+			"running": running,
+			"sfx":     sfx,
 			"binary":  fileExists(doomBin),
 			"wad":     fileExists(doomWad),
 		})
@@ -387,7 +428,8 @@ func (m *SeekDoom) HTTP(w http.ResponseWriter, r *http.Request) {
 		w.Write(out)
 		return
 	case "start":
-		if err := m.Start(); err != nil {
+		sfx := r.FormValue("sfx") == "1" || r.FormValue("sfx") == "true"
+		if err := m.Start(sfx); err != nil {
 			vars.HTTPError(w, r, err.Error())
 			return
 		}

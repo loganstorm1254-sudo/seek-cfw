@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#07131a">
     <title>Seek Dashboard</title>
-    <link rel="stylesheet" href="css/seek.css?v=25d">
+    <link rel="stylesheet" href="css/seek.css?v=26d">
 </head>
 <body>
     <div class="bg" aria-hidden="true"></div>
@@ -203,11 +203,15 @@
 
         <section id="tab-doom" class="panel" role="tabpanel" hidden>
             <h2>Doom</h2>
-            <p class="hint">Freedoom on Vector’s face with <b>SFX through his speaker</b> — start/stop/play only from this page. Starts in E1M1.</p>
+            <p class="hint">Freedoom on Vector’s face — start/stop/play only from this page. Starts in E1M1. Sound is optional (can be heavy on the robot).</p>
             <div class="actions">
                 <button type="button" class="primary" id="btnDoomStart">Play Doom</button>
                 <button type="button" class="ghost danger" id="btnDoomStop">Quit</button>
             </div>
+            <label class="field checkbox">
+                <input type="checkbox" id="doomSfx">
+                <span>Enable SFX (can restart some units — leave off if he reboots)</span>
+            </label>
             <p class="hint">Hold: W/S move · A/D turn · Q/E strafe · Space/F fire · U use · Enter menu · Esc</p>
             <div class="doom-pad" id="doomPad" aria-label="Doom controls">
                 <button type="button" class="pad-btn" data-doom="forward">▲</button>
@@ -267,7 +271,7 @@
         </section>
     </main>
     <noscript><p class="status err">JavaScript is required for Seek Dashboard.</p></noscript>
-    <script src="js/seek-dashboard.js?v=25d" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
+    <script src="js/seek-dashboard.js?v=26d" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
     <script>
     setTimeout(function () {
         if (!window.__seekLoaded) {
