@@ -42,17 +42,14 @@ After installing a SeekOS OTA that includes this feature, open:
 http://<vector-ip>:8080/seek.html
 ```
 
-From there you can:
+Tabs:
 
-- Change eye color (custom hue/saturation or presets)
-- Change master volume
-- Make Vector say text (TTS)
-- Upload and play **MP3/WAV** through his speaker
-- Play **MP4** (and other browser-decodable video) on his 184×96 face screen
+- **Look** — eye color + master volume
+- **Speak** — TTS + MP3/WAV
+- **Media** — play MP4 on his face
+- **Drive** — WASD teleop + live camera stream
 
 The classic `wired` settings UI remains at `http://<vector-ip>:8080/` and links to the Seek Dashboard.
-
-MP4 playback is decoded in your browser, then streamed to the robot as RGB565 frames (optional audio track included).
 
 ## Prerequisites
 

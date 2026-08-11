@@ -25,7 +25,7 @@ const (
 	seekMaxUpload  = 32 << 20 // 32 MiB
 )
 
-// SeekDashboard hosts eye color, volume, TTS, and media controls on Vector's IP.
+// SeekDashboard hosts eye color, volume, TTS, media, drive, and camera on Vector's IP.
 type SeekDashboard struct {
 	vars.Modification
 
@@ -35,6 +35,12 @@ type SeekDashboard struct {
 	start   chan bool
 	vec     *vector.Vector
 	cancel  context.CancelFunc
+
+	camMu      sync.Mutex
+	camRunning bool
+	camCancel  context.CancelFunc
+	camLatest  []byte
+	camSeq     uint64
 }
 
 func NewSeekDashboard() *SeekDashboard {
@@ -46,7 +52,7 @@ func (modu *SeekDashboard) Name() string {
 }
 
 func (modu *SeekDashboard) Description() string {
-	return "Seek web dashboard: eyes, volume, say text, play audio/video"
+	return "Seek web dashboard: eyes, volume, speak, media, drive, camera"
 }
 
 func (modu *SeekDashboard) Load() error {
@@ -136,11 +142,47 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 			vars.HTTPError(w, r, err.Error())
 			return
 		}
+	case "drive":
+		if err := m.handleDrive(r); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+	case "stopMotors":
+		if err := m.handleStopMotors(); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+	case "moveHead":
+		if err := m.handleMoveHead(r); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+	case "moveLift":
+		if err := m.handleMoveLift(r); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+	case "cameraStart":
+		if err := m.cameraStart(); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+	case "cameraStop":
+		m.cameraStop()
+	case "cameraFrame":
+		m.handleCameraFrame(w, r)
+		return
+	case "cameraMjpeg":
+		m.handleCameraMjpeg(w, r)
+		return
 	case "status":
 		m.mu.Lock()
 		holding := m.holding
 		m.mu.Unlock()
-		out, _ := json.Marshal(map[string]any{"holding": holding})
+		m.camMu.Lock()
+		cam := m.camRunning
+		m.camMu.Unlock()
+		out, _ := json.Marshal(map[string]any{"holding": holding, "camera": cam})
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(out)
 		return
@@ -357,6 +399,9 @@ func (m *SeekDashboard) controlEnd() {
 	defer m.mu.Unlock()
 	if !m.holding {
 		return
+	}
+	if m.vec != nil {
+		_, _ = m.vec.Conn.StopAllMotors(context.Background(), &vectorpb.StopAllMotorsRequest{})
 	}
 	select {
 	case m.stop <- true:

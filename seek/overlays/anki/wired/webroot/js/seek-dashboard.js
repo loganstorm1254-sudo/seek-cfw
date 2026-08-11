@@ -1,9 +1,16 @@
 const SEEK_FACE_W = 184;
 const SEEK_FACE_H = 96;
+const API = '/api/mods/SeekDashboard';
+
 let seekVideoAbort = null;
+let driveState = { forward: 0, turn: 0, sending: false, timer: null };
+let keysDown = new Set();
+let cameraOn = false;
+
+function $(id) { return document.getElementById(id); }
 
 function setSeekStatus(msg, isError) {
-    const el = document.getElementById('seekStatus');
+    const el = $('seekStatus');
     if (!el) return;
     if (!msg) {
         el.hidden = true;
@@ -16,35 +23,68 @@ function setSeekStatus(msg, isError) {
     el.textContent = msg;
 }
 
+function api(path, opts) {
+    return fetch(API + '/' + path, opts);
+}
+
+function fire(path) {
+    // Non-blocking command for drive/pad — keep UI snappy.
+    return fetch(API + '/' + path, { method: 'GET', cache: 'no-store' }).catch(() => {});
+}
+
+/* ---------------- Tabs ---------------- */
+
+function switchTab(name) {
+    document.querySelectorAll('.tab').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.tab === name);
+    });
+    document.querySelectorAll('.panel').forEach((panel) => {
+        const on = panel.id === 'tab-' + name;
+        panel.hidden = !on;
+        panel.classList.toggle('active', on);
+    });
+    if (name === 'drive') {
+        // Prepare camera lazily when opening Drive.
+    } else {
+        stopDriveLoop();
+        fire('stopMotors');
+    }
+    if (name === 'look') seekRefresh();
+}
+
+function initTabs() {
+    document.querySelectorAll('.tab').forEach((btn) => {
+        btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
+}
+
+/* ---------------- Look / Speak / Media ---------------- */
+
 function seekEyeModeChanged() {
-    const mode = document.getElementById('eyeMode').value;
-    const custom = document.getElementById('eyeCustomControls');
-    const preset = document.getElementById('eyePresetControls');
-    if (custom) custom.hidden = mode !== 'custom';
-    if (preset) preset.hidden = mode !== 'preset';
+    const mode = $('eyeMode').value;
+    $('eyeCustomControls').hidden = mode !== 'custom';
+    $('eyePresetControls').hidden = mode !== 'preset';
 }
 
 async function seekRefresh() {
     try {
-        const eyeRes = await fetch('/api/mods/SeekDashboard/getEyeColor');
+        const eyeRes = await api('getEyeColor');
         if (eyeRes.ok) {
             const eye = await eyeRes.json();
             if (eye.iscustom) {
-                document.getElementById('eyeMode').value = 'custom';
-                document.getElementById('eyeHue').value = eye.hue;
-                document.getElementById('eyeSat').value = eye.saturation;
-                document.getElementById('eyeHueVal').textContent = Number(eye.hue).toFixed(2);
-                document.getElementById('eyeSatVal').textContent = Number(eye.saturation).toFixed(2);
+                $('eyeMode').value = 'custom';
+                $('eyeHue').value = eye.hue;
+                $('eyeSat').value = eye.saturation;
+                $('eyeHueVal').textContent = Number(eye.hue).toFixed(2);
+                $('eyeSatVal').textContent = Number(eye.saturation).toFixed(2);
             } else {
-                document.getElementById('eyeMode').value = 'preset';
-                document.getElementById('eyePreset').value = String(eye.preset);
+                $('eyeMode').value = 'preset';
+                $('eyePreset').value = String(eye.preset);
             }
             seekEyeModeChanged();
         }
-        const volRes = await fetch('/api/mods/SeekDashboard/getVolume');
-        if (volRes.ok) {
-            document.getElementById('masterVolume').value = (await volRes.text()).trim();
-        }
+        const volRes = await api('getVolume');
+        if (volRes.ok) $('masterVolume').value = (await volRes.text()).trim();
     } catch (e) {
         console.log('seekRefresh', e);
     }
@@ -53,15 +93,14 @@ async function seekRefresh() {
 async function seekSetEyeColor() {
     setSeekStatus('Setting eye color...');
     try {
-        const mode = document.getElementById('eyeMode').value;
-        let url = '/api/mods/SeekDashboard/setEyeColor?mode=' + encodeURIComponent(mode);
-        if (mode === 'preset') {
-            url += '&preset=' + encodeURIComponent(document.getElementById('eyePreset').value);
-        } else {
-            url += '&hue=' + encodeURIComponent(document.getElementById('eyeHue').value);
-            url += '&saturation=' + encodeURIComponent(document.getElementById('eyeSat').value);
+        const mode = $('eyeMode').value;
+        let url = 'setEyeColor?mode=' + encodeURIComponent(mode);
+        if (mode === 'preset') url += '&preset=' + encodeURIComponent($('eyePreset').value);
+        else {
+            url += '&hue=' + encodeURIComponent($('eyeHue').value);
+            url += '&saturation=' + encodeURIComponent($('eyeSat').value);
         }
-        const res = await fetch(url);
+        const res = await api(url);
         if (!res.ok) {
             const e = await res.json();
             setSeekStatus(`${e.status}: ${e.message}`, true);
@@ -77,8 +116,7 @@ async function seekSetEyeColor() {
 async function seekSetVolume() {
     setSeekStatus('Setting volume...');
     try {
-        const v = document.getElementById('masterVolume').value;
-        const res = await fetch('/api/mods/SeekDashboard/setVolume?volume=' + encodeURIComponent(v));
+        const res = await api('setVolume?volume=' + encodeURIComponent($('masterVolume').value));
         if (!res.ok) {
             const e = await res.json();
             setSeekStatus(`${e.status}: ${e.message}`, true);
@@ -91,17 +129,16 @@ async function seekSetVolume() {
 }
 
 async function seekSayText() {
-    const text = document.getElementById('sayText').value.trim();
+    const text = $('sayText').value.trim();
     if (!text) {
         setSeekStatus('Enter something for Vector to say.', true);
         return;
     }
     setSeekStatus('Saying...');
     try {
-        const useVoice = document.getElementById('sayVectorVoice').value;
-        const res = await fetch(
-            '/api/mods/SeekDashboard/sayText?text=' + encodeURIComponent(text) +
-            '&vectorVoice=' + useVoice
+        const res = await api(
+            'sayText?text=' + encodeURIComponent(text) +
+            '&vectorVoice=' + encodeURIComponent($('sayVectorVoice').value)
         );
         if (!res.ok) {
             const e = await res.json();
@@ -115,19 +152,18 @@ async function seekSayText() {
 }
 
 async function seekPlayAudio() {
-    const input = document.getElementById('audioFile');
+    const input = $('audioFile');
     if (!input.files || !input.files[0]) {
         setSeekStatus('Choose an MP3 or WAV file first.', true);
         return;
     }
     const file = input.files[0];
-    const vol = document.getElementById('audioPlayVolume').value;
-    setSeekStatus('Uploading and playing ' + file.name + '...');
+    setSeekStatus('Playing ' + file.name + '...');
     try {
         const fd = new FormData();
         fd.append('file', file, file.name);
-        fd.append('volume', vol);
-        const res = await fetch('/api/mods/SeekDashboard/playAudio', { method: 'POST', body: fd });
+        fd.append('volume', $('audioPlayVolume').value);
+        const res = await api('playAudio', { method: 'POST', body: fd });
         if (!res.ok) {
             const e = await res.json();
             setSeekStatus(`${e.status}: ${e.message}`, true);
@@ -139,23 +175,6 @@ async function seekPlayAudio() {
     }
 }
 
-// Official Vector SDK byte order: HIGH byte first (not little-endian).
-function rgbaToRgb565(rgba) {
-    const out = new Uint8Array(SEEK_FACE_W * SEEK_FACE_H * 2);
-    let o = 0;
-    for (let i = 0; i < rgba.length; i += 4) {
-        const r5 = rgba[i] >> 3;
-        const g6 = rgba[i + 1] >> 2;
-        const b5 = rgba[i + 2] >> 3;
-        const g3hi = g6 >> 3;
-        const g3lo = g6 & 0x07;
-        out[o++] = (r5 << 3) | g3hi;
-        out[o++] = (g3lo << 5) | b5;
-    }
-    return out;
-}
-
-// Floyd–Steinberg dithering improves perceived quality on RGB565.
 function rgbaToRgb565Dithered(rgba) {
     const w = SEEK_FACE_W;
     const h = SEEK_FACE_H;
@@ -170,18 +189,13 @@ function rgbaToRgb565Dithered(rgba) {
     for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
             const idx = (y * w + x) * 3;
-            let r = buf[idx];
-            let g = buf[idx + 1];
-            let b = buf[idx + 2];
+            let r = buf[idx], g = buf[idx + 1], b = buf[idx + 2];
             const r5 = Math.max(0, Math.min(31, Math.round(r / 8.225806)));
             const g6 = Math.max(0, Math.min(63, Math.round(g / 4.047619)));
             const b5 = Math.max(0, Math.min(31, Math.round(b / 8.225806)));
-            const qr = r5 * 8.225806;
-            const qg = g6 * 4.047619;
-            const qb = b5 * 8.225806;
-            const er = r - qr;
-            const eg = g - qg;
-            const eb = b - qb;
+            const er = r - r5 * 8.225806;
+            const eg = g - g6 * 4.047619;
+            const eb = b - b5 * 8.225806;
             const distribute = (nx, ny, fr) => {
                 if (nx < 0 || nx >= w || ny < 0 || ny >= h) return;
                 const j = (ny * w + nx) * 3;
@@ -193,10 +207,8 @@ function rgbaToRgb565Dithered(rgba) {
             distribute(x - 1, y + 1, 3 / 16);
             distribute(x, y + 1, 5 / 16);
             distribute(x + 1, y + 1, 1 / 16);
-            const g3hi = g6 >> 3;
-            const g3lo = g6 & 0x07;
-            out[o++] = (r5 << 3) | g3hi;
-            out[o++] = (g3lo << 5) | b5;
+            out[o++] = (r5 << 3) | (g6 >> 3);
+            out[o++] = ((g6 & 0x07) << 5) | b5;
         }
     }
     return out;
@@ -209,17 +221,12 @@ function drawVideoFrame(ctx, video, fit) {
     ctx.imageSmoothingQuality = 'high';
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, SEEK_FACE_W, SEEK_FACE_H);
-    let scale;
-    if (fit === 'contain') {
-        scale = Math.min(SEEK_FACE_W / vw, SEEK_FACE_H / vh);
-    } else {
-        scale = Math.max(SEEK_FACE_W / vw, SEEK_FACE_H / vh);
-    }
+    const scale = fit === 'contain'
+        ? Math.min(SEEK_FACE_W / vw, SEEK_FACE_H / vh)
+        : Math.max(SEEK_FACE_W / vw, SEEK_FACE_H / vh);
     const dw = Math.max(1, Math.round(vw * scale));
     const dh = Math.max(1, Math.round(vh * scale));
-    const dx = Math.floor((SEEK_FACE_W - dw) / 2);
-    const dy = Math.floor((SEEK_FACE_H - dh) / 2);
-    ctx.drawImage(video, dx, dy, dw, dh);
+    ctx.drawImage(video, Math.floor((SEEK_FACE_W - dw) / 2), Math.floor((SEEK_FACE_H - dh) / 2), dw, dh);
 }
 
 async function decodeFileToPcm16k(file) {
@@ -227,16 +234,10 @@ async function decodeFileToPcm16k(file) {
     const probe = new (window.AudioContext || window.webkitAudioContext)();
     const decoded = await probe.decodeAudioData(arr.slice(0));
     await probe.close();
-
-    const srcRate = decoded.sampleRate;
     const srcFrames = decoded.length;
     const left = decoded.getChannelData(0);
     const right = decoded.numberOfChannels > 1 ? decoded.getChannelData(1) : null;
-    const monoBuf = new AudioBuffer({
-        length: srcFrames,
-        numberOfChannels: 1,
-        sampleRate: srcRate
-    });
+    const monoBuf = new AudioBuffer({ length: srcFrames, numberOfChannels: 1, sampleRate: decoded.sampleRate });
     const monoData = monoBuf.getChannelData(0);
     let peak = 0;
     for (let i = 0; i < srcFrames; i++) {
@@ -249,7 +250,6 @@ async function decodeFileToPcm16k(file) {
         const gain = 0.92 / peak;
         for (let i = 0; i < srcFrames; i++) monoData[i] *= gain;
     }
-
     const outFrames = Math.max(1, Math.ceil(decoded.duration * 16000));
     const offline = new OfflineAudioContext(1, outFrames, 16000);
     const src = offline.createBufferSource();
@@ -261,7 +261,7 @@ async function decodeFileToPcm16k(file) {
     const pcm = new ArrayBuffer(f32.length * 2);
     const view = new DataView(pcm);
     for (let i = 0; i < f32.length; i++) {
-        let s = Math.max(-1, Math.min(1, f32[i]));
+        const s = Math.max(-1, Math.min(1, f32[i]));
         view.setInt16(i * 2, (s * 32767) | 0, true);
     }
     return new Uint8Array(pcm);
@@ -269,26 +269,24 @@ async function decodeFileToPcm16k(file) {
 
 async function seekStopMedia() {
     if (seekVideoAbort) seekVideoAbort.abort = true;
-    try { await fetch('/api/mods/SeekDashboard/controlEnd'); } catch (_) {}
+    try { await api('controlEnd'); } catch (_) {}
     setSeekStatus('Stopped.');
 }
 
 async function seekPlayVideo() {
-    const input = document.getElementById('videoFile');
+    const input = $('videoFile');
     if (!input.files || !input.files[0]) {
-        setSeekStatus('Choose an MP4 (or other video) first.', true);
+        setSeekStatus('Choose a video first.', true);
         return;
     }
     const file = input.files[0];
-    const fps = Math.max(1, Math.min(15, Number(document.getElementById('videoFps').value) || 12));
-    const withAudio = document.getElementById('videoWithAudio').value !== '0';
-    const fit = document.getElementById('videoFit').value;
-    const canvas = document.getElementById('seekVideoCanvas');
+    const fps = Math.max(1, Math.min(15, Number($('videoFps').value) || 12));
+    const withAudio = $('videoWithAudio').value !== '0';
+    const fit = $('videoFit').value;
+    const canvas = $('seekVideoCanvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    const btn = document.getElementById('videoPlayBtn');
-    const vol = document.getElementById('audioPlayVolume')
-        ? document.getElementById('audioPlayVolume').value
-        : '100';
+    const btn = $('videoPlayBtn');
+    const vol = $('audioPlayVolume') ? $('audioPlayVolume').value : '100';
     btn.disabled = true;
 
     const url = URL.createObjectURL(file);
@@ -297,7 +295,6 @@ async function seekPlayVideo() {
     video.muted = true;
     video.playsInline = true;
     video.preload = 'auto';
-
     seekVideoAbort = { abort: false };
     const token = seekVideoAbort;
 
@@ -309,25 +306,20 @@ async function seekPlayVideo() {
 
         let pcm = null;
         if (withAudio) {
-            setSeekStatus('Decoding audio (16 kHz)...');
-            try {
-                pcm = await decodeFileToPcm16k(file);
-            } catch (err) {
-                console.log('audio extract failed', err);
-                setSeekStatus('Playing video without audio (' + err.message + ')');
-            }
+            setSeekStatus('Decoding audio...');
+            try { pcm = await decodeFileToPcm16k(file); }
+            catch (err) { setSeekStatus('Playing without audio (' + err.message + ')'); }
         }
 
         setSeekStatus('Taking control...');
-        let res = await fetch('/api/mods/SeekDashboard/controlStart');
+        let res = await api('controlStart');
         if (!res.ok) {
             const e = await res.json();
             throw new Error(e.message || 'controlStart failed');
         }
 
-        // Start audio streaming immediately (server streams body; no full buffer wait).
         const audioPromise = pcm
-            ? fetch('/api/mods/SeekDashboard/playPcm?rate=16000&volume=' + encodeURIComponent(vol), {
+            ? api('playPcm?rate=16000&volume=' + encodeURIComponent(vol), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/octet-stream' },
                 body: pcm
@@ -343,16 +335,14 @@ async function seekPlayVideo() {
         const frameMs = Math.round(1000 / fps);
         const holdMs = Math.max(frameMs + 40, Math.round(frameMs * 1.35));
         setSeekStatus('Playing on face @ ' + fps + ' fps...');
-
         let nextT = performance.now();
         while (!video.ended && !token.abort) {
             drawVideoFrame(ctx, video, fit);
             const rgba = ctx.getImageData(0, 0, SEEK_FACE_W, SEEK_FACE_H).data;
-            const rgb565 = rgbaToRgb565Dithered(rgba);
-            const frameRes = await fetch('/api/mods/SeekDashboard/frame?duration_ms=' + holdMs, {
+            const frameRes = await api('frame?duration_ms=' + holdMs, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/octet-stream' },
-                body: rgb565
+                body: rgbaToRgb565Dithered(rgba)
             });
             if (!frameRes.ok) {
                 const e = await frameRes.json().catch(() => ({ message: 'frame failed' }));
@@ -360,15 +350,14 @@ async function seekPlayVideo() {
             }
             nextT += frameMs;
             const wait = nextT - performance.now();
-            if (wait > 0) await new Promise(r => setTimeout(r, wait));
+            if (wait > 0) await new Promise((r) => setTimeout(r, wait));
             else nextT = performance.now();
         }
-
         await audioPromise;
-        await fetch('/api/mods/SeekDashboard/controlEnd');
+        await api('controlEnd');
         setSeekStatus(token.abort ? 'Stopped.' : 'Video finished.');
     } catch (e) {
-        try { await fetch('/api/mods/SeekDashboard/controlEnd'); } catch (_) {}
+        try { await api('controlEnd'); } catch (_) {}
         setSeekStatus('video error: ' + e.message, true);
     } finally {
         video.pause();
@@ -378,8 +367,219 @@ async function seekPlayVideo() {
     }
 }
 
-// Page boot
-if (document.getElementById('eyeMode')) {
-    seekEyeModeChanged();
-    seekRefresh();
+/* ---------------- Drive + Camera ---------------- */
+
+function driveSpeed() {
+    return Number($('driveSpeed').value) || 80;
 }
+
+function currentWheelSpeeds() {
+    const s = driveSpeed();
+    const f = driveState.forward;
+    const t = driveState.turn;
+    let left = f * s + t * s;
+    let right = f * s - t * s;
+    left = Math.max(-200, Math.min(200, left));
+    right = Math.max(-200, Math.min(200, right));
+    return { left, right };
+}
+
+function sendDriveNow() {
+    const { left, right } = currentWheelSpeeds();
+    if (left === 0 && right === 0) {
+        fire('stopMotors');
+        return;
+    }
+    fire('drive?left=' + left.toFixed(1) + '&right=' + right.toFixed(1));
+}
+
+function startDriveLoop() {
+    if (driveState.timer) return;
+    sendDriveNow();
+    driveState.timer = setInterval(sendDriveNow, 180);
+}
+
+function stopDriveLoop() {
+    driveState.forward = 0;
+    driveState.turn = 0;
+    if (driveState.timer) {
+        clearInterval(driveState.timer);
+        driveState.timer = null;
+    }
+    document.querySelectorAll('.pad-btn').forEach((b) => b.classList.remove('held'));
+}
+
+function setDriveVector(forward, turn) {
+    driveState.forward = forward;
+    driveState.turn = turn;
+    if (forward === 0 && turn === 0) {
+        stopDriveLoop();
+        fire('stopMotors');
+        return;
+    }
+    startDriveLoop();
+}
+
+function bindPad() {
+    const recompute = () => {
+        let f = 0, t = 0;
+        document.querySelectorAll('.pad-btn.held').forEach((b) => {
+            if (b.dataset.dir === 'forward') f = 1;
+            if (b.dataset.dir === 'back') f = -1;
+            if (b.dataset.dir === 'left') t = 1;
+            if (b.dataset.dir === 'right') t = -1;
+        });
+        setDriveVector(f, t);
+    };
+
+    document.querySelectorAll('.pad-btn').forEach((btn) => {
+        const dir = btn.dataset.dir;
+        const down = (e) => {
+            e.preventDefault();
+            if (dir === 'stop') {
+                document.querySelectorAll('.pad-btn').forEach((b) => b.classList.remove('held'));
+                setDriveVector(0, 0);
+                return;
+            }
+            // Opposite directions cancel
+            if (dir === 'forward') document.querySelector('.pad-btn[data-dir="back"]')?.classList.remove('held');
+            if (dir === 'back') document.querySelector('.pad-btn[data-dir="forward"]')?.classList.remove('held');
+            if (dir === 'left') document.querySelector('.pad-btn[data-dir="right"]')?.classList.remove('held');
+            if (dir === 'right') document.querySelector('.pad-btn[data-dir="left"]')?.classList.remove('held');
+            btn.classList.add('held');
+            recompute();
+        };
+        const up = (e) => {
+            e.preventDefault();
+            if (dir === 'stop') return;
+            btn.classList.remove('held');
+            recompute();
+        };
+        btn.addEventListener('pointerdown', down);
+        btn.addEventListener('pointerup', up);
+        btn.addEventListener('pointerleave', up);
+        btn.addEventListener('pointercancel', up);
+    });
+
+    document.querySelectorAll('[data-act]').forEach((btn) => {
+        const act = btn.dataset.act;
+        const start = (e) => {
+            e.preventDefault();
+            if (act === 'head-up') fire('moveHead?speed=3');
+            if (act === 'head-down') fire('moveHead?speed=-3');
+            if (act === 'lift-up') fire('moveLift?speed=3');
+            if (act === 'lift-down') fire('moveLift?speed=-3');
+        };
+        const stop = (e) => {
+            e.preventDefault();
+            if (act.startsWith('head')) fire('moveHead?speed=0');
+            if (act.startsWith('lift')) fire('moveLift?speed=0');
+        };
+        btn.addEventListener('pointerdown', start);
+        btn.addEventListener('pointerup', stop);
+        btn.addEventListener('pointerleave', stop);
+        btn.addEventListener('pointercancel', stop);
+    });
+}
+
+function syncKeysToDrive() {
+    let f = 0, t = 0;
+    if (keysDown.has('w') || keysDown.has('arrowup')) f += 1;
+    if (keysDown.has('s') || keysDown.has('arrowdown')) f -= 1;
+    if (keysDown.has('a') || keysDown.has('arrowleft')) t += 1;
+    if (keysDown.has('d') || keysDown.has('arrowright')) t -= 1;
+    setDriveVector(f, t);
+}
+
+function bindKeyboard() {
+    window.addEventListener('keydown', (e) => {
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
+        const driveTab = $('tab-drive');
+        if (!driveTab || driveTab.hidden) return;
+        const k = e.key.toLowerCase();
+        if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'q', 'e', 'r', 'f'].includes(k) || e.key === ' ') {
+            e.preventDefault();
+        }
+        if (e.key === ' ') {
+            keysDown.clear();
+            setDriveVector(0, 0);
+            fire('stopMotors');
+            return;
+        }
+        if (k === 'q') { fire('moveHead?speed=3'); return; }
+        if (k === 'e') { fire('moveHead?speed=-3'); return; }
+        if (k === 'r') { fire('moveLift?speed=3'); return; }
+        if (k === 'f') { fire('moveLift?speed=-3'); return; }
+        if (!keysDown.has(k)) {
+            keysDown.add(k);
+            syncKeysToDrive();
+        }
+    });
+    window.addEventListener('keyup', (e) => {
+        const k = e.key.toLowerCase();
+        if (k === 'q' || k === 'e') fire('moveHead?speed=0');
+        if (k === 'r' || k === 'f') fire('moveLift?speed=0');
+        if (keysDown.delete(k)) syncKeysToDrive();
+    });
+    window.addEventListener('blur', () => {
+        keysDown.clear();
+        setDriveVector(0, 0);
+    });
+}
+
+function startCamera() {
+    if (cameraOn) return;
+    cameraOn = true;
+    const img = $('cameraView');
+    img.src = API + '/cameraMjpeg?' + Date.now();
+    setSeekStatus('Camera streaming...');
+    api('cameraStart').catch(() => {});
+}
+
+function stopCamera() {
+    cameraOn = false;
+    const img = $('cameraView');
+    img.removeAttribute('src');
+    img.src = '';
+    fire('cameraStop');
+    setSeekStatus('Camera stopped.');
+}
+
+function bindUI() {
+    $('eyeMode').addEventListener('change', seekEyeModeChanged);
+    $('eyeHue').addEventListener('input', () => {
+        $('eyeHueVal').textContent = Number($('eyeHue').value).toFixed(2);
+    });
+    $('eyeSat').addEventListener('input', () => {
+        $('eyeSatVal').textContent = Number($('eyeSat').value).toFixed(2);
+    });
+    $('audioPlayVolume').addEventListener('input', () => {
+        $('audioPlayVolVal').textContent = $('audioPlayVolume').value;
+    });
+    $('driveSpeed').addEventListener('input', () => {
+        $('driveSpeedVal').textContent = $('driveSpeed').value;
+    });
+
+    $('btnEye').addEventListener('click', seekSetEyeColor);
+    $('btnVolume').addEventListener('click', seekSetVolume);
+    $('btnSay').addEventListener('click', seekSayText);
+    $('btnAudio').addEventListener('click', seekPlayAudio);
+    $('videoPlayBtn').addEventListener('click', seekPlayVideo);
+    $('btnStopMedia').addEventListener('click', seekStopMedia);
+    $('btnCamStart').addEventListener('click', startCamera);
+    $('btnCamStop').addEventListener('click', stopCamera);
+    $('btnRelease').addEventListener('click', async () => {
+        stopDriveLoop();
+        stopCamera();
+        await api('controlEnd');
+        setSeekStatus('Control released.');
+    });
+}
+
+/* boot */
+initTabs();
+bindUI();
+bindPad();
+bindKeyboard();
+seekEyeModeChanged();
+seekRefresh();
