@@ -25,7 +25,9 @@ function setSeekStatus(msg, isError) {
 }
 
 function api(path, opts) {
-    return fetch(API + '/' + path, opts);
+    const o = opts ? Object.assign({}, opts) : {};
+    o.cache = 'no-store';
+    return fetch(API + '/' + path, o);
 }
 
 function fire(path) {
@@ -45,7 +47,9 @@ function switchTab(name) {
         panel.classList.toggle('active', on);
     });
     if (name === 'drive') {
-        setSeekStatus('Drive tab ready. Click “Take control”, then hold WASD.');
+        setSeekStatus('Drive ready. Tap Take control, then hold the pad (or WASD).');
+    } else if (name === 'moves') {
+        setSeekStatus('Moves: Activate voice, or tap a behavior.');
     } else if (driveArmed) {
         keysDown.clear();
         lastDriveSent = '';
@@ -544,6 +548,13 @@ function bindUI() {
         updateWasdKeys();
     });
     $('btnListen').addEventListener('click', activateVoice);
+    const meetBtn = $('btnMeet');
+    if (meetBtn) {
+        meetBtn.addEventListener('click', () => {
+            runMove('intent', { id: 'intent_meet_victor', label: 'Meet Vector' });
+        });
+    }
+    bindTouchPad();
 }
 
 /* ---------------- Moves (behaviors + anims) ---------------- */
@@ -587,6 +598,18 @@ const MOVE_INTENT_ORDER = [
     'intent_global_stop_extend',
 ];
 
+const MOVE_FAVORITES = [
+    { id: 'intent_play_fistbump', label: 'Fist bump' },
+    { id: 'intent_imperative_dance', label: 'Dance' },
+    { id: 'intent_imperative_come', label: 'Come here' },
+    { id: 'intent_imperative_love', label: 'I love you' },
+    { id: 'intent_imperative_praise', label: 'Good robot' },
+    { id: 'intent_system_sleep', label: 'Go to sleep' },
+    { id: 'intent_system_charger', label: 'Go to charger' },
+    { id: 'explore_start', label: 'Explore' },
+    { id: 'intent_global_stop_extend', label: 'Stop' },
+];
+
 function sortMoves(items, order) {
     const rank = new Map(order.map((id, i) => [id, i]));
     return items.slice().sort((a, b) => {
@@ -614,11 +637,17 @@ function fillMoveGrid(el, items, kind) {
 async function loadMoves() {
     try {
         const res = await api('moves');
-        if (!res.ok) return;
+        if (!res.ok) {
+            setSeekStatus('Moves catalog failed to load — robot may still be waking up.', true);
+            return;
+        }
         const data = await res.json();
+        fillMoveGrid($('movesFavorites'), MOVE_FAVORITES, 'intent');
         fillMoveGrid($('movesIntents'), sortMoves(data.intents || [], MOVE_INTENT_ORDER), 'intent');
         fillMoveGrid($('movesAnims'), sortMoves(data.anims || [], []), 'anim');
-    } catch (_) { /* ignore */ }
+    } catch (_) {
+        setSeekStatus('Cannot reach robot API yet. Pull to refresh in a moment.', true);
+    }
 }
 
 async function runMove(kind, item) {
@@ -628,11 +657,8 @@ async function runMove(kind, item) {
         if (kind === 'intent') {
             let param = '';
             if (item.id === 'intent_meet_victor') {
-                param = window.prompt('Name for Vector to learn?', 'friend') || '';
-                if (!param) {
-                    setSeekStatus('Cancelled.');
-                    return;
-                }
+                const meet = $('meetName');
+                param = (meet && meet.value.trim()) || 'friend';
             }
             path = 'appIntent?intent=' + encodeURIComponent(item.id) + '&param=' + encodeURIComponent(param);
             setArmedUI(false);
@@ -667,10 +693,87 @@ async function activateVoice() {
     }
 }
 
+function bindTouchPad() {
+    const pad = $('touchPad');
+    if (!pad) return;
+    let held = null;
+
+    function setHeld(btn, on) {
+        if (!btn) return;
+        btn.classList.toggle('held', on);
+    }
+
+    function start(btn, e) {
+        if (e) e.preventDefault();
+        if (!driveArmed) {
+            setSeekStatus('Tap Take control first.', true);
+            return;
+        }
+        if (held && held !== btn) {
+            setHeld(held, false);
+        }
+        held = btn;
+        setHeld(btn, true);
+        const f = Number(btn.dataset.f) || 0;
+        const t = Number(btn.dataset.t) || 0;
+        lastDriveSent = '';
+        sendDrive(f, t);
+    }
+
+    function stop(e) {
+        if (e) e.preventDefault();
+        if (!held) return;
+        setHeld(held, false);
+        held = null;
+        lastDriveSent = '';
+        sendDrive(0, 0);
+    }
+
+    pad.querySelectorAll('.pad-btn').forEach((btn) => {
+        btn.addEventListener('pointerdown', (e) => {
+            try { btn.setPointerCapture(e.pointerId); } catch (_) {}
+            start(btn, e);
+        });
+        btn.addEventListener('pointerup', stop);
+        btn.addEventListener('pointercancel', stop);
+        btn.addEventListener('lostpointercapture', stop);
+        // Avoid long-press callout / scroll steal on phones
+        btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    });
+    window.addEventListener('pointerup', stop);
+}
+
+async function waitForRobot() {
+    setSeekStatus('Connecting to Vector…');
+    for (let i = 0; i < 45; i++) {
+        try {
+            const res = await fetch('/api/health', { cache: 'no-store' });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.ready) {
+                    setSeekStatus('Connected.');
+                    return true;
+                }
+                setSeekStatus('Robot waking up… (' + (i + 1) + ')');
+            } else {
+                setSeekStatus('Dashboard up — waiting for SDK…', true);
+            }
+        } catch (_) {
+            setSeekStatus('Cannot reach ' + location.host + ' — check Wi‑Fi / IP.', true);
+        }
+        await new Promise((r) => setTimeout(r, 1500));
+    }
+    setSeekStatus('Still waking up. Open this page again in a minute.', true);
+    return false;
+}
+
 /* boot */
-initTabs();
-bindUI();
-bindKeyboard();
-seekEyeModeChanged();
-seekRefresh();
-loadMoves();
+(async function boot() {
+    initTabs();
+    bindUI();
+    bindKeyboard();
+    seekEyeModeChanged();
+    await waitForRobot();
+    seekRefresh();
+    loadMoves();
+})();

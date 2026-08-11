@@ -55,16 +55,22 @@ var seekAppIntents = map[string]string{
 
 // Whitelisted animation triggers (PlayAnimationTrigger).
 var seekAnimTriggers = map[string]string{
-	"GreetAfterLongTime":    "Hello wave",
-	"ReactToGreeting":       "Greeting react",
-	"FistBumpRequestOnce":   "Fist bump pose",
-	"ComeHereStart":         "Come-here look",
-	"GoToSleepGetIn":        "Sleepy",
-	"ExploringLookAround":   "Look around",
-	"DriveLoopHappy":        "Happy drive",
-	"PRDemoGreeting":        "Demo greeting",
-	"SeasonalHappyHolidays": "Holidays",
-	"SeasonalHappyNewYear":  "New Year",
+	"GreetAfterLongTime":       "Hello wave",
+	"ReactToGreeting":          "Greeting react",
+	"FistBumpRequestOnce":      "Fist bump pose",
+	"FistBumpSuccess":          "Fist bump success",
+	"ComeHereStart":            "Come-here look",
+	"GoToSleepGetIn":           "Sleepy",
+	"ExploringLookAround":      "Look around",
+	"DriveLoopHappy":           "Happy drive",
+	"PRDemoGreeting":           "Demo greeting",
+	"LookAtUserEndearingly":    "Look endearing",
+	"PettingLevel1":            "Petting",
+	"Feedback_ILoveYou":        "I love you (anim)",
+	"Feedback_GoodRobot":       "Good robot (anim)",
+	"MeetVictorSayName":        "Say name",
+	"SeasonalHappyHolidays":    "Holidays",
+	"SeasonalHappyNewYear":     "New Year",
 }
 
 func (m *SeekDashboard) handleAppIntent(intent, param string) error {

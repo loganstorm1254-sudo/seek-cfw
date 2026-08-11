@@ -209,7 +209,12 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 		m.camMu.Lock()
 		cam := m.camRunning
 		m.camMu.Unlock()
-		out, _ := json.Marshal(map[string]any{"holding": holding, "camera": cam})
+		out, _ := json.Marshal(map[string]any{
+			"holding": holding,
+			"camera":  cam,
+			"ready":   vars.SDKReady(),
+		})
+		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(out)
 		return

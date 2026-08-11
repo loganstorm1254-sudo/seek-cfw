@@ -2,9 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#07131a">
     <title>Seek Dashboard</title>
-    <link rel="stylesheet" href="css/seek.css">
+    <link rel="stylesheet" href="css/seek.css?v=10d">
 </head>
 <body>
     <div class="bg" aria-hidden="true"></div>
@@ -146,8 +148,19 @@
                 <button type="button" class="primary" id="btnListen">Activate voice</button>
             </div>
 
+            <h2 class="spaced">Favorites</h2>
+            <div class="move-grid favorites" id="movesFavorites"></div>
+
+            <h2 class="spaced">Meet Vector</h2>
+            <p class="hint">Name for Vector to learn (works on phones — no popup).</p>
+            <label class="field">
+                <span>Name</span>
+                <input type="text" id="meetName" maxlength="32" placeholder="friend" value="friend" autocomplete="name">
+            </label>
+            <button type="button" class="ghost" id="btnMeet">Meet Vector</button>
+
             <h2 class="spaced">Behaviors</h2>
-            <p class="hint">Real Vector behaviors (fist bump, dance, sleep…). Releases Drive control first.</p>
+            <p class="hint">Fist bump, dance, sleep, and more. Releases Drive control first.</p>
             <div id="movesIntents" class="move-grid"></div>
 
             <h2 class="spaced">Animations</h2>
@@ -157,17 +170,26 @@
 
         <section id="tab-drive" class="panel" role="tabpanel" hidden>
             <h2>Drive</h2>
-            <p class="hint">1) Click <b>Take control</b> · 2) Hold <b>WASD</b> · Camera is optional</p>
-            <div id="driveArmed" class="drive-armed">Not armed — click Take control</div>
+            <p class="hint">1) <b>Take control</b> · 2) Hold the pad (phone) or WASD · Camera optional</p>
+            <div id="driveArmed" class="drive-armed">Not armed — tap Take control</div>
             <div class="drive-layout">
-                <div class="wasd-board" aria-hidden="true">
-                    <div class="wasd-row"><span class="key" data-k="w">W</span></div>
-                    <div class="wasd-row">
-                        <span class="key" data-k="a">A</span>
-                        <span class="key" data-k="s">S</span>
-                        <span class="key" data-k="d">D</span>
+                <div class="drive-pads">
+                    <div class="touch-pad" id="touchPad" aria-label="Drive pad">
+                        <button type="button" class="pad-btn pad-n" data-f="1" data-t="0">▲</button>
+                        <button type="button" class="pad-btn pad-w" data-f="0" data-t="1">◀</button>
+                        <button type="button" class="pad-btn pad-s" data-f="-1" data-t="0">▼</button>
+                        <button type="button" class="pad-btn pad-e" data-f="0" data-t="-1">▶</button>
+                        <button type="button" class="pad-btn pad-stop" data-f="0" data-t="0">■</button>
                     </div>
-                    <p class="hint">Q/E head · R/F lift · Space stop</p>
+                    <div class="wasd-board" aria-hidden="true">
+                        <div class="wasd-row"><span class="key" data-k="w">W</span></div>
+                        <div class="wasd-row">
+                            <span class="key" data-k="a">A</span>
+                            <span class="key" data-k="s">S</span>
+                            <span class="key" data-k="d">D</span>
+                        </div>
+                        <p class="hint">Desktop: WASD · Q/E head · R/F lift · Space stop</p>
+                    </div>
                 </div>
                 <div class="drive-controls">
                     <label class="field">
@@ -189,6 +211,6 @@
             </div>
         </section>
     </main>
-    <script src="js/seek-dashboard.js"></script>
+    <script src="js/seek-dashboard.js?v=10d"></script>
 </body>
 </html>
