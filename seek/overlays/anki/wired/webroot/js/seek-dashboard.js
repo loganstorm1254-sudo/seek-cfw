@@ -543,6 +543,128 @@ function bindUI() {
         setSeekStatus('Control released.');
         updateWasdKeys();
     });
+    $('btnListen').addEventListener('click', activateVoice);
+}
+
+/* ---------------- Moves (behaviors + anims) ---------------- */
+
+const MOVE_INTENT_ORDER = [
+    'intent_play_fistbump',
+    'intent_imperative_dance',
+    'intent_imperative_come',
+    'explore_start',
+    'intent_play_popawheelie',
+    'intent_play_rollcube',
+    'intent_play_pickupcube',
+    'intent_play_blackjack',
+    'intent_play_anytrick',
+    'intent_play_anygame',
+    'intent_imperative_lookatme',
+    'intent_imperative_fetchcube',
+    'intent_imperative_findcube',
+    'intent_greeting_goodmorning',
+    'intent_greeting_goodnight',
+    'intent_greeting_goodbye',
+    'intent_imperative_praise',
+    'intent_imperative_love',
+    'intent_imperative_affirmative',
+    'intent_imperative_negative',
+    'intent_imperative_apologize',
+    'intent_imperative_scold',
+    'intent_status_feeling',
+    'intent_clock_time',
+    'intent_character_age',
+    'intent_names_ask',
+    'intent_meet_victor',
+    'intent_system_sleep',
+    'intent_system_charger',
+    'intent_imperative_volumeup',
+    'intent_imperative_volumedown',
+    'intent_imperative_quiet',
+    'intent_imperative_shutup',
+    'intent_seasonal_happyholidays',
+    'intent_seasonal_happynewyear',
+    'intent_global_stop_extend',
+];
+
+function sortMoves(items, order) {
+    const rank = new Map(order.map((id, i) => [id, i]));
+    return items.slice().sort((a, b) => {
+        const ra = rank.has(a.id) ? rank.get(a.id) : 999;
+        const rb = rank.has(b.id) ? rank.get(b.id) : 999;
+        if (ra !== rb) return ra - rb;
+        return a.label.localeCompare(b.label);
+    });
+}
+
+function fillMoveGrid(el, items, kind) {
+    if (!el) return;
+    el.textContent = '';
+    items.forEach((item) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ghost';
+        btn.textContent = item.label;
+        btn.dataset.id = item.id;
+        btn.addEventListener('click', () => runMove(kind, item));
+        el.appendChild(btn);
+    });
+}
+
+async function loadMoves() {
+    try {
+        const res = await api('moves');
+        if (!res.ok) return;
+        const data = await res.json();
+        fillMoveGrid($('movesIntents'), sortMoves(data.intents || [], MOVE_INTENT_ORDER), 'intent');
+        fillMoveGrid($('movesAnims'), sortMoves(data.anims || [], []), 'anim');
+    } catch (_) { /* ignore */ }
+}
+
+async function runMove(kind, item) {
+    setSeekStatus('Running: ' + item.label + '…');
+    try {
+        let path;
+        if (kind === 'intent') {
+            let param = '';
+            if (item.id === 'intent_meet_victor') {
+                param = window.prompt('Name for Vector to learn?', 'friend') || '';
+                if (!param) {
+                    setSeekStatus('Cancelled.');
+                    return;
+                }
+            }
+            path = 'appIntent?intent=' + encodeURIComponent(item.id) + '&param=' + encodeURIComponent(param);
+            setArmedUI(false);
+        } else {
+            path = 'playAnim?name=' + encodeURIComponent(item.id);
+        }
+        const res = await api(path);
+        if (!res.ok) {
+            const e = await res.json().catch(() => ({ message: 'failed' }));
+            setSeekStatus(e.message || 'failed', true);
+            return;
+        }
+        setSeekStatus(item.label + ' — sent.');
+    } catch (e) {
+        setSeekStatus('network error: ' + e.message, true);
+    }
+}
+
+async function activateVoice() {
+    setSeekStatus('Freeing control so Vector can listen…');
+    try {
+        setArmedUI(false);
+        const res = await api('listen');
+        if (!res.ok) {
+            const e = await res.json().catch(() => ({ message: 'failed' }));
+            setSeekStatus(e.message || 'failed', true);
+            return;
+        }
+        setSeekStatus('Voice ready — say “Hey Vector” or press his backpack.');
+    } catch (e) {
+        setSeekStatus('network error: ' + e.message, true);
+    }
 }
 
 /* boot */
@@ -551,3 +673,4 @@ bindUI();
 bindKeyboard();
 seekEyeModeChanged();
 seekRefresh();
+loadMoves();

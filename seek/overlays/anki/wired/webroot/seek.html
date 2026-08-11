@@ -20,6 +20,7 @@
             <button type="button" class="tab active" data-tab="look" role="tab">Look</button>
             <button type="button" class="tab" data-tab="speak" role="tab">Speak</button>
             <button type="button" class="tab" data-tab="media" role="tab">Media</button>
+            <button type="button" class="tab" data-tab="moves" role="tab">Moves</button>
             <button type="button" class="tab" data-tab="drive" role="tab">Drive</button>
         </nav>
 
@@ -136,6 +137,22 @@
                 <button type="button" class="ghost" id="btnStopMedia">Stop</button>
             </div>
             <canvas id="seekVideoCanvas" width="184" height="96" aria-label="Face preview"></canvas>
+        </section>
+
+        <section id="tab-moves" class="panel" role="tabpanel" hidden>
+            <h2>Voice &amp; listen</h2>
+            <p class="hint">Frees SDK control so Vector can hear you. Then say <b>Hey Vector</b> or press his backpack.</p>
+            <div class="actions">
+                <button type="button" class="primary" id="btnListen">Activate voice</button>
+            </div>
+
+            <h2 class="spaced">Behaviors</h2>
+            <p class="hint">Real Vector behaviors (fist bump, dance, sleep…). Releases Drive control first.</p>
+            <div id="movesIntents" class="move-grid"></div>
+
+            <h2 class="spaced">Animations</h2>
+            <p class="hint">Short animation clips (does not run full games).</p>
+            <div id="movesAnims" class="move-grid"></div>
         </section>
 
         <section id="tab-drive" class="panel" role="tabpanel" hidden>

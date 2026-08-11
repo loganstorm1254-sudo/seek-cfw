@@ -273,6 +273,31 @@ button.danger { color: var(--err); border-color: rgba(255, 143, 143, 0.35); }
     border-color: var(--accent-2);
 }
 
+.move-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+    gap: 0.45rem;
+    margin: 0 0 0.85rem;
+}
+
+.move-grid button {
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.04);
+    text-align: left;
+    padding: 0.7rem 0.8rem;
+    font-weight: 700;
+    font-size: 0.92rem;
+}
+
+.move-grid button:hover {
+    border-color: var(--accent-2);
+    color: var(--accent-2);
+}
+
+.move-grid button:active {
+    background: rgba(62, 207, 178, 0.18);
+}
+
 @media (max-width: 720px) {
     .drive-layout,
     .grid2,

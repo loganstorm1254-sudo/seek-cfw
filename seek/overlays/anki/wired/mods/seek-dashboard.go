@@ -184,6 +184,24 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 	case "cameraMjpeg":
 		m.handleCameraMjpeg(w, r)
 		return
+	case "moves":
+		m.writeMovesCatalog(w)
+		return
+	case "appIntent":
+		if err := m.handleAppIntent(r.FormValue("intent"), r.FormValue("param")); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+	case "playAnim":
+		if err := m.handlePlayAnimTrigger(r.FormValue("name")); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+	case "listen":
+		if err := m.handleListen(); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
 	case "status":
 		m.mu.Lock()
 		holding := m.holding
