@@ -29,12 +29,19 @@ const (
 type SeekDashboard struct {
 	vars.Modification
 
-	mu      sync.Mutex
-	holding bool
-	stop    chan bool
-	start   chan bool
-	vec     *vector.Vector
-	cancel  context.CancelFunc
+	mu         sync.Mutex
+	holding    bool
+	vec        *vector.Vector
+	cancel     context.CancelFunc
+	ctrlStream vectorpb.ExternalInterface_BehaviorControlClient
+	ctrlLost   chan struct{}
+	ctrlErr    chan error
+
+	driveMu      sync.Mutex
+	driveRunning bool
+	driveCancel  context.CancelFunc
+	driveL       float32
+	driveR       float32
 
 	camMu      sync.Mutex
 	camRunning bool
@@ -148,6 +155,7 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "stopMotors":
+		m.setDriveIntent(0, 0)
 		if err := m.handleStopMotors(); err != nil {
 			vars.HTTPError(w, r, err.Error())
 			return
@@ -356,108 +364,6 @@ func (m *SeekDashboard) handleFrame(r *http.Request) error {
 	return err
 }
 
-func (m *SeekDashboard) controlStart() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.holding {
-		return nil
-	}
-	v, err := vars.GetVec()
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	start := make(chan bool, 1)
-	stop := make(chan bool, 1)
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- v.BehaviorControl(ctx, start, stop)
-	}()
-	select {
-	case <-start:
-		m.holding = true
-		m.stop = stop
-		m.start = start
-		m.vec = v
-		m.cancel = cancel
-		return nil
-	case err := <-errCh:
-		cancel()
-		if err == nil {
-			err = errors.New("behavior control ended early")
-		}
-		return err
-	case <-time.After(20 * time.Second):
-		cancel()
-		stop <- true
-		return errors.New("timeout waiting for behavior control")
-	}
-}
-
-func (m *SeekDashboard) controlEnd() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if !m.holding {
-		return
-	}
-	if m.vec != nil {
-		_, _ = m.vec.Conn.StopAllMotors(context.Background(), &vectorpb.StopAllMotorsRequest{})
-	}
-	select {
-	case m.stop <- true:
-	default:
-	}
-	if m.cancel != nil {
-		m.cancel()
-	}
-	m.holding = false
-	m.vec = nil
-	m.stop = nil
-	m.start = nil
-	m.cancel = nil
-}
-
-func (m *SeekDashboard) withControl(fn func(context.Context, *vector.Vector) error) error {
-	m.mu.Lock()
-	if m.holding && m.vec != nil {
-		v := m.vec
-		m.mu.Unlock()
-		return fn(context.Background(), v)
-	}
-	m.mu.Unlock()
-
-	v, err := vars.GetVec()
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	start := make(chan bool, 1)
-	stop := make(chan bool, 1)
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- v.BehaviorControl(ctx, start, stop)
-	}()
-	select {
-	case <-start:
-	case err := <-errCh:
-		if err == nil {
-			err = errors.New("behavior control ended early")
-		}
-		return err
-	case <-time.After(20 * time.Second):
-		stop <- true
-		return errors.New("timeout waiting for behavior control")
-	}
-	defer func() {
-		select {
-		case stop <- true:
-		default:
-		}
-	}()
-	return fn(ctx, v)
-}
-
 func streamPCM(ctx context.Context, v *vector.Vector, pcm io.Reader, rate uint32, volume uint32) error {
 	stream, err := v.Conn.ExternalAudioStreamPlayback(ctx)
 	if err != nil {
@@ -467,16 +373,16 @@ func streamPCM(ctx context.Context, v *vector.Vector, pcm io.Reader, rate uint32
 	defer close(done)
 	go func() {
 		for {
-			select {
-			case <-done:
-				return
-			default:
-			}
 			resp, err := stream.Recv()
 			if err != nil {
 				return
 			}
-			_ = resp
+			select {
+			case <-done:
+				return
+			default:
+				_ = resp
+			}
 		}
 	}()
 

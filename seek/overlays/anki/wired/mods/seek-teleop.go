@@ -28,30 +28,33 @@ func (m *SeekDashboard) handleDrive(r *http.Request) error {
 	if err := m.ensureControl(); err != nil {
 		return err
 	}
+	m.setDriveIntent(float32(left), float32(right))
+
+	// Push immediately (don't wait for the 40ms tick) so WASD feels instant.
 	m.mu.Lock()
 	v := m.vec
+	l := m.driveL
+	rgt := m.driveR
 	m.mu.Unlock()
-	if v == nil {
-		return errors.New("no robot connection")
+	if v != nil {
+		_, _ = v.Conn.DriveWheels(context.Background(), &vectorpb.DriveWheelsRequest{
+			LeftWheelMmps:   l,
+			RightWheelMmps:  rgt,
+			LeftWheelMmps2:  abs32(l) * 4,
+			RightWheelMmps2: abs32(rgt) * 4,
+		})
 	}
-	_, err = v.Conn.DriveWheels(context.Background(), &vectorpb.DriveWheelsRequest{
-		LeftWheelMmps:   float32(left),
-		RightWheelMmps:  float32(right),
-		LeftWheelMmps2:  abs32(float32(left)) * 2,
-		RightWheelMmps2: abs32(float32(right)) * 2,
-	})
-	return err
+	return nil
 }
 
 func (m *SeekDashboard) handleStopMotors() error {
-	if err := m.ensureControl(); err != nil {
-		return err
-	}
+	m.setDriveIntent(0, 0)
 	m.mu.Lock()
+	holding := m.holding
 	v := m.vec
 	m.mu.Unlock()
-	if v == nil {
-		return errors.New("no robot connection")
+	if !holding || v == nil {
+		return nil
 	}
 	_, err := v.Conn.StopAllMotors(context.Background(), &vectorpb.StopAllMotorsRequest{})
 	return err
@@ -101,23 +104,6 @@ func (m *SeekDashboard) handleMoveLift(r *http.Request) error {
 		SpeedRadPerSec: float32(speed),
 	})
 	return err
-}
-
-func (m *SeekDashboard) ensureControl() error {
-	m.mu.Lock()
-	holding := m.holding
-	m.mu.Unlock()
-	if holding {
-		return nil
-	}
-	return m.controlStart()
-}
-
-func abs32(v float32) float32 {
-	if v < 0 {
-		return -v
-	}
-	return v
 }
 
 func (m *SeekDashboard) cameraStart() error {
@@ -221,7 +207,7 @@ func (m *SeekDashboard) handleCameraMjpeg(w http.ResponseWriter, r *http.Request
 	flusher.Flush()
 
 	var lastSeq uint64
-	ticker := time.NewTicker(50 * time.Millisecond)
+	ticker := time.NewTicker(66 * time.Millisecond) // ~15 fps max to reduce CPU
 	defer ticker.Stop()
 	for {
 		select {

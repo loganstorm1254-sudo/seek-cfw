@@ -139,39 +139,35 @@
         </section>
 
         <section id="tab-drive" class="panel" role="tabpanel" hidden>
-            <h2>Drive &amp; camera</h2>
-            <p class="hint">WASD / arrows to drive · Q/E head · R/F lift · Space stop</p>
+            <h2>Drive</h2>
+            <p class="hint">Click this tab, then use <b>WASD</b>. Full OVERRIDE control is taken automatically.</p>
+            <div id="driveArmed" class="drive-armed">Not armed</div>
             <div class="drive-layout">
-                <div class="cam-wrap">
-                    <img id="cameraView" alt="Vector camera" width="640" height="360">
-                    <div class="actions">
-                        <button type="button" class="primary" id="btnCamStart">Start camera</button>
-                        <button type="button" class="ghost" id="btnCamStop">Stop camera</button>
+                <div class="wasd-board" aria-hidden="true">
+                    <div class="wasd-row"><span class="key" data-k="w">W</span></div>
+                    <div class="wasd-row">
+                        <span class="key" data-k="a">A</span>
+                        <span class="key" data-k="s">S</span>
+                        <span class="key" data-k="d">D</span>
                     </div>
+                    <p class="hint">Q/E head · R/F lift · Space stop</p>
                 </div>
                 <div class="drive-controls">
                     <label class="field">
-                        <span>Speed <b id="driveSpeedVal">80</b> mm/s</span>
-                        <input type="range" id="driveSpeed" min="20" max="180" step="5" value="80">
+                        <span>Speed <b id="driveSpeedVal">100</b> mm/s</span>
+                        <input type="range" id="driveSpeed" min="30" max="180" step="5" value="100">
                     </label>
-                    <div class="pad" aria-label="Drive pad">
-                        <button type="button" class="pad-btn" data-dir="forward">▲</button>
-                        <div class="pad-mid">
-                            <button type="button" class="pad-btn" data-dir="left">◀</button>
-                            <button type="button" class="pad-btn stop" data-dir="stop">■</button>
-                            <button type="button" class="pad-btn" data-dir="right">▶</button>
+                    <div class="actions">
+                        <button type="button" class="primary" id="btnArmDrive">Take full control</button>
+                        <button type="button" class="ghost danger" id="btnRelease">Release</button>
+                    </div>
+                    <div class="cam-wrap">
+                        <img id="cameraView" alt="Vector camera" width="640" height="360">
+                        <div class="actions">
+                            <button type="button" class="ghost" id="btnCamStart">Camera on</button>
+                            <button type="button" class="ghost" id="btnCamStop">Camera off</button>
                         </div>
-                        <button type="button" class="pad-btn" data-dir="back">▼</button>
                     </div>
-                    <div class="actions">
-                        <button type="button" class="ghost" data-act="head-up">Head ▲</button>
-                        <button type="button" class="ghost" data-act="head-down">Head ▼</button>
-                    </div>
-                    <div class="actions">
-                        <button type="button" class="ghost" data-act="lift-up">Lift ▲</button>
-                        <button type="button" class="ghost" data-act="lift-down">Lift ▼</button>
-                    </div>
-                    <button type="button" class="ghost danger" id="btnRelease">Release control</button>
                 </div>
             </div>
         </section>

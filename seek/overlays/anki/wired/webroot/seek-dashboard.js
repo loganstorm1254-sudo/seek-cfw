@@ -48,10 +48,8 @@ function switchTab(name) {
         armDrive();
     } else if (driveArmed) {
         keysDown.clear();
-        lastDriveSent = '';
         sendDrive(0, 0);
         updateWasdKeys();
-        // Keep OVERRIDE held so returning to Drive is instant; motors are stopped.
     }
     if (name === 'look') seekRefresh();
 }
