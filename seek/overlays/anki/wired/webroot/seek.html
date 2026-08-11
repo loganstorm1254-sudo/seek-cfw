@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#07131a">
     <title>Seek Dashboard</title>
-    <link rel="stylesheet" href="css/seek.css?v=16d">
+    <link rel="stylesheet" href="css/seek.css?v=17d">
 </head>
 <body>
     <div class="bg" aria-hidden="true"></div>
@@ -15,7 +15,8 @@
             <p class="brand">SeekAra</p>
             <h1>Seek Dashboard</h1>
             <p class="lede">Control this robot from his own IP.</p>
-            <p class="hint">Tip: if he shows a thermometer, that’s stock safety (~90°C CPU). Use <b>Regular</b> in wired Performance Profiles, turn camera off, and tap <b>Release</b> when idle.</p>
+            <p class="hint">Phone tip: keep the page open — it pings Vector so Wi‑Fi doesn’t sleep. If buttons freeze, pull-to-refresh (don’t need to toggle Wi‑Fi).</p>
+            <p class="hint">Thermometer = stock safety (~90°C). Use <b>Regular</b> in <a href="/settings">wired settings</a>, camera off, Release when idle.</p>
             <div id="netInfoBox" class="net-box">
                 <p class="hint">Hosted on Vector. Open this URL in <b>any browser</b> (phone or PC) on the <b>same Wi‑Fi</b> as the robot:</p>
                 <p id="netLanIp" class="net-ip" hidden></p>
@@ -116,7 +117,7 @@
 
         <section id="tab-media" class="panel" role="tabpanel" hidden>
             <h2>Play video on face</h2>
-            <p class="hint">Browser-decodes to 184×96 RGB565 + optional 16 kHz audio.</p>
+            <p class="hint">Phone-friendly: decode on device, ~5 fps, fast color convert. Keep clips short.</p>
             <label class="field">
                 <span>File</span>
                 <input type="file" id="videoFile" accept=".mp4,video/mp4,video/*">
@@ -124,7 +125,7 @@
             <div class="grid3">
                 <label class="field">
                     <span>FPS</span>
-                    <input type="number" id="videoFps" min="1" max="12" value="8">
+                    <input type="number" id="videoFps" min="1" max="10" value="5">
                 </label>
                 <label class="field">
                     <span>Fit</span>
@@ -219,7 +220,7 @@
         </section>
     </main>
     <noscript><p class="status err">JavaScript is required for Seek Dashboard.</p></noscript>
-    <script src="js/seek-dashboard.js?v=16d" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
+    <script src="js/seek-dashboard.js?v=17d" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
     <script>
     setTimeout(function () {
         if (!window.__seekLoaded) {

@@ -24,16 +24,72 @@ function setSeekStatus(msg, isError) {
     el.textContent = msg;
 }
 
-function api(path, opts) {
-    const o = opts ? Object.assign({}, opts) : {};
-    o.cache = 'no-store';
-    return fetch(API + '/' + path, o);
+function isMobile() {
+    return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ||
+        (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+}
+
+async function api(path, opts) {
+    opts = opts || {};
+    const timeoutMs = opts.timeoutMs != null ? opts.timeoutMs : (opts.body ? 180000 : 10000);
+    const maxAttempts = opts.retries != null ? opts.retries : (opts.body ? 1 : 3);
+    const body = opts.body;
+    // Only retry bodies we can safely resend.
+    const canRetryBody = body == null || typeof body === 'string' || body instanceof ArrayBuffer ||
+        ArrayBuffer.isView(body) || (typeof Blob !== 'undefined' && body instanceof Blob);
+
+    let lastErr = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const ctrl = new AbortController();
+        const timer = setTimeout(function () { ctrl.abort(); }, timeoutMs);
+        try {
+            const o = {};
+            for (const k in opts) {
+                if (k === 'timeoutMs' || k === 'retries') continue;
+                o[k] = opts[k];
+            }
+            o.cache = 'no-store';
+            o.signal = ctrl.signal;
+            if (body != null && attempt > 1 && canRetryBody) o.body = body;
+            const res = await fetch(API + '/' + path, o);
+            clearTimeout(timer);
+            return res;
+        } catch (e) {
+            clearTimeout(timer);
+            lastErr = e;
+            if (attempt >= maxAttempts) break;
+            if (opts.body && !canRetryBody) break;
+            await new Promise(function (r) { setTimeout(r, 250 * attempt); });
+        }
+    }
+    throw lastErr || new Error('network error');
 }
 
 function fire(path) {
-    // Non-blocking command for drive/pad — keep UI snappy.
-    return fetch(API + '/' + path, { method: 'GET', cache: 'no-store' }).catch(() => {});
+    return api(path, { method: 'GET', timeoutMs: 4000, retries: 2 }).catch(function () {});
 }
+
+function startKeepalive() {
+    // Phone Wi‑Fi power-save drops idle TCP; a light ping keeps the path warm.
+    setInterval(function () {
+        if (document.hidden) return;
+        fetch('/api/health', { cache: 'no-store', method: 'GET' }).catch(function () {});
+    }, 10000);
+
+    function recover(reason) {
+        setSeekStatus('Reconnected (' + reason + '). Try again if a button failed.');
+        fetch('/api/health', { cache: 'no-store' }).catch(function () {});
+        loadNetInfo();
+    }
+    window.addEventListener('online', function () { recover('online'); });
+    window.addEventListener('pageshow', function (e) {
+        if (e.persisted) recover('pageshow');
+    });
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) recover('visible');
+    });
+}
+
 
 /* ---------------- Tabs ---------------- */
 
@@ -50,12 +106,16 @@ function switchTab(name) {
         setSeekStatus('Drive ready. Tap Take control, then hold the pad (or WASD).');
     } else if (name === 'moves') {
         setSeekStatus('Moves: Activate voice, or tap a behavior.');
+    } else if (name === 'media') {
+        if (cameraOn) stopCamera();
+        setSeekStatus(isMobile() ? 'Tip: use 5 fps on phone for less lag.' : 'Media ready.');
     } else if (driveArmed) {
         keysDown.clear();
         lastDriveSent = '';
         sendDrive(0, 0);
         updateWasdKeys();
     }
+    if (name !== 'drive' && cameraOn) stopCamera();
     if (name === 'look') seekRefresh();
 }
 
@@ -167,21 +227,41 @@ async function seekPlayAudio() {
         return;
     }
     const file = input.files[0];
-    setSeekStatus('Playing ' + file.name + '...');
+    const vol = $('audioPlayVolume').value;
+    setSeekStatus('Decoding on phone (faster)...');
     try {
-        const fd = new FormData();
-        fd.append('file', file, file.name);
-        fd.append('volume', $('audioPlayVolume').value);
-        const res = await api('playAudio', { method: 'POST', body: fd });
+        // Decode in the browser so the robot doesn't burn CPU on MP3.
+        const pcm = await decodeFileToPcm16k(file);
+        setSeekStatus('Streaming audio...');
+        const res = await api('playPcm?rate=16000&volume=' + encodeURIComponent(vol), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: pcm,
+            timeoutMs: 300000,
+            retries: 1
+        });
         if (!res.ok) {
-            const e = await res.json();
-            setSeekStatus(`${e.status}: ${e.message}`, true);
+            const e = await res.json().catch(() => ({ message: 'audio failed' }));
+            setSeekStatus((e.status ? e.status + ': ' : '') + (e.message || 'audio failed'), true);
             return;
         }
         setSeekStatus('Audio finished.');
     } catch (e) {
-        setSeekStatus('network error: ' + e.message, true);
+        setSeekStatus('audio error: ' + (e.name === 'AbortError' ? 'timed out — toggle Wi‑Fi and retry' : e.message), true);
     }
+}
+
+function rgbaToRgb565Fast(rgba) {
+    const out = new Uint8Array((rgba.length / 4) * 2);
+    let o = 0;
+    for (let i = 0; i < rgba.length; i += 4) {
+        const r5 = rgba[i] >> 3;
+        const g6 = rgba[i + 1] >> 2;
+        const b5 = rgba[i + 2] >> 3;
+        out[o++] = (r5 << 3) | (g6 >> 3);
+        out[o++] = ((g6 & 7) << 5) | b5;
+    }
+    return out;
 }
 
 function rgbaToRgb565Dithered(rgba) {
@@ -289,7 +369,9 @@ async function seekPlayVideo() {
         return;
     }
     const file = input.files[0];
-    const fps = Math.max(1, Math.min(12, Number($('videoFps').value) || 8));
+    // Phone Wi‑Fi + robot CPU: keep FPS low for snappier playback.
+    const defaultFps = isMobile() ? 5 : 8;
+    const fps = Math.max(1, Math.min(10, Number($('videoFps').value) || defaultFps));
     const withAudio = $('videoWithAudio').value !== '0';
     const fit = $('videoFit').value;
     const canvas = $('seekVideoCanvas');
@@ -297,6 +379,7 @@ async function seekPlayVideo() {
     const btn = $('videoPlayBtn');
     const vol = $('audioPlayVolume') ? $('audioPlayVolume').value : '100';
     btn.disabled = true;
+    if (cameraOn) stopCamera();
 
     const url = URL.createObjectURL(file);
     const video = document.createElement('video');
@@ -315,15 +398,15 @@ async function seekPlayVideo() {
 
         let pcm = null;
         if (withAudio) {
-            setSeekStatus('Decoding audio...');
+            setSeekStatus('Decoding audio on phone...');
             try { pcm = await decodeFileToPcm16k(file); }
             catch (err) { setSeekStatus('Playing without audio (' + err.message + ')'); }
         }
 
         setSeekStatus('Taking control...');
-        let res = await api('controlStart');
+        let res = await api('controlStart', { timeoutMs: 15000, retries: 2 });
         if (!res.ok) {
-            const e = await res.json();
+            const e = await res.json().catch(() => ({ message: 'controlStart failed' }));
             throw new Error(e.message || 'controlStart failed');
         }
 
@@ -331,7 +414,9 @@ async function seekPlayVideo() {
             ? api('playPcm?rate=16000&volume=' + encodeURIComponent(vol), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/octet-stream' },
-                body: pcm
+                body: pcm,
+                timeoutMs: 300000,
+                retries: 1
             }).then(async (audioRes) => {
                 if (!audioRes.ok) {
                     const e = await audioRes.json().catch(() => ({ message: 'audio failed' }));
@@ -342,32 +427,53 @@ async function seekPlayVideo() {
 
         await video.play();
         const frameMs = Math.round(1000 / fps);
-        const holdMs = Math.max(frameMs + 40, Math.round(frameMs * 1.35));
+        const holdMs = Math.max(frameMs + 20, Math.round(frameMs * 1.2));
         setSeekStatus('Playing on face @ ' + fps + ' fps...');
         let nextT = performance.now();
+        let inFlight = null;
+        let frames = 0;
         while (!video.ended && !token.abort) {
             drawVideoFrame(ctx, video, fit);
             const rgba = ctx.getImageData(0, 0, SEEK_FACE_W, SEEK_FACE_H).data;
-            const frameRes = await api('frame?duration_ms=' + holdMs, {
+            // Fast convert — dithering every frame is what made phones feel dead.
+            const body = rgbaToRgb565Fast(rgba);
+            if (inFlight) {
+                const prev = await inFlight;
+                if (!prev.ok) {
+                    const e = await prev.json().catch(() => ({ message: 'frame failed' }));
+                    throw new Error(e.message || 'frame failed');
+                }
+            }
+            inFlight = api('frame?duration_ms=' + holdMs, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/octet-stream' },
-                body: rgbaToRgb565Dithered(rgba)
+                body: body,
+                timeoutMs: 8000,
+                retries: 2
             });
-            if (!frameRes.ok) {
-                const e = await frameRes.json().catch(() => ({ message: 'frame failed' }));
-                throw new Error(e.message || 'frame failed');
+            frames++;
+            if (frames % 10 === 0) {
+                setSeekStatus('Playing… frame ' + frames);
             }
             nextT += frameMs;
             const wait = nextT - performance.now();
             if (wait > 0) await new Promise((r) => setTimeout(r, wait));
             else nextT = performance.now();
         }
+        if (inFlight) {
+            const last = await inFlight;
+            if (!last.ok) {
+                const e = await last.json().catch(() => ({ message: 'frame failed' }));
+                throw new Error(e.message || 'frame failed');
+            }
+        }
         await audioPromise;
-        await api('controlEnd');
+        await api('controlEnd', { timeoutMs: 8000, retries: 2 });
         setSeekStatus(token.abort ? 'Stopped.' : 'Video finished.');
     } catch (e) {
-        try { await api('controlEnd'); } catch (_) {}
-        setSeekStatus('video error: ' + e.message, true);
+        try { await api('controlEnd', { timeoutMs: 5000, retries: 1 }); } catch (_) {}
+        const msg = e.name === 'AbortError' ? 'timed out — toggle Wi‑Fi once, then retry' : e.message;
+        setSeekStatus('video error: ' + msg, true);
     } finally {
         video.pause();
         URL.revokeObjectURL(url);
@@ -827,9 +933,14 @@ window.__seekLoaded = true;
         initTabs();
         bindUI();
         bindKeyboard();
+        startKeepalive();
         seekEyeModeChanged();
+        if (isMobile() && $('videoFps')) $('videoFps').value = '5';
+        if (isMobile() && $('driveSpeed')) {
+            $('driveSpeed').value = '50';
+            if ($('driveSpeedVal')) $('driveSpeedVal').textContent = '50';
+        }
         loadNetInfo();
-        // Do not block the UI on phones while SDK wakes.
         seekRefresh();
         loadMoves();
         waitForRobot().then(function (ok) {

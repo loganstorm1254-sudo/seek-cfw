@@ -136,7 +136,14 @@ func startweb() {
 		setStaticContentType(w, p)
 		fs.ServeHTTP(w, r)
 	})
-	if err := http.ListenAndServe("0.0.0.0:8080", nil); err != nil {
+	srv := &http.Server{
+		Addr:              "0.0.0.0:8080",
+		ReadHeaderTimeout: 8 * time.Second,
+		ReadTimeout:       3 * time.Minute,
+		WriteTimeout:      3 * time.Minute,
+		IdleTimeout:       70 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
 		fmt.Println("ListenAndServe:", err)
 		panic(err)
 	}
