@@ -30,12 +30,13 @@ type SeekDashboard struct {
 	vars.Modification
 
 	mu         sync.Mutex
-	holding    bool
-	vec        *vector.Vector
-	cancel     context.CancelFunc
+	starting  bool
+	holding   bool
+	vec       *vector.Vector
+	cancel    context.CancelFunc
 	ctrlStream vectorpb.ExternalInterface_BehaviorControlClient
-	ctrlLost   chan struct{}
-	ctrlErr    chan error
+	ctrlLost  chan struct{}
+	ctrlErr   chan error
 
 	driveMu      sync.Mutex
 	driveRunning bool

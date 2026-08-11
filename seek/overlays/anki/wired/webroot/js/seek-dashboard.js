@@ -45,13 +45,12 @@ function switchTab(name) {
         panel.classList.toggle('active', on);
     });
     if (name === 'drive') {
-        armDrive();
+        setSeekStatus('Drive tab ready. Click “Take control”, then hold WASD.');
     } else if (driveArmed) {
         keysDown.clear();
         lastDriveSent = '';
         sendDrive(0, 0);
         updateWasdKeys();
-        // Keep OVERRIDE held so returning to Drive is instant; motors are stopped.
     }
     if (name === 'look') seekRefresh();
 }
@@ -374,19 +373,23 @@ async function seekPlayVideo() {
 /* ---------------- Drive + Camera (WASD) ---------------- */
 
 function driveSpeed() {
-    return Number($('driveSpeed').value) || 100;
+    return Number($('driveSpeed').value) || 60;
 }
 
 function setArmedUI(on) {
     driveArmed = on;
     const el = $('driveArmed');
     if (!el) return;
-    el.textContent = on ? 'FULL CONTROL · WASD ready' : 'Not armed';
+    el.textContent = on ? 'CONTROL ON · WASD ready' : 'Not armed — click Take control';
     el.classList.toggle('on', on);
 }
 
 async function armDrive() {
-    setSeekStatus('Taking full control...');
+    if (driveArmed) {
+        setSeekStatus('Already armed. Hold WASD.');
+        return;
+    }
+    setSeekStatus('Taking control (safe mode)...');
     try {
         const res = await api('controlStart');
         if (!res.ok) {
@@ -397,7 +400,6 @@ async function armDrive() {
         }
         setArmedUI(true);
         setSeekStatus('Armed. Hold WASD to drive.');
-        // Focus page so keys work immediately.
         window.focus();
     } catch (e) {
         setArmedUI(false);
@@ -406,11 +408,15 @@ async function armDrive() {
 }
 
 function sendDrive(forward, turn) {
-    const s = driveSpeed();
-    let left = forward * s + turn * s;
-    let right = forward * s - turn * s;
-    left = Math.max(-200, Math.min(200, left));
-    right = Math.max(-200, Math.min(200, right));
+    if (!driveArmed && (forward !== 0 || turn !== 0)) {
+        setSeekStatus('Click Take control first.', true);
+        return;
+    }
+    const s = Math.min(120, driveSpeed());
+    let left = forward * s + turn * s * 0.7;
+    let right = forward * s - turn * s * 0.7;
+    left = Math.max(-120, Math.min(120, left));
+    right = Math.max(-120, Math.min(120, right));
     const key = left.toFixed(1) + ',' + right.toFixed(1);
     if (key === lastDriveSent) return;
     lastDriveSent = key;
@@ -446,10 +452,7 @@ function bindKeyboard() {
         const k = e.key.toLowerCase();
         if (['w', 'a', 's', 'd', ' ', 'q', 'e', 'r', 'f'].includes(k)) e.preventDefault();
         if (!driveArmed && ['w', 'a', 's', 'd'].includes(k)) {
-            armDrive().then(() => {
-                keysDown.add(k);
-                syncKeysToDrive();
-            });
+            setSeekStatus('Click Take control first, then WASD.', true);
             return;
         }
         if (e.key === ' ') {

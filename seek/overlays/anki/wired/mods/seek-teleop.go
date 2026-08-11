@@ -22,28 +22,18 @@ func (m *SeekDashboard) handleDrive(r *http.Request) error {
 	if err != nil {
 		return errors.New("invalid right speed")
 	}
-	if left < -200 || left > 200 || right < -200 || right > 200 {
-		return errors.New("wheel speed must be -200..200 mm/s")
+	if left < -120 || left > 120 || right < -120 || right > 120 {
+		return errors.New("wheel speed must be -120..120 mm/s")
 	}
-	if err := m.ensureControl(); err != nil {
-		return err
+	// Require an existing grant — never acquire+drive in the same request.
+	// DriveWheels without control (or racing grant) was crashing victor.
+	m.mu.Lock()
+	holding := m.holding
+	m.mu.Unlock()
+	if !holding {
+		return errors.New("not armed — click Take control first")
 	}
 	m.setDriveIntent(float32(left), float32(right))
-
-	// Push immediately (don't wait for the 40ms tick) so WASD feels instant.
-	m.mu.Lock()
-	v := m.vec
-	l := m.driveL
-	rgt := m.driveR
-	m.mu.Unlock()
-	if v != nil {
-		_, _ = v.Conn.DriveWheels(context.Background(), &vectorpb.DriveWheelsRequest{
-			LeftWheelMmps:   l,
-			RightWheelMmps:  rgt,
-			LeftWheelMmps2:  abs32(l) * 4,
-			RightWheelMmps2: abs32(rgt) * 4,
-		})
-	}
 	return nil
 }
 
@@ -56,7 +46,12 @@ func (m *SeekDashboard) handleStopMotors() error {
 	if !holding || v == nil {
 		return nil
 	}
-	_, err := v.Conn.StopAllMotors(context.Background(), &vectorpb.StopAllMotorsRequest{})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := v.Conn.DriveWheels(ctx, &vectorpb.DriveWheelsRequest{
+		LeftWheelMmps:  0,
+		RightWheelMmps: 0,
+	})
 	return err
 }
 
@@ -65,19 +60,19 @@ func (m *SeekDashboard) handleMoveHead(r *http.Request) error {
 	if err != nil {
 		return errors.New("invalid head speed")
 	}
-	if speed < -10 || speed > 10 {
-		return errors.New("head speed must be -10..10 rad/s")
-	}
-	if err := m.ensureControl(); err != nil {
-		return err
+	if speed < -5 || speed > 5 {
+		return errors.New("head speed must be -5..5 rad/s")
 	}
 	m.mu.Lock()
+	holding := m.holding
 	v := m.vec
 	m.mu.Unlock()
-	if v == nil {
-		return errors.New("no robot connection")
+	if !holding || v == nil {
+		return errors.New("not armed — click Take control first")
 	}
-	_, err = v.Conn.MoveHead(context.Background(), &vectorpb.MoveHeadRequest{
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = v.Conn.MoveHead(ctx, &vectorpb.MoveHeadRequest{
 		SpeedRadPerSec: float32(speed),
 	})
 	return err
@@ -88,19 +83,19 @@ func (m *SeekDashboard) handleMoveLift(r *http.Request) error {
 	if err != nil {
 		return errors.New("invalid lift speed")
 	}
-	if speed < -10 || speed > 10 {
-		return errors.New("lift speed must be -10..10 rad/s")
-	}
-	if err := m.ensureControl(); err != nil {
-		return err
+	if speed < -5 || speed > 5 {
+		return errors.New("lift speed must be -5..5 rad/s")
 	}
 	m.mu.Lock()
+	holding := m.holding
 	v := m.vec
 	m.mu.Unlock()
-	if v == nil {
-		return errors.New("no robot connection")
+	if !holding || v == nil {
+		return errors.New("not armed — click Take control first")
 	}
-	_, err = v.Conn.MoveLift(context.Background(), &vectorpb.MoveLiftRequest{
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = v.Conn.MoveLift(ctx, &vectorpb.MoveLiftRequest{
 		SpeedRadPerSec: float32(speed),
 	})
 	return err
@@ -131,6 +126,7 @@ func (m *SeekDashboard) cameraStart() error {
 			m.camMu.Lock()
 			m.camRunning = false
 			m.camCancel = nil
+			m.camLatest = nil
 			m.camMu.Unlock()
 		}()
 		for {
@@ -155,6 +151,9 @@ func (m *SeekDashboard) cameraStart() error {
 func (m *SeekDashboard) cameraStop() {
 	m.camMu.Lock()
 	cancel := m.camCancel
+	m.camCancel = nil
+	m.camRunning = false
+	m.camLatest = nil
 	m.camMu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -207,7 +206,7 @@ func (m *SeekDashboard) handleCameraMjpeg(w http.ResponseWriter, r *http.Request
 	flusher.Flush()
 
 	var lastSeq uint64
-	ticker := time.NewTicker(66 * time.Millisecond) // ~15 fps max to reduce CPU
+	ticker := time.NewTicker(100 * time.Millisecond) // 10 fps
 	defer ticker.Stop()
 	for {
 		select {

@@ -140,8 +140,8 @@
 
         <section id="tab-drive" class="panel" role="tabpanel" hidden>
             <h2>Drive</h2>
-            <p class="hint">Click this tab, then use <b>WASD</b>. Full OVERRIDE control is taken automatically.</p>
-            <div id="driveArmed" class="drive-armed">Not armed</div>
+            <p class="hint">1) Click <b>Take control</b> · 2) Hold <b>WASD</b> · Camera is optional</p>
+            <div id="driveArmed" class="drive-armed">Not armed — click Take control</div>
             <div class="drive-layout">
                 <div class="wasd-board" aria-hidden="true">
                     <div class="wasd-row"><span class="key" data-k="w">W</span></div>
@@ -154,11 +154,11 @@
                 </div>
                 <div class="drive-controls">
                     <label class="field">
-                        <span>Speed <b id="driveSpeedVal">100</b> mm/s</span>
-                        <input type="range" id="driveSpeed" min="30" max="180" step="5" value="100">
+                        <span>Speed <b id="driveSpeedVal">60</b> mm/s</span>
+                        <input type="range" id="driveSpeed" min="20" max="120" step="5" value="60">
                     </label>
                     <div class="actions">
-                        <button type="button" class="primary" id="btnArmDrive">Take full control</button>
+                        <button type="button" class="primary" id="btnArmDrive">Take control</button>
                         <button type="button" class="ghost danger" id="btnRelease">Release</button>
                     </div>
                     <div class="cam-wrap">
