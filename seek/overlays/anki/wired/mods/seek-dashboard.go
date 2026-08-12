@@ -133,12 +133,35 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	action := strings.TrimPrefix(r.URL.Path, "/api/mods/"+m.Name()+"/")
 	switch action {
-	case "status", "moves", "getEyeColor", "getVolume", "cameraFrame", "cameraMjpeg", "getEyeOverlay", "getOpenAIKey", "getSeekLights":
+	case "status", "moves", "getEyeColor", "getVolume", "cameraFrame", "cameraMjpeg", "getEyeOverlay", "getOpenAIKey", "getSeekLights", "getWifiStatus":
 		// read-only / streaming — don't count as "user activity" for idle release
 	default:
 		m.touchActivity()
 	}
 	switch action {
+	case "getWifiStatus":
+		st, err := m.handleGetWifiStatus()
+		if err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+		writeWifiJSON(w, st)
+		return
+	case "wifiScan":
+		nets, err := m.handleWifiScan()
+		if err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+		writeWifiJSON(w, map[string]any{"networks": nets})
+		return
+	case "wifiConnect":
+		if err := m.handleWifiConnect(r.FormValue("ssid"), r.FormValue("password"), r.FormValue("serviceId")); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+		vars.HTTPSuccess(w, r)
+		return
 	case "getSeekLights":
 		_, errOff := os.Stat(filepath.Join(seekCustomLightsDir, "off.json"))
 		_, errAnki := os.Stat(seekAnkiLightsFlag)
@@ -491,6 +514,16 @@ func setSettingSDKJSON(payload string) error {
 }
 
 func (m *SeekDashboard) sayText(text string, useVectorVoice bool) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return errors.New("empty text")
+	}
+	if err := sayTextViaGateway(text, useVectorVoice); err == nil {
+		return nil
+	} else if !vars.SDKReady() {
+		return fmt.Errorf("speak failed (%v) — wait for Vector cloud/SDK to finish starting", err)
+	}
+	// Fallback: gRPC SDK (needs valid perRuntimeToken + behavior control).
 	return m.withControl(func(ctx context.Context, v *vector.Vector) error {
 		_, err := v.Conn.SayText(ctx, &vectorpb.SayTextRequest{
 			Text:           text,
@@ -499,6 +532,37 @@ func (m *SeekDashboard) sayText(text string, useVectorVoice bool) error {
 		})
 		return err
 	})
+}
+
+func sayTextViaGateway(text string, useVectorVoice bool) error {
+	guid, err := vars.GetGUID()
+	if err != nil {
+		return err
+	}
+	guid = strings.TrimSpace(guid)
+	payload := map[string]any{
+		"text":           text,
+		"useVectorVoice": useVectorVoice,
+		"durationScalar": 1.0,
+	}
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequest("POST", "https://localhost:443/v1/say_text", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+guid)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Transport: transCfg, Timeout: 90 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("say_text %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+	}
+	return nil
 }
 
 func (m *SeekDashboard) handlePlayAudio(w http.ResponseWriter, r *http.Request) error {

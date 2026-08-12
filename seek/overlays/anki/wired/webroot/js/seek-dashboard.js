@@ -166,12 +166,111 @@ function switchTab(name) {
     }
     if (name !== 'drive' && cameraOn) stopCamera();
     if (name === 'look') seekRefresh();
+    else if (name === 'network') seekRefreshWifi();
 }
 
 function initTabs() {
     document.querySelectorAll('.tab').forEach((btn) => {
         btn.addEventListener('click', () => switchTab(btn.dataset.tab));
     });
+}
+
+/* ---------------- Wi‑Fi ---------------- */
+
+let seekWifiSelectedId = '';
+
+async function seekRefreshWifi() {
+    const st = $('wifiStatus');
+    try {
+        const res = await api('getWifiStatus');
+        if (!res.ok) return;
+        const info = await res.json();
+        if (st) {
+            const parts = [];
+            if (info.ssid) parts.push('Connected to <b>' + info.ssid + '</b>');
+            else parts.push('Not on Wi‑Fi');
+            if (info.ip) parts.push('IP ' + info.ip);
+            st.innerHTML = parts.join(' · ');
+        }
+    } catch (_) {
+        if (st) st.textContent = 'Could not read Wi‑Fi status.';
+    }
+}
+
+async function seekWifiScan() {
+    setSeekStatus('Scanning Wi‑Fi…');
+    const list = $('wifiList');
+    if (list) list.innerHTML = '';
+    seekWifiSelectedId = '';
+    try {
+        const res = await api('wifiScan', { timeoutMs: 20000, retries: 1 });
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'scan failed' }; });
+            setSeekStatus(e.message || 'scan failed', true);
+            return;
+        }
+        const data = await res.json();
+        const nets = (data && data.networks) || [];
+        if (!list) return;
+        if (!nets.length) {
+            list.innerHTML = '<li><span class="hint" style="padding:0.65rem 0.85rem;display:block">No networks found — try again.</span></li>';
+            setSeekStatus('No networks found.');
+            return;
+        }
+        nets.forEach(function (n) {
+            const li = document.createElement('li');
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            const lock = n.secured ? '🔒' : 'open';
+            const on = n.connected ? ' · connected' : '';
+            btn.innerHTML = '<span>' + n.ssid + '</span><span class="wifi-meta">' + lock + on + '</span>';
+            btn.addEventListener('click', function () {
+                seekWifiSelectedId = n.serviceId || '';
+                if ($('wifiSsid')) $('wifiSsid').value = n.ssid;
+                list.querySelectorAll('button').forEach(function (b) { b.classList.remove('selected'); });
+                btn.classList.add('selected');
+                if ($('wifiConnectHint')) $('wifiConnectHint').textContent = 'Selected ' + n.ssid + '. Enter password and tap Connect.';
+            });
+            if (n.connected) btn.classList.add('selected');
+            li.appendChild(btn);
+            list.appendChild(li);
+        });
+        setSeekStatus('Found ' + nets.length + ' network(s). Tap one, enter password, Connect.');
+        seekRefreshWifi();
+    } catch (e) {
+        setSeekStatus('Wi‑Fi scan error: ' + e.message, true);
+    }
+}
+
+async function seekWifiConnect() {
+    const ssid = ($('wifiSsid') && $('wifiSsid').value || '').trim();
+    const password = ($('wifiPassword') && $('wifiPassword').value) || '';
+    if (!ssid) {
+        setSeekStatus('Enter or select a Wi‑Fi name.', true);
+        return;
+    }
+    setSeekStatus('Connecting to ' + ssid + '… (page may drop briefly)');
+    let url = 'wifiConnect?ssid=' + encodeURIComponent(ssid);
+    if (password) url += '&password=' + encodeURIComponent(password);
+    if (seekWifiSelectedId) url += '&serviceId=' + encodeURIComponent(seekWifiSelectedId);
+    try {
+        const res = await api(url, { timeoutMs: 45000, retries: 0 });
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'connect failed' }; });
+            setSeekStatus(e.message || 'connect failed', true);
+            return;
+        }
+        setSeekStatus('Connected! Re-open dashboard at Vector\'s new IP if this page stops responding.');
+        if ($('wifiConnectHint')) {
+            $('wifiConnectHint').textContent = 'If the page freezes, wait ~30s then open http://192.168.42.209:8080/seek.html or check your router for Vector\'s IP.';
+        }
+        setTimeout(function () {
+            seekRefreshWifi();
+            loadNetInfo();
+        }, 4000);
+    } catch (e) {
+        setSeekStatus('Wi‑Fi connect error: ' + e.message + ' — he may still be joining; refresh in a minute.', true);
+    }
 }
 
 /* ---------------- Look / Speak / Media ---------------- */
@@ -1372,6 +1471,8 @@ function bindUI() {
         syncKeysToDrive();
     });
 
+    on('btnWifiScan', 'click', seekWifiScan);
+    on('btnWifiConnect', 'click', seekWifiConnect);
     on('btnEye', 'click', seekSetEyeColor);
     on('btnEyeOverlayApply', 'click', seekApplyEyeOverlay);
     on('btnEyeOverlayClear', 'click', seekClearEyeOverlay);

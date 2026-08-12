@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#07131a">
     <title>Seek Dashboard</title>
-    <link rel="stylesheet" href="css/seek.css?v=30d">
+    <link rel="stylesheet" href="css/seek.css?v=31d">
 </head>
 <body>
     <div class="bg" aria-hidden="true"></div>
@@ -32,6 +32,7 @@
             <button type="button" class="tab" data-tab="media" role="tab">Media</button>
             <button type="button" class="tab" data-tab="moves" role="tab">Moves</button>
             <button type="button" class="tab" data-tab="doom" role="tab">Doom</button>
+            <button type="button" class="tab" data-tab="network" role="tab">Wi‑Fi</button>
             <button type="button" class="tab" data-tab="drive" role="tab">Drive</button>
         </nav>
 
@@ -254,6 +255,26 @@
             </div>
         </section>
 
+        <section id="tab-network" class="panel" role="tabpanel" hidden>
+            <h2>Wi‑Fi</h2>
+            <p class="hint">Change which network Vector joins. After switching, this page may move to a new IP — reconnect using the URL shown below.</p>
+            <p id="wifiStatus" class="hint">Loading…</p>
+            <div class="actions">
+                <button type="button" class="primary" id="btnWifiScan">Scan networks</button>
+            </div>
+            <ul id="wifiList" class="wifi-list"></ul>
+            <label class="field spaced">
+                <span>Network name (SSID)</span>
+                <input type="text" id="wifiSsid" placeholder="Your Wi‑Fi name" autocomplete="off">
+            </label>
+            <label class="field">
+                <span>Password</span>
+                <input type="password" id="wifiPassword" placeholder="Leave blank for open networks" autocomplete="off">
+            </label>
+            <button type="button" class="primary" id="btnWifiConnect">Connect</button>
+            <p id="wifiConnectHint" class="hint"></p>
+        </section>
+
         <section id="tab-drive" class="panel" role="tabpanel" hidden>
             <h2>Drive</h2>
             <p class="hint">1) <b>Take control</b> · 2) Hold the pad (phone) or WASD · Camera optional</p>
@@ -298,7 +319,7 @@
         </section>
     </main>
     <noscript><p class="status err">JavaScript is required for Seek Dashboard.</p></noscript>
-    <script src="js/seek-dashboard.js?v=30d" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
+    <script src="js/seek-dashboard.js?v=31d" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
     <script>
     setTimeout(function () {
         if (!window.__seekLoaded) {
