@@ -193,6 +193,9 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 	case "voiceAsk":
 		m.handleVoiceAsk(w, r)
 		return
+	case "voiceTranscribe":
+		m.handleVoiceTranscribe(w, r)
+		return
 	case "getEyeOverlay":
 		st, err := os.Stat(seekEyeOverlayPath)
 		active := err == nil && st.Size() > 0

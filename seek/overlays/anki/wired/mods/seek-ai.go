@@ -129,17 +129,46 @@ func (m *SeekDashboard) handleAskAI(r *http.Request) (string, error) {
 	return answer, nil
 }
 
+func seekReadVoicePCM(r *http.Request) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r.Body, 2<<20))
+	if err != nil || len(data) < 1600 {
+		return nil, errors.New("need more audio")
+	}
+	if len(data) > 12 && string(data[0:4]) == "RIFF" {
+		return data, nil
+	}
+	return pcm16ToWav(data, 16000), nil
+}
+
+// handleVoiceTranscribe: Whisper only (used to remap “question” → knowledge prompt).
+func (m *SeekDashboard) handleVoiceTranscribe(w http.ResponseWriter, r *http.Request) {
+	wav, err := seekReadVoicePCM(r)
+	if err != nil {
+		vars.HTTPError(w, r, err.Error())
+		return
+	}
+	transcript, err := seekWhisper(wav)
+	if err != nil {
+		vars.HTTPError(w, r, "whisper: "+err.Error())
+		return
+	}
+	transcript = strings.TrimSpace(transcript)
+	if transcript == "" {
+		vars.HTTPError(w, r, "could not hear speech")
+		return
+	}
+	out, _ := json.Marshal(map[string]string{"transcript": transcript})
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(out)
+}
+
 // handleVoiceAsk receives raw s16le @16kHz PCM (or a tiny WAV) from cloudless
 // after "Hey Vector", runs Whisper + ChatGPT, returns JSON {answer,transcript}.
 func (m *SeekDashboard) handleVoiceAsk(w http.ResponseWriter, r *http.Request) {
-	data, err := io.ReadAll(io.LimitReader(r.Body, 2<<20))
-	if err != nil || len(data) < 1600 {
-		vars.HTTPError(w, r, "need more audio")
+	wav, err := seekReadVoicePCM(r)
+	if err != nil {
+		vars.HTTPError(w, r, err.Error())
 		return
-	}
-	wav := data
-	if !(len(data) > 12 && string(data[0:4]) == "RIFF") {
-		wav = pcm16ToWav(data, 16000)
 	}
 	transcript, err := seekWhisper(wav)
 	if err != nil {
