@@ -518,20 +518,28 @@ func (m *SeekDashboard) sayText(text string, useVectorVoice bool) error {
 	if text == "" {
 		return errors.New("empty text")
 	}
+	if !vars.SDKReady() {
+		return errors.New("robot not ready yet (waiting for SDK token) — wait ~30s after boot")
+	}
+	// Prefer gateway JSON (same path as volume/eyes). Needs Seek 32d+ auth fix for perRuntimeToken.
 	if err := sayTextViaGateway(text, useVectorVoice); err == nil {
 		return nil
-	} else if !vars.SDKReady() {
-		return fmt.Errorf("speak failed (%v) — wait for Vector cloud/SDK to finish starting", err)
-	}
-	// Fallback: gRPC SDK (needs valid perRuntimeToken + behavior control).
-	return m.withControl(func(ctx context.Context, v *vector.Vector) error {
-		_, err := v.Conn.SayText(ctx, &vectorpb.SayTextRequest{
-			Text:           text,
-			UseVectorVoice: useVectorVoice,
-			DurationScalar: 1.0,
+	} else {
+		gwErr := err
+		// Fallback: gRPC SDK with fresh connection.
+		sdkErr := m.withControl(func(ctx context.Context, v *vector.Vector) error {
+			_, err := v.Conn.SayText(ctx, &vectorpb.SayTextRequest{
+				Text:           text,
+				UseVectorVoice: useVectorVoice,
+				DurationScalar: 1.0,
+			})
+			return err
 		})
-		return err
-	})
+		if sdkErr == nil {
+			return nil
+		}
+		return fmt.Errorf("%v (grpc: %v)", gwErr, sdkErr)
+	}
 }
 
 func sayTextViaGateway(text string, useVectorVoice bool) error {

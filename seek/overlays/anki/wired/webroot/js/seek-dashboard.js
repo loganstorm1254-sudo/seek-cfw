@@ -660,6 +660,19 @@ async function seekBrowserWhisper(blob) {
     return String((parsed && parsed.text) || '').trim();
 }
 
+function seekBrowserSpeak(answer) {
+    try {
+        if (!window.speechSynthesis) return false;
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(answer);
+        u.rate = 1.05;
+        window.speechSynthesis.speak(u);
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
 async function seekSpeakAnswer(answer) {
     const res = await api(
         'sayText?text=' + encodeURIComponent(answer) +
@@ -668,6 +681,9 @@ async function seekSpeakAnswer(answer) {
     );
     if (!res.ok) {
         const e = await res.json().catch(function () { return { message: 'speak failed' }; });
+        if (seekBrowserSpeak(answer)) {
+            throw new Error((e.message || 'Vector speak failed') + ' — played answer on this device instead. Install Seek 32d+ so Vector can speak.');
+        }
         throw new Error(e.message || 'Vector could not speak');
     }
 }

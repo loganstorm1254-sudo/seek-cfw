@@ -11,7 +11,11 @@ import (
 var guidLocation string = "/run/vic-cloud/perRuntimeToken"
 
 func GetGUID() (string, error) {
-	return ReadFile(guidLocation)
+	guid, err := ReadFile(guidLocation)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(guid), nil
 }
 
 // SDKReady reports whether the per-runtime token exists (vic-cloud up).
