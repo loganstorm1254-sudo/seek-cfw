@@ -397,6 +397,65 @@ textarea#askAIAnswer {
     box-sizing: border-box;
 }
 
+.link-card {
+    margin: 0.75rem 0 1.25rem;
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background:
+        linear-gradient(160deg, rgba(62, 207, 178, 0.12), transparent 55%),
+        var(--panel);
+}
+
+.master-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin: 0 0 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+}
+
+.master-toggle input {
+    width: 1.15rem;
+    height: 1.15rem;
+    accent-color: var(--accent-2);
+}
+
+.link-peer-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    margin: 0.5rem 0 0.75rem;
+}
+
+.link-peer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.18);
+}
+
+.link-peer .meta-line {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+.link-peer .name {
+    margin: 0;
+    font-weight: 700;
+}
+
+.link-peer.linked {
+    border-color: rgba(62, 207, 178, 0.45);
+}
+
 .macarena-card {
     margin: 0.75rem 0 1.25rem;
     padding: 1rem 1.1rem;

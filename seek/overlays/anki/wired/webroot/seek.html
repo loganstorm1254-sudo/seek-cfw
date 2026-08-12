@@ -200,15 +200,34 @@
         </section>
 
         <section id="tab-moves" class="panel" role="tabpanel" hidden>
-            <h2>Macarena</h2>
-            <p class="hint">Plays <b>Los del Río — Macarena</b> on Vector and dances on this robot (lift, head, spins). Clear the floor. Stop cancels instantly.</p>
+            <h2>Link Vectors</h2>
+            <p class="hint">Put every Vector on the same Wi‑Fi with SeekOS. Choose one as <b>master</b>, link the others, then Macarena plays on all of them in sync. (Vector Bluetooth stays with the app/cubes — Seek links over Wi‑Fi.)</p>
+            <div class="link-card">
+                <label class="master-toggle">
+                    <input type="checkbox" id="linkMasterToggle">
+                    <span>Choose this Vector as master</span>
+                </label>
+                <p id="linkStatus" class="hint">Scanning for nearby Vectors…</p>
+                <div id="linkPeerList" class="link-peer-list"></div>
+                <div class="actions">
+                    <button type="button" class="ghost" id="btnLinkRefresh">Refresh scan</button>
+                </div>
+                <label class="field spaced">
+                    <span>Add by IP (if scan misses one)</span>
+                    <input type="text" id="linkManualIP" placeholder="192.168.42.210" autocomplete="off">
+                </label>
+                <button type="button" class="ghost" id="btnLinkAddIP">Link IP</button>
+            </div>
+
+            <h2 class="spaced">Macarena</h2>
+            <p class="hint">Plays <b>Los del Río — Macarena</b> and dances (lift, head, spins). If this bot is <b>master</b> with at least one linked Vector, they all start together. Clear the floor.</p>
             <div class="macarena-card">
                 <p class="macarena-title">Dale a tu cuerpo alegría</p>
                 <div class="actions">
                     <button type="button" class="primary" id="btnMacarena">Dance Macarena</button>
                     <button type="button" class="ghost danger" id="btnMacarenaStop">Stop</button>
                 </div>
-                <p class="hint">Give him clear floor space. ~4 minutes. Hit Stop anytime.</p>
+                <p id="macarenaSyncHint" class="hint">Give him clear floor space. ~4 minutes. Hit Stop anytime.</p>
             </div>
 
             <h2 class="spaced">Voice &amp; listen</h2>

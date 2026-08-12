@@ -69,6 +69,11 @@ type SeekDashboard struct {
 	danceLastErr string
 	actionID     uint32
 
+	linkMu    sync.Mutex
+	linkOnce  sync.Once
+	linkState seekLinkState
+	linkSeen  map[string]SeekPeer
+
 	lastActivity time.Time
 	idleOnce     sync.Once
 }
@@ -87,6 +92,7 @@ func (modu *SeekDashboard) Description() string {
 
 func (m *SeekDashboard) Load() error {
 	m.touchActivity()
+	m.initLink()
 	m.idleOnce.Do(func() {
 		go m.idleWatch()
 	})
@@ -278,12 +284,42 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 	case "controlEnd":
 		m.controlEnd()
 	case "stopMedia":
+		// Master stop also stops linked bots.
+		if m.isLinkMaster() && len(m.linkedPeers()) > 0 {
+			m.fanoutStopMedia()
+		}
 		m.stopMedia()
 	case "stopAudio":
 		m.stopAudio()
 	case "macarena":
 		vol := parseAudioVolume(r.FormValue("volume"))
 		if err := m.startMacarena(vol); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+	case "macarenaSync":
+		// Called by master Vector — start Macarena at shared t0 (unix ms).
+		vol := parseAudioVolume(r.FormValue("volume"))
+		t0Ms, _ := strconv.ParseInt(r.FormValue("t0"), 10, 64)
+		if err := m.startMacarenaAt(vol, t0Ms); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+	case "linkGet":
+		m.handleLinkGet(w, r)
+		return
+	case "linkSetMaster":
+		if err := m.handleLinkSetMaster(r); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+	case "linkPeer":
+		if err := m.handleLinkPeer(r); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+	case "linkAccept":
+		if err := m.handleLinkAccept(r); err != nil {
 			vars.HTTPError(w, r, err.Error())
 			return
 		}
@@ -350,13 +386,17 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 		m.camMu.Lock()
 		cam := m.camRunning
 		m.camMu.Unlock()
+		linkedN := len(m.linkedPeers())
 		out, _ := json.Marshal(map[string]any{
-			"holding":  holding,
-			"camera":   cam,
-			"dancing":  m.isDancing(),
-			"danceErr": m.getDanceErr(),
-			"ready":    vars.SDKReady(),
-			"macarena": true,
+			"holding":      holding,
+			"camera":       cam,
+			"dancing":      m.isDancing(),
+			"danceErr":     m.getDanceErr(),
+			"ready":        vars.SDKReady(),
+			"macarena":     true,
+			"linkMaster":   m.isLinkMaster(),
+			"linkedCount":  linkedN,
+			"canSyncDance": m.isLinkMaster() && linkedN >= 1,
 		})
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")

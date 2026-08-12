@@ -57,8 +57,28 @@ func (m *SeekDashboard) stopDance() {
 }
 
 // startMacarena loads the bundled WAV (fast), takes control, then dances + plays
-// audio on the real robot. Returns after arming so the UI gets real errors.
+// audio on the real robot. When this Vector is master with ≥1 linked peer, it
+// fans out a shared start time so everyone hits the beat together.
 func (m *SeekDashboard) startMacarena(volume uint32) error {
+	if volume == 0 {
+		volume = 100
+	}
+	var t0Ms int64
+	if m.isLinkMaster() {
+		peers := m.linkedPeers()
+		if len(peers) >= 1 {
+			t0Ms = time.Now().Add(900 * time.Millisecond).UnixMilli()
+			okN, errs := m.fanoutMacarena(t0Ms, volume)
+			if okN == 0 {
+				return fmt.Errorf("no linked Vector answered — check they are on SeekOS and same Wi‑Fi (%v)", errs)
+			}
+		}
+	}
+	return m.startMacarenaAt(volume, t0Ms)
+}
+
+// startMacarenaAt arms Macarena, optionally waiting until unix-ms t0 (0 = now).
+func (m *SeekDashboard) startMacarenaAt(volume uint32, t0Ms int64) error {
 	m.danceMu.Lock()
 	if m.dancing {
 		m.danceMu.Unlock()
@@ -110,7 +130,34 @@ func (m *SeekDashboard) startMacarena(volume uint32) error {
 		return errors.New("no robot connection after control grant")
 	}
 
-	go m.runMacarena(ctx, cancel, v, pcm, rate, volume)
+	go func() {
+		if t0Ms > 0 {
+			wait := time.Until(time.UnixMilli(t0Ms))
+			if wait > 0 && wait < 5*time.Second {
+				t := time.NewTimer(wait)
+				select {
+				case <-ctx.Done():
+					t.Stop()
+					m.danceMu.Lock()
+					m.dancing = false
+					m.danceCancel = nil
+					m.danceMu.Unlock()
+					m.controlEnd()
+					return
+				case <-t.C:
+				}
+			}
+		}
+		if ctx.Err() != nil {
+			m.danceMu.Lock()
+			m.dancing = false
+			m.danceCancel = nil
+			m.danceMu.Unlock()
+			m.controlEnd()
+			return
+		}
+		m.runMacarena(ctx, cancel, v, pcm, rate, volume)
+	}()
 	return nil
 }
 

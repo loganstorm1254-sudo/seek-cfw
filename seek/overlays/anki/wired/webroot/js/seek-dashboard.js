@@ -1017,6 +1017,139 @@ async function seekStopMedia() {
     setSeekStatus('Stopped.');
 }
 
+/* ---------------- Vector Link (multi-bot Macarena sync) ---------------- */
+
+let seekLinkPollTimer = null;
+
+function seekEsc(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+async function seekLinkRefresh() {
+    const statusEl = $('linkStatus');
+    const listEl = $('linkPeerList');
+    const masterEl = $('linkMasterToggle');
+    const syncHint = $('macarenaSyncHint');
+    try {
+        const res = await api('linkGet', { timeoutMs: 5000, retries: 1 });
+        if (!res.ok) throw new Error('linkGet failed');
+        const j = await res.json();
+        if (masterEl) masterEl.checked = !!j.isMaster;
+        const peers = Array.isArray(j.peers) ? j.peers : [];
+        const linkedN = j.linkedCount || 0;
+        if (statusEl) {
+            if (j.isMaster && linkedN >= 1) {
+                statusEl.textContent = 'Master · ' + linkedN + ' linked — Macarena will sync.';
+            } else if (j.isMaster) {
+                statusEl.textContent = 'Master · link at least one other Vector to sync Macarena.';
+            } else if (linkedN >= 1) {
+                statusEl.textContent = 'Linked as follower · master starts the dance.';
+            } else if (peers.length) {
+                statusEl.textContent = 'Found ' + peers.length + ' Vector(s). Link them, then choose a master.';
+            } else {
+                statusEl.textContent = 'No other Vectors seen yet — open Seek on each bot (same Wi‑Fi).';
+            }
+        }
+        if (syncHint) {
+            if (j.canSyncDance) {
+                syncHint.textContent = 'Synced mode: this master + ' + linkedN + ' linked bot(s) will start together. Stop ends all.';
+            } else {
+                syncHint.textContent = 'Give him clear floor space. ~4 minutes. Hit Stop anytime.';
+            }
+        }
+        if (listEl) {
+            if (!peers.length) {
+                listEl.innerHTML = '';
+            } else {
+                listEl.innerHTML = peers.map(function (p) {
+                    const linked = !!p.linked;
+                    const title = seekEsc(p.name || 'Vector');
+                    const meta = seekEsc((p.ip || '') + (p.isMaster ? ' · master' : '') + (p.esn ? ' · ' + p.esn : ''));
+                    const btnLabel = linked ? 'Unlink' : 'Link';
+                    const btnClass = linked ? 'ghost danger' : 'primary';
+                    return '<div class="link-peer' + (linked ? ' linked' : '') + '">' +
+                        '<div><p class="name">' + title + '</p><p class="meta-line">' + meta + '</p></div>' +
+                        '<button type="button" class="' + btnClass + '" data-link-esn="' + seekEsc(p.esn || '') +
+                        '" data-link-ip="' + seekEsc(p.ip || '') +
+                        '" data-link-name="' + title +
+                        '" data-link-on="' + (linked ? '0' : '1') + '">' + btnLabel + '</button></div>';
+                }).join('');
+                listEl.querySelectorAll('button[data-link-esn]').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        seekLinkPeer(btn.getAttribute('data-link-esn'), btn.getAttribute('data-link-ip'),
+                            btn.getAttribute('data-link-name'), btn.getAttribute('data-link-on') === '1');
+                    });
+                });
+            }
+        }
+    } catch (e) {
+        if (statusEl) statusEl.textContent = 'Link scan error: ' + e.message;
+    }
+}
+
+async function seekLinkSetMaster(on) {
+    const body = new URLSearchParams({ master: on ? '1' : '0' });
+    const res = await api('linkSetMaster', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+        timeoutMs: 5000,
+        retries: 1
+    });
+    if (!res.ok) {
+        const e = await res.json().catch(function () { return {}; });
+        throw new Error(e.message || 'could not set master');
+    }
+    await seekLinkRefresh();
+}
+
+async function seekLinkPeer(esn, ip, name, link) {
+    setSeekStatus(link ? 'Linking Vector…' : 'Unlinking…');
+    const body = new URLSearchParams({
+        esn: esn || '',
+        ip: ip || '',
+        name: name || 'Vector',
+        link: link ? '1' : '0'
+    });
+    try {
+        const res = await api('linkPeer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString(),
+            timeoutMs: 8000,
+            retries: 1
+        });
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return {}; });
+            setSeekStatus(e.message || 'link failed', true);
+            return;
+        }
+        setSeekStatus(link ? 'Linked.' : 'Unlinked.');
+        await seekLinkRefresh();
+    } catch (e) {
+        setSeekStatus('link error: ' + e.message, true);
+    }
+}
+
+async function seekLinkAddIP() {
+    const ip = ($('linkManualIP') && $('linkManualIP').value || '').trim();
+    if (!ip) {
+        setSeekStatus('Enter another Vector’s Wi‑Fi IP.', true);
+        return;
+    }
+    await seekLinkPeer('', ip, 'Vector', true);
+}
+
+function seekLinkStartPolling() {
+    seekLinkRefresh();
+    if (seekLinkPollTimer) clearInterval(seekLinkPollTimer);
+    seekLinkPollTimer = setInterval(seekLinkRefresh, 4000);
+}
+
 async function seekMacarena() {
     if (cameraOn) stopCamera();
     setArmedUI(false);
@@ -1032,7 +1165,7 @@ async function seekMacarena() {
             setSeekStatus((e.message || 'macarena failed'), true);
             return;
         }
-        setSeekStatus('Macarena on Vector — music + dance. Hit Stop to end.');
+        setSeekStatus('Macarena on Vector — music + dance (synced if master + linked). Hit Stop to end.');
         const started = Date.now();
         while (Date.now() - started < 280000) {
             await new Promise((r) => setTimeout(r, 1500));
@@ -1524,6 +1657,19 @@ function bindUI() {
     on('btnListen', 'click', activateVoice);
     on('btnMacarena', 'click', seekMacarena);
     on('btnMacarenaStop', 'click', seekStopMedia);
+    on('btnLinkRefresh', 'click', function () { seekLinkRefresh(); });
+    on('btnLinkAddIP', 'click', function () { seekLinkAddIP(); });
+    on('linkMasterToggle', 'change', async function () {
+        const on = !!( $('linkMasterToggle') && $('linkMasterToggle').checked );
+        try {
+            await seekLinkSetMaster(on);
+            setSeekStatus(on ? 'This Vector is master.' : 'Master cleared.');
+        } catch (e) {
+            setSeekStatus('master toggle: ' + e.message, true);
+            seekLinkRefresh();
+        }
+    });
+    seekLinkStartPolling();
     on('btnDoomStart', 'click', doomStart);
     on('btnDoomStop', 'click', doomStop);
     on('btnMeet', 'click', () => {
