@@ -133,35 +133,12 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	action := strings.TrimPrefix(r.URL.Path, "/api/mods/"+m.Name()+"/")
 	switch action {
-	case "status", "moves", "getEyeColor", "getVolume", "cameraFrame", "cameraMjpeg", "getEyeOverlay", "getOpenAIKey", "getSeekLights", "getWifiStatus":
+	case "status", "moves", "getEyeColor", "getVolume", "cameraFrame", "cameraMjpeg", "getEyeOverlay", "getOpenAIKey", "getSeekLights":
 		// read-only / streaming — don't count as "user activity" for idle release
 	default:
 		m.touchActivity()
 	}
 	switch action {
-	case "getWifiStatus":
-		st, err := m.handleGetWifiStatus()
-		if err != nil {
-			vars.HTTPError(w, r, err.Error())
-			return
-		}
-		writeWifiJSON(w, st)
-		return
-	case "wifiScan":
-		nets, err := m.handleWifiScan()
-		if err != nil {
-			vars.HTTPError(w, r, err.Error())
-			return
-		}
-		writeWifiJSON(w, map[string]any{"networks": nets})
-		return
-	case "wifiConnect":
-		if err := m.handleWifiConnect(r.FormValue("ssid"), r.FormValue("password"), r.FormValue("serviceId")); err != nil {
-			vars.HTTPError(w, r, err.Error())
-			return
-		}
-		vars.HTTPSuccess(w, r)
-		return
 	case "getSeekLights":
 		_, errOff := os.Stat(filepath.Join(seekCustomLightsDir, "off.json"))
 		_, errAnki := os.Stat(seekAnkiLightsFlag)

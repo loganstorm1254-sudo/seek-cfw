@@ -166,111 +166,12 @@ function switchTab(name) {
     }
     if (name !== 'drive' && cameraOn) stopCamera();
     if (name === 'look') seekRefresh();
-    else if (name === 'network') seekRefreshWifi();
 }
 
 function initTabs() {
     document.querySelectorAll('.tab').forEach((btn) => {
         btn.addEventListener('click', () => switchTab(btn.dataset.tab));
     });
-}
-
-/* ---------------- Wi‑Fi ---------------- */
-
-let seekWifiSelectedId = '';
-
-async function seekRefreshWifi() {
-    const st = $('wifiStatus');
-    try {
-        const res = await api('getWifiStatus');
-        if (!res.ok) return;
-        const info = await res.json();
-        if (st) {
-            const parts = [];
-            if (info.ssid) parts.push('Connected to <b>' + info.ssid + '</b>');
-            else parts.push('Not on Wi‑Fi');
-            if (info.ip) parts.push('IP ' + info.ip);
-            st.innerHTML = parts.join(' · ');
-        }
-    } catch (_) {
-        if (st) st.textContent = 'Could not read Wi‑Fi status.';
-    }
-}
-
-async function seekWifiScan() {
-    setSeekStatus('Scanning Wi‑Fi…');
-    const list = $('wifiList');
-    if (list) list.innerHTML = '';
-    seekWifiSelectedId = '';
-    try {
-        const res = await api('wifiScan', { timeoutMs: 20000, retries: 1 });
-        if (!res.ok) {
-            const e = await res.json().catch(function () { return { message: 'scan failed' }; });
-            setSeekStatus(e.message || 'scan failed', true);
-            return;
-        }
-        const data = await res.json();
-        const nets = (data && data.networks) || [];
-        if (!list) return;
-        if (!nets.length) {
-            list.innerHTML = '<li><span class="hint" style="padding:0.65rem 0.85rem;display:block">No networks found — try again.</span></li>';
-            setSeekStatus('No networks found.');
-            return;
-        }
-        nets.forEach(function (n) {
-            const li = document.createElement('li');
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            const lock = n.secured ? '🔒' : 'open';
-            const on = n.connected ? ' · connected' : '';
-            btn.innerHTML = '<span>' + n.ssid + '</span><span class="wifi-meta">' + lock + on + '</span>';
-            btn.addEventListener('click', function () {
-                seekWifiSelectedId = n.serviceId || '';
-                if ($('wifiSsid')) $('wifiSsid').value = n.ssid;
-                list.querySelectorAll('button').forEach(function (b) { b.classList.remove('selected'); });
-                btn.classList.add('selected');
-                if ($('wifiConnectHint')) $('wifiConnectHint').textContent = 'Selected ' + n.ssid + '. Enter password and tap Connect.';
-            });
-            if (n.connected) btn.classList.add('selected');
-            li.appendChild(btn);
-            list.appendChild(li);
-        });
-        setSeekStatus('Found ' + nets.length + ' network(s). Tap one, enter password, Connect.');
-        seekRefreshWifi();
-    } catch (e) {
-        setSeekStatus('Wi‑Fi scan error: ' + e.message, true);
-    }
-}
-
-async function seekWifiConnect() {
-    const ssid = ($('wifiSsid') && $('wifiSsid').value || '').trim();
-    const password = ($('wifiPassword') && $('wifiPassword').value) || '';
-    if (!ssid) {
-        setSeekStatus('Enter or select a Wi‑Fi name.', true);
-        return;
-    }
-    setSeekStatus('Connecting to ' + ssid + '… (page may drop briefly)');
-    let url = 'wifiConnect?ssid=' + encodeURIComponent(ssid);
-    if (password) url += '&password=' + encodeURIComponent(password);
-    if (seekWifiSelectedId) url += '&serviceId=' + encodeURIComponent(seekWifiSelectedId);
-    try {
-        const res = await api(url, { timeoutMs: 45000, retries: 0 });
-        if (!res.ok) {
-            const e = await res.json().catch(function () { return { message: 'connect failed' }; });
-            setSeekStatus(e.message || 'connect failed', true);
-            return;
-        }
-        setSeekStatus('Connected! Re-open dashboard at Vector\'s new IP if this page stops responding.');
-        if ($('wifiConnectHint')) {
-            $('wifiConnectHint').textContent = 'If the page freezes, wait ~30s then open http://192.168.42.209:8080/seek.html or check your router for Vector\'s IP.';
-        }
-        setTimeout(function () {
-            seekRefreshWifi();
-            loadNetInfo();
-        }, 4000);
-    } catch (e) {
-        setSeekStatus('Wi‑Fi connect error: ' + e.message + ' — he may still be joining; refresh in a minute.', true);
-    }
 }
 
 /* ---------------- Look / Speak / Media ---------------- */
@@ -481,26 +382,138 @@ async function seekSetVolume() {
     }
 }
 
+const SEEK_VOICE_LS = 'seekSpeakVoice';
+const SEEK_OPENAI_TTS = {
+    male: 'onyx',
+    female: 'nova',
+    chatgpt: 'alloy'
+};
+
+function seekSelectedVoice() {
+    const el = $('seekVoice');
+    const v = el ? el.value : 'robot';
+    if (v === 'male' || v === 'female' || v === 'chatgpt' || v === 'robot') return v;
+    return 'robot';
+}
+
+function seekLoadVoiceChoice() {
+    try {
+        const saved = localStorage.getItem(SEEK_VOICE_LS);
+        if (saved && $('seekVoice')) $('seekVoice').value = saved;
+    } catch (_) {}
+    if ($('seekVoice')) {
+        $('seekVoice').addEventListener('change', function () {
+            try { localStorage.setItem(SEEK_VOICE_LS, seekSelectedVoice()); } catch (_) {}
+        });
+    }
+}
+
+function seekShowAIAnswer(text) {
+    const el = $('askAIAnswer');
+    if (el) el.value = text || '';
+}
+
+async function seekCopyAIAnswer() {
+    const el = $('askAIAnswer');
+    const text = el ? String(el.value || '').trim() : '';
+    if (!text) {
+        setSeekStatus('No answer to copy yet.', true);
+        return;
+    }
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+        } else {
+            el.focus();
+            el.select();
+            document.execCommand('copy');
+        }
+        setSeekStatus('Answer copied.');
+    } catch (e) {
+        setSeekStatus('Copy failed — select the text manually.', true);
+    }
+}
+
+async function seekOpenAITTSToPcm(text, openaiVoice) {
+    const key = seekResolveOpenAIKey();
+    if (!key) throw new Error('Save your OpenAI key first (needed for this voice).');
+    const res = await fetch('https://api.openai.com/v1/audio/speech', {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + key,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model: 'tts-1',
+            voice: openaiVoice,
+            input: text.slice(0, 1000),
+            response_format: 'wav'
+        })
+    });
+    if (!res.ok) {
+        const raw = await res.text();
+        let msg = raw.slice(0, 180);
+        try {
+            const j = JSON.parse(raw);
+            if (j.error && j.error.message) msg = j.error.message;
+        } catch (_) {}
+        throw new Error('OpenAI TTS ' + res.status + ': ' + msg);
+    }
+    const blob = await res.blob();
+    return decodeFileToPcm16k(blob);
+}
+
+async function seekPlayPcmOnVector(pcm) {
+    const vol = ($('audioPlayVolume') && $('audioPlayVolume').value) || '100';
+    if (seekAudioCtrl) seekAudioCtrl.abort();
+    seekAudioCtrl = new AbortController();
+    const res = await api('playPcm?rate=16000&volume=' + encodeURIComponent(vol), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: pcm,
+        timeoutMs: 180000,
+        retries: 0,
+        signal: seekAudioCtrl.signal
+    });
+    if (!res.ok) {
+        const e = await res.json().catch(function () { return { message: 'play failed' }; });
+        throw new Error(e.message || 'play failed');
+    }
+}
+
+async function seekSpeakWithSelectedVoice(text) {
+    const mode = seekSelectedVoice();
+    if (mode === 'robot') {
+        const res = await api(
+            'sayText?text=' + encodeURIComponent(text) + '&vectorVoice=1',
+            { timeoutMs: 60000, retries: 1 }
+        );
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'speak failed' }; });
+            throw new Error(e.message || 'Vector could not speak');
+        }
+        return 'Vector robot';
+    }
+    const openaiVoice = SEEK_OPENAI_TTS[mode] || 'alloy';
+    setSeekStatus('Generating ' + mode + ' voice…');
+    const pcm = await seekOpenAITTSToPcm(text, openaiVoice);
+    setSeekStatus('Playing on Vector…');
+    await seekPlayPcmOnVector(pcm);
+    return mode;
+}
+
 async function seekSayText() {
     const text = $('sayText').value.trim();
     if (!text) {
         setSeekStatus('Enter something for Vector to say.', true);
         return;
     }
-    setSeekStatus('Saying...');
+    setSeekStatus('Saying…');
     try {
-        const res = await api(
-            'sayText?text=' + encodeURIComponent(text) +
-            '&vectorVoice=' + encodeURIComponent($('sayVectorVoice').value)
-        );
-        if (!res.ok) {
-            const e = await res.json();
-            setSeekStatus(`${e.status}: ${e.message}`, true);
-            return;
-        }
-        setSeekStatus('Done speaking.');
+        const used = await seekSpeakWithSelectedVoice(text);
+        setSeekStatus('Done speaking (' + used + ').');
     } catch (e) {
-        setSeekStatus('network error: ' + e.message, true);
+        setSeekStatus('speak error: ' + e.message, true);
     }
 }
 
@@ -660,32 +673,8 @@ async function seekBrowserWhisper(blob) {
     return String((parsed && parsed.text) || '').trim();
 }
 
-function seekBrowserSpeak(answer) {
-    try {
-        if (!window.speechSynthesis) return false;
-        window.speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance(answer);
-        u.rate = 1.05;
-        window.speechSynthesis.speak(u);
-        return true;
-    } catch (_) {
-        return false;
-    }
-}
-
 async function seekSpeakAnswer(answer) {
-    const res = await api(
-        'sayText?text=' + encodeURIComponent(answer) +
-        '&vectorVoice=' + encodeURIComponent(($('sayVectorVoice') && $('sayVectorVoice').value) || '1'),
-        { timeoutMs: 60000, retries: 1 }
-    );
-    if (!res.ok) {
-        const e = await res.json().catch(function () { return { message: 'speak failed' }; });
-        if (seekBrowserSpeak(answer)) {
-            throw new Error((e.message || 'Vector speak failed') + ' — played answer on this device instead. Install Seek 32d+ so Vector can speak.');
-        }
-        throw new Error(e.message || 'Vector could not speak');
-    }
+    return seekSpeakWithSelectedVoice(answer);
 }
 
 async function seekTestOpenAI() {
@@ -693,7 +682,7 @@ async function seekTestOpenAI() {
     try {
         const ans = await seekBrowserChatGPT('Reply with exactly: ok');
         setSeekStatus('OpenAI OK — got: ' + ans);
-        if ($('askAIAnswer')) $('askAIAnswer').textContent = 'Test: ' + ans;
+        seekShowAIAnswer(ans);
     } catch (e) {
         setSeekStatus('OpenAI test failed: ' + e.message, true);
     }
@@ -706,7 +695,7 @@ async function seekAskAI(text) {
         return;
     }
     setSeekStatus('Asking ChatGPT from your phone/PC…');
-    if ($('askAIAnswer')) $('askAIAnswer').textContent = '';
+    seekShowAIAnswer('');
     let answer = '';
     let via = 'browser';
     try {
@@ -735,13 +724,13 @@ async function seekAskAI(text) {
         setSeekStatus('Empty answer.', true);
         return;
     }
-    if ($('askAIAnswer')) $('askAIAnswer').textContent = 'Vector: ' + answer;
-    setSeekStatus('Got answer via ' + via + ' — speaking…');
+    seekShowAIAnswer(answer);
+    setSeekStatus('Answer ready (via ' + via + ') — speaking…');
     try {
-        await seekSpeakAnswer(answer);
-        setSeekStatus('Answer spoken.');
+        const used = await seekSpeakAnswer(answer);
+        setSeekStatus('Answer spoken (' + used + ').');
     } catch (e) {
-        setSeekStatus('Answer ready but speak failed: ' + e.message, true);
+        setSeekStatus('Answer is in the box above — speak failed: ' + e.message, true);
     }
 }
 
@@ -1487,9 +1476,9 @@ function bindUI() {
         syncKeysToDrive();
     });
 
-    on('btnWifiScan', 'click', seekWifiScan);
-    on('btnWifiConnect', 'click', seekWifiConnect);
     on('btnEye', 'click', seekSetEyeColor);
+    on('btnCopyAIAnswer', 'click', seekCopyAIAnswer);
+    seekLoadVoiceChoice();
     on('btnEyeOverlayApply', 'click', seekApplyEyeOverlay);
     on('btnEyeOverlayClear', 'click', seekClearEyeOverlay);
     on('btnApplySeekLights', 'click', seekApplySeekLights);
