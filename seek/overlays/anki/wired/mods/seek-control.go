@@ -159,6 +159,7 @@ func (m *SeekDashboard) controlEnd() {
 	stream := m.ctrlStream
 	cancel := m.cancel
 	v := m.vec
+	hadDrive := m.driveL != 0 || m.driveR != 0
 	m.holding = false
 	m.ctrlStream = nil
 	m.vec = nil
@@ -167,13 +168,16 @@ func (m *SeekDashboard) controlEnd() {
 	m.driveR = 0
 	m.mu.Unlock()
 
-	// Prefer zero wheels over StopAllMotors — gentler on the behavior system.
-	if v != nil {
-		ctx, cancelW := context.WithTimeout(context.Background(), 2*time.Second)
-		_, _ = v.Conn.DriveWheels(ctx, &vectorpb.DriveWheelsRequest{})
-		cancelW()
-	} else {
-		m.emergencyStopWheels()
+	// Only hard-stop wheels if we were actually driving — zeroing motors on
+	// every short TTS release was fighting idle behaviors and rebooting units.
+	if hadDrive {
+		if v != nil {
+			ctx, cancelW := context.WithTimeout(context.Background(), 2*time.Second)
+			_, _ = v.Conn.DriveWheels(ctx, &vectorpb.DriveWheelsRequest{})
+			cancelW()
+		} else {
+			m.emergencyStopWheels()
+		}
 	}
 	if stream != nil {
 		_ = stream.Send(&vectorpb.BehaviorControlRequest{
@@ -215,8 +219,9 @@ func (m *SeekDashboard) withControl(fn func(context.Context, *vector.Vector) err
 	}
 	m.mu.Unlock()
 
-	// Short one-shots: OVERRIDE so say/audio can interrupt idle animations.
-	if err := m.controlStartPriority(vectorpb.ControlRequest_OVERRIDE_BEHAVIORS); err != nil {
+	// Short one-shots use DEFAULT — OVERRIDE was implicated in random idle/
+	// post-speak reboots on some units (same class as Drive/Doom).
+	if err := m.controlStartPriority(vectorpb.ControlRequest_DEFAULT); err != nil {
 		return err
 	}
 	defer m.controlEnd()

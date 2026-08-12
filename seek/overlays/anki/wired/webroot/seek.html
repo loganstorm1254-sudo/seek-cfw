@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#07131a">
     <title>Seek Dashboard</title>
-    <link rel="stylesheet" href="css/seek.css?v=33d">
+    <link rel="stylesheet" href="css/seek.css?v=33d1">
 </head>
 <body>
     <div class="bg" aria-hidden="true"></div>
@@ -109,12 +109,12 @@
 
         <section id="tab-speak" class="panel" role="tabpanel" hidden>
             <h2>Voice</h2>
-            <p class="hint">Used for <b>Say something</b> and ChatGPT answers. Male / Female / ChatGPT need an OpenAI key (spoken through Vector’s speaker). Robot uses Vector’s built-in voice.</p>
+            <p class="hint">Used for <b>Say something</b> and ChatGPT answers. <b>Robot</b> / <b>Male</b> use Vector’s built-in TTS. <b>Female</b> / <b>ChatGPT</b> use OpenAI TTS through his speaker (needs an API key).</p>
             <label class="field">
                 <span>Speak as</span>
                 <select id="seekVoice">
                     <option value="robot" selected>Vector robot</option>
-                    <option value="male">Male (OpenAI)</option>
+                    <option value="male">Male (default TTS)</option>
                     <option value="female">Female (OpenAI)</option>
                     <option value="chatgpt">ChatGPT (OpenAI)</option>
                 </select>
@@ -307,7 +307,7 @@
         </section>
     </main>
     <noscript><p class="status err">JavaScript is required for Seek Dashboard.</p></noscript>
-    <script src="js/seek-dashboard.js?v=33d" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
+    <script src="js/seek-dashboard.js?v=33d1" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
     <script>
     setTimeout(function () {
         if (!window.__seekLoaded) {

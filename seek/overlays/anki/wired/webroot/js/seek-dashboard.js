@@ -410,7 +410,14 @@ function seekLoadVoiceChoice() {
 
 function seekShowAIAnswer(text) {
     const el = $('askAIAnswer');
-    if (el) el.value = text || '';
+    if (!el) return;
+    el.value = text || '';
+    if (text) {
+        try {
+            el.focus();
+            el.select();
+        } catch (_) {}
+    }
 }
 
 async function seekCopyAIAnswer() {
@@ -483,16 +490,18 @@ async function seekPlayPcmOnVector(pcm) {
 
 async function seekSpeakWithSelectedVoice(text) {
     const mode = seekSelectedVoice();
-    if (mode === 'robot') {
+    // robot = processed Vector voice; male = stock Acapela (unprocessed) male TTS
+    if (mode === 'robot' || mode === 'male') {
+        const vectorVoice = mode === 'robot' ? '1' : '0';
         const res = await api(
-            'sayText?text=' + encodeURIComponent(text) + '&vectorVoice=1',
+            'sayText?text=' + encodeURIComponent(text) + '&vectorVoice=' + vectorVoice,
             { timeoutMs: 60000, retries: 1 }
         );
         if (!res.ok) {
             const e = await res.json().catch(function () { return { message: 'speak failed' }; });
             throw new Error(e.message || 'Vector could not speak');
         }
-        return 'Vector robot';
+        return mode === 'robot' ? 'Vector robot' : 'Male TTS';
     }
     const openaiVoice = SEEK_OPENAI_TTS[mode] || 'alloy';
     setSeekStatus('Generating ' + mode + ' voice…');
