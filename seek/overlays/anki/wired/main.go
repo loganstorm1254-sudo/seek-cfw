@@ -35,18 +35,26 @@ func installFastUpdateOS() {
 		fmt.Println("update-os mkdir:", err)
 		return
 	}
-	if err := os.WriteFile("/data/update-os.sh", seekUpdateOSScript, 0644); err != nil {
-		fmt.Println("update-os write:", err)
-		return
+	// Prefer keeping a manually installed fixed script (see seek/scripts/setup-update-os.sh).
+	if _, err := os.Stat("/data/keep-update-os"); err != nil {
+		if err := os.WriteFile("/data/update-os.sh", seekUpdateOSScript, 0644); err != nil {
+			fmt.Println("update-os write:", err)
+			return
+		}
 	}
-	// /data is noexec. Copy to /run (tmpfs, executable) then bind-mount.
-	if err := os.WriteFile("/run/update-os", seekUpdateOSScript, 0755); err != nil {
-		fmt.Println("update-os /run write:", err)
-		return
-	}
+	// /data and sometimes /run are noexec. Never exec the script from there —
+	// install a tiny wrapper on /usr that bash-interprets /data/update-os.sh
+	// (same UX as WireOS: `update-os <url>`).
 	_ = exec.Command("umount", "/usr/sbin/update-os").Run()
-	if err := exec.Command("mount", "--bind", "/run/update-os", "/usr/sbin/update-os").Run(); err != nil {
-		fmt.Println("update-os bind mount:", err)
+	_ = exec.Command("mount", "-o", "remount,rw", "/").Run()
+	wrapper := []byte("#!/bin/bash\nexec /bin/bash /data/update-os.sh \"$@\"\n")
+	if err := os.WriteFile("/usr/sbin/update-os", wrapper, 0755); err != nil {
+		// Fall back: remount /run exec + bind (some images keep / read-only).
+		_ = exec.Command("mount", "-o", "remount,exec", "/run").Run()
+		_ = os.WriteFile("/run/update-os", seekUpdateOSScript, 0755)
+		if err2 := exec.Command("mount", "--bind", "/run/update-os", "/usr/sbin/update-os").Run(); err2 != nil {
+			fmt.Println("update-os install:", err, err2)
+		}
 	}
 }
 

@@ -20,16 +20,17 @@ elif [ -f ./update-seek.sh ]; then
     cp ./update-seek.sh /usr/sbin/update-seek
     chmod 0755 /usr/sbin/update-seek
 fi
-# /usr/sbin is read-only on live robots; bind-mount the fast updater over stock update-os.
+# /data is noexec — install a bash wrapper so `update-os <url>` works like WireOS.
 src=""
 if [ -f ./update-os.sh ]; then src=./update-os.sh; elif [ -f ./update-os ]; then src=./update-os; fi
 if [ -n "$src" ]; then
-    mkdir -p /data /run
+    mkdir -p /data
     cp "$src" /data/update-os.sh
-    cp "$src" /run/update-os
-    chmod 0755 /run/update-os
+    chmod 0644 /data/update-os.sh
     umount /usr/sbin/update-os 2>/dev/null || true
-    mount --bind /run/update-os /usr/sbin/update-os || true
+    mount -o remount,rw / 2>/dev/null || true
+    printf '%s\n' '#!/bin/bash' 'exec /bin/bash /data/update-os.sh "$@"' >/usr/sbin/update-os
+    chmod 0755 /usr/sbin/update-os
 fi
 sync
 systemctl start wired
