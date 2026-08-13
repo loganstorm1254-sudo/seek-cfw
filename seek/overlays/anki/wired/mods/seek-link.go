@@ -193,35 +193,38 @@ func (m *SeekDashboard) linkListenLoop() {
 			return
 		}
 		var b seekLinkBeacon
-		if json.Unmarshal(buf[:n], &b) != nil || b.Magic != seekLinkMagic {
-			continue
-		}
-		if b.ESN == "" || b.ESN == self || b.IP == "" {
-			continue
-		}
-		if b.IP == m.linkSelfIP() {
-			continue
-		}
-		now := time.Now().UnixMilli()
-		m.linkMu.Lock()
-		prev, ok := m.linkSeen[b.ESN]
-		peer := SeekPeer{
-			ESN:      b.ESN,
-			Name:     b.Name,
-			IP:       b.IP,
-			IsMaster: b.IsMaster,
-			LastSeen: now,
-			Linked:   ok && prev.Linked,
-		}
-		// Preserve linked flag from saved state
-		for _, sp := range m.linkState.Peers {
-			if sp.ESN == b.ESN && sp.Linked {
-				peer.Linked = true
-				break
+		if json.Unmarshal(buf[:n], &b) == nil && b.Magic == seekLinkMagic {
+			if b.ESN == "" || b.ESN == self || b.IP == "" {
+				continue
 			}
+			if b.IP == m.linkSelfIP() {
+				continue
+			}
+			now := time.Now().UnixMilli()
+			m.linkMu.Lock()
+			prev, ok := m.linkSeen[b.ESN]
+			peer := SeekPeer{
+				ESN:      b.ESN,
+				Name:     b.Name,
+				IP:       b.IP,
+				IsMaster: b.IsMaster,
+				LastSeen: now,
+				Linked:   ok && prev.Linked,
+			}
+			for _, sp := range m.linkState.Peers {
+				if sp.ESN == b.ESN && sp.Linked {
+					peer.Linked = true
+					break
+				}
+			}
+			m.linkSeen[b.ESN] = peer
+			m.linkMu.Unlock()
+			continue
 		}
-		m.linkSeen[b.ESN] = peer
-		m.linkMu.Unlock()
+		var goPkt seekMacGoPacket
+		if json.Unmarshal(buf[:n], &goPkt) == nil && goPkt.Magic == seekMacGoMagic && goPkt.T0Ms > 0 {
+			go func(t0 int64) { _ = m.goMacarenaAt(t0) }(goPkt.T0Ms)
+		}
 	}
 }
 
@@ -449,8 +452,8 @@ func (m *SeekDashboard) isLinkMaster() bool {
 	return m.linkState.IsMaster
 }
 
-// fanoutMacarena tells linked peers to start at the same unix-ms timestamp.
-func (m *SeekDashboard) fanoutMacarena(t0Ms int64, volume uint32) (okN int, errs []string) {
+// fanoutMacarenaArm tells linked peers to load audio + take control before go.
+func (m *SeekDashboard) fanoutMacarenaArm(volume uint32) (okN int, errs []string) {
 	peers := m.linkedPeers()
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -458,9 +461,9 @@ func (m *SeekDashboard) fanoutMacarena(t0Ms int64, volume uint32) (okN int, errs
 		wg.Add(1)
 		go func(p SeekPeer) {
 			defer wg.Done()
-			url := fmt.Sprintf("http://%s:%d/api/mods/SeekDashboard/macarenaSync?t0=%d&volume=%d&master=%s",
-				p.IP, seekLinkHTTPPort, t0Ms, volume, seekRobotESN())
-			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+			url := fmt.Sprintf("http://%s:%d/api/mods/SeekDashboard/macarenaArm?volume=%d",
+				p.IP, seekLinkHTTPPort, volume)
+			ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 			defer cancel()
 			req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
 			if err != nil {
@@ -491,6 +494,65 @@ func (m *SeekDashboard) fanoutMacarena(t0Ms int64, volume uint32) (okN int, errs
 	}
 	wg.Wait()
 	return okN, errs
+}
+
+// fanoutMacarenaGo sends the shared start timestamp to armed peers.
+func (m *SeekDashboard) fanoutMacarenaGo(t0Ms int64) {
+	peers := m.linkedPeers()
+	for _, p := range peers {
+		go func(ip string) {
+			url := fmt.Sprintf("http://%s:%d/api/mods/SeekDashboard/macarenaGo?t0=%d",
+				ip, seekLinkHTTPPort, t0Ms)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+			if err != nil {
+				return
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err == nil {
+				_ = resp.Body.Close()
+			}
+		}(p.IP)
+	}
+	m.broadcastMacarenaGo(t0Ms)
+}
+
+const seekMacGoMagic = "SEEKMACGO1"
+
+type seekMacGoPacket struct {
+	Magic string `json:"magic"`
+	T0Ms  int64  `json:"t0"`
+}
+
+func (m *SeekDashboard) broadcastMacarenaGo(t0Ms int64) {
+	ip := m.linkSelfIP()
+	if ip == "" {
+		return
+	}
+	msg, _ := json.Marshal(seekMacGoPacket{Magic: seekMacGoMagic, T0Ms: t0Ms})
+	c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+	if err != nil {
+		return
+	}
+	defer c.Close()
+	if raw, err := c.SyscallConn(); err == nil {
+		_ = raw.Control(func(fd uintptr) {
+			_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+		})
+	}
+	targets := []*net.UDPAddr{{IP: net.IPv4bcast, Port: seekLinkUDPPort}}
+	if strings.HasPrefix(ip, "192.168.42.") {
+		targets = append(targets, &net.UDPAddr{IP: net.ParseIP("192.168.42.255"), Port: seekLinkUDPPort})
+	}
+	if parts := strings.Split(ip, "."); len(parts) == 4 {
+		if bcast := net.ParseIP(parts[0] + "." + parts[1] + "." + parts[2] + ".255"); bcast != nil {
+			targets = append(targets, &net.UDPAddr{IP: bcast, Port: seekLinkUDPPort})
+		}
+	}
+	for _, a := range targets {
+		_, _ = c.WriteToUDP(msg, a)
+	}
 }
 
 func (m *SeekDashboard) fanoutStopMedia() {

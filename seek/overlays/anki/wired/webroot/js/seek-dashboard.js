@@ -1154,10 +1154,10 @@ async function seekMacarena() {
     if (cameraOn) stopCamera();
     setArmedUI(false);
     const vol = $('audioPlayVolume') ? $('audioPlayVolume').value : '100';
-    setSeekStatus('Arming Macarena on Vector…');
+    setSeekStatus('Arming all linked Vectors (sync prep)…');
     try {
         const res = await api('macarena?volume=' + encodeURIComponent(vol), {
-            timeoutMs: 30000,
+            timeoutMs: 45000,
             retries: 1
         });
         if (!res.ok) {
@@ -1165,7 +1165,7 @@ async function seekMacarena() {
             setSeekStatus((e.message || 'macarena failed'), true);
             return;
         }
-        setSeekStatus('Macarena on Vector — music + dance (synced if master + linked). Hit Stop to end.');
+        setSeekStatus('Macarena — synced music + dance on all linked bots. Hit Stop to end.');
         const started = Date.now();
         while (Date.now() - started < 280000) {
             await new Promise((r) => setTimeout(r, 1500));

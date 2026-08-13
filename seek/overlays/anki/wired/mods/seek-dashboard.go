@@ -69,6 +69,13 @@ type SeekDashboard struct {
 	danceLastErr string
 	actionID     uint32
 
+	// Macarena sync: arm (load + control) then go (shared t0).
+	macArenaMu sync.Mutex
+	macArmed   bool
+	macPCM     []byte
+	macRate    uint32
+	macVol     uint32
+
 	linkMu    sync.Mutex
 	linkOnce  sync.Once
 	linkState seekLinkState
@@ -298,13 +305,26 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "macarenaSync":
-		// Called by master Vector — start Macarena at shared t0 (unix ms).
-		vol := parseAudioVolume(r.FormValue("volume"))
+		// Legacy: treat as macarenaGo (master should use arm+go in 36d+).
 		t0Ms, _ := strconv.ParseInt(r.FormValue("t0"), 10, 64)
-		if err := m.startMacarenaAt(vol, t0Ms); err != nil {
+		if err := m.goMacarenaAt(t0Ms); err != nil {
 			vars.HTTPError(w, r, err.Error())
 			return
 		}
+	case "macarenaArm":
+		vol := parseAudioVolume(r.FormValue("volume"))
+		if err := m.armMacarena(vol); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+	case "macarenaGo":
+		t0Ms, _ := strconv.ParseInt(r.FormValue("t0"), 10, 64)
+		if err := m.goMacarenaAt(t0Ms); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+	case "macarenaDisarm":
+		m.disarmMacarena()
 	case "linkGet":
 		m.handleLinkGet(w, r)
 		return
@@ -657,6 +677,7 @@ func (m *SeekDashboard) stopAudio() {
 
 // stopMedia cancels audio + Macarena + motors + releases control (Stop button).
 func (m *SeekDashboard) stopMedia() {
+	m.disarmMacarena()
 	m.stopDance()
 	m.stopAudio()
 	m.emergencyStopWheels()
@@ -711,7 +732,12 @@ func (m *SeekDashboard) handleFrame(r *http.Request) error {
 }
 
 func (m *SeekDashboard) streamPCM(parent context.Context, v *vector.Vector, pcm io.Reader, rate uint32, volume uint32) error {
-	// Replace any in-flight audio so Stop / a new play actually cuts off the old stream.
+	return m.streamPCMSynced(parent, v, pcm, rate, volume, time.Time{})
+}
+
+// streamPCMSynced plays PCM with real-time pacing. If clockStart is set, pacing
+// is anchored to that instant (used for multi-Vector Macarena sync).
+func (m *SeekDashboard) streamPCMSynced(parent context.Context, v *vector.Vector, pcm io.Reader, rate uint32, volume uint32, clockStart time.Time) error {
 	m.stopAudio()
 	ctx, cancel := context.WithCancel(parent)
 	m.audioMu.Lock()
@@ -732,6 +758,10 @@ func (m *SeekDashboard) streamPCM(parent context.Context, v *vector.Vector, pcm 
 	if err != nil {
 		return err
 	}
+	return m.streamPCMOnPreparedStream(ctx, stream, pcm, rate, volume, clockStart, false)
+}
+
+func (m *SeekDashboard) streamPCMOnPreparedStream(ctx context.Context, stream vectorpb.ExternalInterface_ExternalAudioStreamPlaybackClient, pcm io.Reader, rate uint32, volume uint32, clockStart time.Time, alreadyPrepared bool) error {
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
@@ -757,21 +787,33 @@ func (m *SeekDashboard) streamPCM(parent context.Context, v *vector.Vector, pcm 
 		})
 	}
 
-	if err := stream.Send(&vectorpb.ExternalAudioStreamRequest{
-		AudioRequestType: &vectorpb.ExternalAudioStreamRequest_AudioStreamPrepare{
-			AudioStreamPrepare: &vectorpb.ExternalAudioStreamPrepare{
-				AudioFrameRate: rate,
-				AudioVolume:    volume,
+	if !alreadyPrepared {
+		if err := stream.Send(&vectorpb.ExternalAudioStreamRequest{
+			AudioRequestType: &vectorpb.ExternalAudioStreamRequest_AudioStreamPrepare{
+				AudioStreamPrepare: &vectorpb.ExternalAudioStreamPrepare{
+					AudioFrameRate: rate,
+					AudioVolume:    volume,
+				},
 			},
-		},
-	}); err != nil {
-		return err
+		}); err != nil {
+			return err
+		}
+	}
+
+	start := clockStart
+	if start.IsZero() {
+		start = time.Now()
+	} else if d := time.Until(start); d > 0 {
+		waitUntilUnixMs(start.UnixMilli())
+		if ctx.Err() != nil {
+			sendCancel()
+			return nil
+		}
 	}
 
 	const chunkBytes = 1024 // engine max
 	buf := make([]byte, chunkBytes)
 	var leftover []byte
-	start := time.Now()
 	sentSamples := 0
 	totalRead := 0
 	for {

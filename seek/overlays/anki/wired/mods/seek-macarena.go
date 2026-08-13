@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -20,6 +21,9 @@ const macarenaWavPath = "/etc/wired/webroot/media/macarena.wav"
 
 // Los del Río Macarena ~103 BPM.
 const macarenaBPM = 103.0
+
+// Countdown after every bot is armed — room for HTTP + audio Prepare on all units.
+const macarenaSyncLeadMs = 2800
 
 func (m *SeekDashboard) nextActionID() int32 {
 	return int32(atomic.AddUint32(&m.actionID, 1))
@@ -56,29 +60,40 @@ func (m *SeekDashboard) stopDance() {
 	}
 }
 
-// startMacarena loads the bundled WAV (fast), takes control, then dances + plays
-// audio on the real robot. When this Vector is master with ≥1 linked peer, it
-// fans out a shared start time so everyone hits the beat together.
-func (m *SeekDashboard) startMacarena(volume uint32) error {
+func waitUntilUnixMs(t0Ms int64) {
+	for {
+		now := time.Now().UnixMilli()
+		if now >= t0Ms {
+			return
+		}
+		d := time.Duration(t0Ms-now) * time.Millisecond
+		if d > 40*time.Millisecond {
+			time.Sleep(d - 20*time.Millisecond)
+		} else if d > 3*time.Millisecond {
+			time.Sleep(1 * time.Millisecond)
+		} else {
+			runtime.Gosched()
+		}
+	}
+}
+
+func loadMacarenaPCM() ([]byte, uint32, error) {
+	raw, err := os.ReadFile(macarenaWavPath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("macarena.wav missing on robot — reinstall Seek OTA (%v)", err)
+	}
+	pcm, rate, err := decodeWAV(raw)
+	if err != nil {
+		return nil, 0, fmt.Errorf("macarena wav decode: %w", err)
+	}
+	return normalizePCM16(pcm), rate, nil
+}
+
+// armMacarena loads audio and takes SDK control, ready for a shared t0 go signal.
+func (m *SeekDashboard) armMacarena(volume uint32) error {
 	if volume == 0 {
 		volume = 100
 	}
-	var t0Ms int64
-	if m.isLinkMaster() {
-		peers := m.linkedPeers()
-		if len(peers) >= 1 {
-			t0Ms = time.Now().Add(900 * time.Millisecond).UnixMilli()
-			okN, errs := m.fanoutMacarena(t0Ms, volume)
-			if okN == 0 {
-				return fmt.Errorf("no linked Vector answered — check they are on SeekOS and same Wi‑Fi (%v)", errs)
-			}
-		}
-	}
-	return m.startMacarenaAt(volume, t0Ms)
-}
-
-// startMacarenaAt arms Macarena, optionally waiting until unix-ms t0 (0 = now).
-func (m *SeekDashboard) startMacarenaAt(volume uint32, t0Ms int64) error {
 	m.danceMu.Lock()
 	if m.dancing {
 		m.danceMu.Unlock()
@@ -86,15 +101,136 @@ func (m *SeekDashboard) startMacarenaAt(volume uint32, t0Ms int64) error {
 	}
 	m.danceMu.Unlock()
 
-	raw, err := os.ReadFile(macarenaWavPath)
-	if err != nil {
-		return fmt.Errorf("macarena.wav missing on robot — reinstall Seek OTA (%v)", err)
+	m.macArenaMu.Lock()
+	defer m.macArenaMu.Unlock()
+	if m.macArmed {
+		return nil
 	}
-	pcm, rate, err := decodeWAV(raw)
+
+	pcm, rate, err := loadMacarenaPCM()
 	if err != nil {
-		return fmt.Errorf("macarena wav decode: %w", err)
+		return err
 	}
-	pcm = normalizePCM16(pcm)
+
+	m.touchActivity()
+	m.cameraStop()
+	m.stopAudio()
+	m.stopDriveLoop()
+	m.controlEnd()
+	time.Sleep(150 * time.Millisecond)
+	if err := m.controlStartPriority(vectorpb.ControlRequest_OVERRIDE_BEHAVIORS); err != nil {
+		return fmt.Errorf("could not take control: %w", err)
+	}
+	m.mu.Lock()
+	v := m.vec
+	m.mu.Unlock()
+	if v == nil {
+		m.controlEnd()
+		return errors.New("no robot connection after control grant")
+	}
+
+	m.macArmed = true
+	m.macPCM = pcm
+	m.macRate = rate
+	m.macVol = volume
+	return nil
+}
+
+func (m *SeekDashboard) disarmMacarena() {
+	m.macArenaMu.Lock()
+	m.macArmed = false
+	m.macPCM = nil
+	m.macRate = 0
+	m.macVol = 0
+	m.macArenaMu.Unlock()
+}
+
+// goMacarenaAt starts a previously armed Macarena exactly at unix-ms t0.
+func (m *SeekDashboard) goMacarenaAt(t0Ms int64) error {
+	if t0Ms <= 0 {
+		return errors.New("missing sync time")
+	}
+	if d := time.Until(time.UnixMilli(t0Ms)); d < -500*time.Millisecond {
+		return errors.New("sync time already passed — try again")
+	}
+
+	var pcm []byte
+	var rate, volume uint32
+	m.macArenaMu.Lock()
+	if !m.macArmed {
+		m.macArenaMu.Unlock()
+		return errors.New("not armed for sync — master must arm first")
+	}
+	pcm = m.macPCM
+	rate = m.macRate
+	volume = m.macVol
+	m.macArmed = false
+	m.macPCM = nil
+	m.macArenaMu.Unlock()
+
+	m.danceMu.Lock()
+	if m.dancing {
+		m.danceMu.Unlock()
+		return errors.New("already dancing")
+	}
+	m.danceMu.Unlock()
+
+	m.mu.Lock()
+	v := m.vec
+	m.mu.Unlock()
+	if v == nil {
+		m.controlEnd()
+		return errors.New("no robot connection")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	m.danceMu.Lock()
+	m.dancing = true
+	m.danceCancel = cancel
+	m.danceLastErr = ""
+	m.danceMu.Unlock()
+
+	go m.runMacarenaSynced(ctx, cancel, v, pcm, rate, volume, t0Ms)
+	return nil
+}
+
+// startMacarena solo or master-synced (arm all → shared t0 → go).
+func (m *SeekDashboard) startMacarena(volume uint32) error {
+	if volume == 0 {
+		volume = 100
+	}
+	if m.isLinkMaster() {
+		peers := m.linkedPeers()
+		if len(peers) >= 1 {
+			if err := m.armMacarena(volume); err != nil {
+				return err
+			}
+			okN, errs := m.fanoutMacarenaArm(volume)
+			if okN != len(peers) {
+				m.disarmMacarena()
+				m.controlEnd()
+				return fmt.Errorf("only %d/%d linked Vectors armed (%v)", okN, len(peers), errs)
+			}
+			t0Ms := time.Now().UnixMilli() + macarenaSyncLeadMs
+			go m.fanoutMacarenaGo(t0Ms)
+			return m.goMacarenaAt(t0Ms)
+		}
+	}
+	return m.startMacarenaSolo(volume)
+}
+
+func (m *SeekDashboard) startMacarenaSolo(volume uint32) error {
+	m.danceMu.Lock()
+	if m.dancing {
+		m.danceMu.Unlock()
+		return errors.New("already dancing — hit Stop first")
+	}
+	m.danceMu.Unlock()
+
+	pcm, rate, err := loadMacarenaPCM()
+	if err != nil {
+		return err
+	}
 	if volume == 0 {
 		volume = 100
 	}
@@ -103,8 +239,6 @@ func (m *SeekDashboard) startMacarenaAt(volume uint32, t0Ms int64) error {
 	m.cameraStop()
 	m.stopAudio()
 	m.stopDriveLoop()
-
-	// Fresh control for the routine.
 	m.controlEnd()
 	time.Sleep(150 * time.Millisecond)
 	if err := m.controlStartPriority(vectorpb.ControlRequest_OVERRIDE_BEHAVIORS); err != nil {
@@ -130,45 +264,92 @@ func (m *SeekDashboard) startMacarenaAt(volume uint32, t0Ms int64) error {
 		return errors.New("no robot connection after control grant")
 	}
 
-	go func() {
-		if t0Ms > 0 {
-			wait := time.Until(time.UnixMilli(t0Ms))
-			if wait > 0 && wait < 5*time.Second {
-				t := time.NewTimer(wait)
-				select {
-				case <-ctx.Done():
-					t.Stop()
-					m.danceMu.Lock()
-					m.dancing = false
-					m.danceCancel = nil
-					m.danceMu.Unlock()
-					m.controlEnd()
-					return
-				case <-t.C:
-				}
-			}
-		}
-		if ctx.Err() != nil {
-			m.danceMu.Lock()
-			m.dancing = false
-			m.danceCancel = nil
-			m.danceMu.Unlock()
-			m.controlEnd()
-			return
-		}
-		m.runMacarena(ctx, cancel, v, pcm, rate, volume)
-	}()
+	go m.runMacarena(ctx, cancel, v, pcm, rate, volume)
 	return nil
+}
+
+func (m *SeekDashboard) runMacarenaSynced(ctx context.Context, cancel context.CancelFunc, v *vector.Vector, pcm []byte, rate uint32, volume uint32, t0Ms int64) {
+	defer cancel()
+	defer func() {
+		m.macFreeze(v)
+		m.stopAudio()
+		m.emergencyStopWheels()
+		m.danceMu.Lock()
+		m.dancing = false
+		m.danceCancel = nil
+		m.danceMu.Unlock()
+		m.controlEnd()
+	}()
+
+	// Open + Prepare audio before t0 so the first chunk fires on the beat.
+	audioCtx, audioCancel := context.WithCancel(ctx)
+	defer audioCancel()
+	m.stopAudio()
+	m.audioMu.Lock()
+	m.audioCancel = audioCancel
+	m.audioGen++
+	m.audioMu.Unlock()
+
+	stream, err := v.Conn.ExternalAudioStreamPlayback(audioCtx)
+	if err != nil {
+		m.setDanceErr(err)
+		return
+	}
+	if err := stream.Send(&vectorpb.ExternalAudioStreamRequest{
+		AudioRequestType: &vectorpb.ExternalAudioStreamRequest_AudioStreamPrepare{
+			AudioStreamPrepare: &vectorpb.ExternalAudioStreamPrepare{
+				AudioFrameRate: rate,
+				AudioVolume:    volume,
+			},
+		},
+	}); err != nil {
+		m.setDanceErr(err)
+		return
+	}
+
+	waitUntilUnixMs(t0Ms)
+	if ctx.Err() != nil {
+		return
+	}
+	clockStart := time.UnixMilli(t0Ms)
+
+	samples := len(pcm) / 2
+	if samples < 1 {
+		samples = 1
+	}
+	dur := time.Duration(float64(samples)/float64(rate)*float64(time.Second)) + 2*time.Second
+	danceCtx, danceCancel := context.WithTimeout(ctx, dur)
+	defer danceCancel()
+	beat := time.Duration(math.Round(60000.0/macarenaBPM)) * time.Millisecond
+
+	audioDone := make(chan error, 1)
+	danceDone := make(chan error, 1)
+	go func() {
+		audioDone <- m.streamPCMOnPreparedStream(audioCtx, stream, bytes.NewReader(pcm), rate, volume, clockStart, true)
+	}()
+	go func() {
+		danceDone <- m.macarenaDanceLoop(danceCtx, v, beat)
+	}()
+
+	select {
+	case err := <-audioDone:
+		if err != nil && !errors.Is(err, context.Canceled) && ctx.Err() == nil {
+			m.setDanceErr(err)
+		}
+	case <-ctx.Done():
+	case <-time.After(dur + 5*time.Second):
+	}
+
+	danceCancel()
+	_ = <-danceDone
 }
 
 func (m *SeekDashboard) runMacarena(ctx context.Context, cancel context.CancelFunc, v *vector.Vector, pcm []byte, rate uint32, volume uint32) {
 	defer cancel()
 	defer func() {
-		// Always freeze motors / audio even if controlEnd races.
 		m.macFreeze(v)
 		m.stopAudio()
 		m.emergencyStopWheels()
-		// Clear dancing before controlEnd so controlEnd's stopDance is a no-op path.
 		m.danceMu.Lock()
 		m.dancing = false
 		m.danceCancel = nil
@@ -214,8 +395,6 @@ func (m *SeekDashboard) macarenaDanceLoop(ctx context.Context, v *vector.Vector,
 		m.touchActivity()
 		phrase++
 
-		// 16-count Macarena mapped to lift / head / wheels (non-blocking teleop
-		// so Stop can cancel between beats instead of sitting in SetLiftHeight).
 		steps := []func() error{
 			func() error { return m.macPulseLift(ctx, v, 3.5, beat) },
 			func() error { return m.macPulseLift(ctx, v, 4.5, beat) },
@@ -280,7 +459,6 @@ func (m *SeekDashboard) macPulseLift(ctx context.Context, v *vector.Vector, spee
 	if err != nil && ctx.Err() != nil {
 		return ctx.Err()
 	}
-	// Keep going even if one pulse fails (transient SDK blip).
 	if err := m.macSleep(ctx, hold); err != nil {
 		return err
 	}
@@ -310,7 +488,6 @@ func (m *SeekDashboard) macPulseHead(ctx context.Context, v *vector.Vector, spee
 }
 
 func (m *SeekDashboard) macSpin(ctx context.Context, v *vector.Vector, dir float32, hold time.Duration) error {
-	// Wheel spin ≈ 90° turn without blocking TurnInPlace (which ignored Stop).
 	speed := float32(90) * dir
 	cctx, cancel := context.WithTimeout(ctx, time.Second)
 	_, _ = v.Conn.DriveWheels(cctx, &vectorpb.DriveWheelsRequest{
