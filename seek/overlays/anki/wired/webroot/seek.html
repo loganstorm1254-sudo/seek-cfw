@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
     <title>Seek Dashboard</title>
-    <link rel="stylesheet" href="css/seek.css?v=40d1">
+    <link rel="stylesheet" href="css/seek.css?v=41d1">
 </head>
 <body>
     <div class="bg" aria-hidden="true"></div>
@@ -16,18 +16,22 @@
         <header class="hero">
             <p class="brand">SeekAra</p>
             <h1>Seek Dashboard</h1>
-            <p class="lede">Open this page on your phone or PC — same Wi‑Fi as Vector.</p>
-            <p class="hint">Bookmark the URL below. Keep the page open so the phone Wi‑Fi doesn’t sleep. If buttons freeze, pull-to-refresh.</p>
+            <p class="lede">Phone and Vector must be on the <b>same home Wi‑Fi</b>. Not cellular, not a guest network, not Vector’s pairing hotspot.</p>
+            <p class="hint">Turn off VPN and iCloud Private Relay on the phone or the IP looks unreachable.</p>
             <p class="hint">Thermometer = stock safety (~90°C). Use <b>Regular</b> in <a href="/settings">wired settings</a>, camera off, Release when idle.</p>
             <div id="netInfoBox" class="net-box">
-                <p class="hint">On your phone, join Vector’s Wi‑Fi, then open:</p>
+                <p class="hint">On the phone, join Wi‑Fi named:</p>
+                <p id="netSsid" class="net-ip">checking…</p>
+                <p class="hint">Then type this in Safari or Chrome (not a chat preview):</p>
                 <p id="netLanIp" class="net-ip" hidden></p>
                 <p id="netPhoneUrl" class="net-url" hidden></p>
+                <p id="netPhoneUrl8080" class="net-url" hidden></p>
+                <p id="netHotspotHint" class="hint" hidden></p>
                 <ul id="netAddrList" class="net-list"></ul>
             </div>
             <div class="ota-card">
                 <h2>Install SeekOS (fast)</h2>
-                <p class="hint">Download the <code>.ota</code> on your phone first (cellular or home Wi‑Fi). Then join Vector’s Wi‑Fi, pick that file, tap Install. The phone sends it over LAN — not GitHub on the robot.</p>
+                <p class="hint">Download the <code>.ota</code> on the phone (cellular is fine). Switch the phone to the <b>same home Wi‑Fi as Vector</b>, pick the file, tap Install.</p>
                 <label class="field">
                     <span>OTA file</span>
                     <input type="file" id="otaFile" accept=".ota,application/octet-stream,*/*">
@@ -341,7 +345,7 @@
         </section>
     </main>
     <noscript><p class="status err">JavaScript is required for Seek Dashboard.</p></noscript>
-    <script src="js/seek-dashboard.js?v=40d1" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh.';}})();"></script>
+    <script src="js/seek-dashboard.js?v=41d1" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh.';}})();"></script>
     <script>
     setTimeout(function () {
         if (!window.__seekLoaded) {

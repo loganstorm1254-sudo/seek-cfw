@@ -60,14 +60,17 @@ func main() {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		lanIP := vars.PreferredLANIP()
 		url := vars.PreferredPhoneURL()
+		hotIP := vars.PreferredHotspotIP()
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"addrs":        vars.ListNetAddrs(),
 			"lanIp":        lanIP,
 			"phoneUrl":     url,
+			"phoneUrl8080": vars.PreferredPhoneURL8080(),
 			"canonicalUrl": url,
 			"oneAddress":   url,
+			"hotspotIp":    hotIP,
 			"ssid":         vars.WifiSSID(),
-			"hint":         "On your phone, join Vector’s Wi‑Fi and open http://<robot-ip>:8080/",
+			"hint":         "Put the phone on the same home Wi‑Fi as Vector (VPN and Private Relay off). Do not join Vector’s pairing hotspot.",
 		})
 	})
 
@@ -152,7 +155,6 @@ func seekCORS(next http.Handler) http.Handler {
 	})
 }
 func startweb() {
-	fmt.Println("starting web at port 8080 (all interfaces)")
 	root := http.Dir("/etc/wired/webroot")
 	fs := http.FileServer(root)
 
@@ -199,14 +201,31 @@ func startweb() {
 		setStaticContentType(w, p)
 		fs.ServeHTTP(w, r)
 	})
+	handler := seekCORS(http.DefaultServeMux)
 	srv := &http.Server{
 		Addr:              "0.0.0.0:8080",
-		Handler:           seekCORS(http.DefaultServeMux),
+		Handler:           handler,
 		ReadHeaderTimeout: 8 * time.Second,
 		ReadTimeout:       20 * time.Minute,
 		WriteTimeout:      20 * time.Minute,
 		IdleTimeout:       70 * time.Second,
 	}
+	// Phones that type just the IP hit :80, not :8080.
+	go func() {
+		s80 := &http.Server{
+			Addr:              "0.0.0.0:80",
+			Handler:           handler,
+			ReadHeaderTimeout: 8 * time.Second,
+			ReadTimeout:       20 * time.Minute,
+			WriteTimeout:      20 * time.Minute,
+			IdleTimeout:       70 * time.Second,
+		}
+		fmt.Println("starting web at port 80 (all interfaces)")
+		if err := s80.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Println("port 80:", err)
+		}
+	}()
+	fmt.Println("starting web at port 8080 (all interfaces)")
 	if err := srv.ListenAndServe(); err != nil {
 		fmt.Println("ListenAndServe:", err)
 		panic(err)

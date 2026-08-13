@@ -27,10 +27,10 @@
         <p>This is where extra configuration options exist.</p>
         <p>Click the tabs to navigate the options.</p>
         <p style="margin-top:14px;"><a href="/seek.html" style="color:#a855f7;font-weight:600;">Open Seek Dashboard →</a></p>
-        <p style="margin-top:6px;color:#888;font-size:0.9rem;">Phone tip: open <code>http://&lt;vector-ip&gt;:8080/</code> (Seek is the home page).</p>
+        <p style="margin-top:6px;color:#888;font-size:0.9rem;">Phone: same home Wi‑Fi as Vector, then <code>http://&lt;vector-ip&gt;/</code></p>
         <div id="netInfoHome" style="margin-top:16px;padding:12px;border:1px solid #333;background:#111;border-radius:6px;">
             <p style="margin:0 0 8px;"><b>Open in any browser</b></p>
-            <p style="margin:0 0 8px;color:#aaa;font-size:0.92rem;">Same Wi‑Fi as Vector. Example: <code>http://192.168.42.209:8080/seek.html</code></p>
+            <p style="margin:0 0 8px;color:#aaa;font-size:0.92rem;">Same <b>home Wi‑Fi</b> as Vector (not Vector’s pairing hotspot). Example: <code>http://192.168.43.3/</code></p>
             <p id="netPhoneUrlHome" style="margin:0;word-break:break-all;font-weight:700;color:#a855f7;">Loading…</p>
             <ul id="netAddrListHome" style="margin:10px 0 0;padding-left:18px;color:#ccc;font-size:0.9rem;"></ul>
         </div>
@@ -38,18 +38,26 @@
         fetch('/api/netinfo', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (data) {
             var urlEl = document.getElementById('netPhoneUrlHome');
             var list = document.getElementById('netAddrListHome');
-            var ip = location.hostname || data.lanIp;
-            var one = ip ? ('http://' + ip + ':8080/seek.html') : (data.canonicalUrl || data.phoneUrl);
-            if (ip && one) {
-                urlEl.innerHTML = '<div style="font-size:1.4rem;margin-bottom:6px;">' + ip + '</div><a href="' + one + '" style="color:#a855f7;">' + one + '</a>';
-            } else if (one) {
-                urlEl.innerHTML = '<a href="' + one + '" style="color:#a855f7;">' + one + '</a>';
+            var home = (data.addrs || []).filter(function (a) { return a.phoneOk && !a.hotspot && a.kind === 'wifi'; })[0]
+                || (data.addrs || []).filter(function (a) { return a.phoneOk && !a.hotspot; })[0];
+            var ip = (home && home.ip) || data.lanIp || '';
+            var one = (home && home.url) || data.phoneUrl || (ip ? ('http://' + ip + '/') : '');
+            if (data.ssid) {
+                urlEl.innerHTML = '<div style="font-size:0.95rem;color:#aaa;margin-bottom:6px;">Join Wi‑Fi: <b style="color:#fff;">' + data.ssid + '</b></div>';
             } else {
-                urlEl.textContent = 'No IP yet.';
+                urlEl.innerHTML = '';
+            }
+            if (ip && one) {
+                urlEl.innerHTML += '<div style="font-size:1.4rem;margin-bottom:6px;">' + ip + '</div><a href="' + one + '" style="color:#a855f7;">' + one + '</a>';
+            } else if (one) {
+                urlEl.innerHTML += '<a href="' + one + '" style="color:#a855f7;">' + one + '</a>';
+            } else {
+                urlEl.textContent = 'No Wi‑Fi IP yet.';
             }
             (data.addrs || []).forEach(function (a) {
+                if (!a.phoneOk) return;
                 var li = document.createElement('li');
-                li.textContent = a.iface + ' · ' + a.ip + ' · ' + a.kind;
+                li.textContent = (a.hotspot ? 'hotspot' : a.kind) + ' · ' + a.ip;
                 list.appendChild(li);
             });
         }).catch(function () {

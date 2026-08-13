@@ -1985,35 +1985,52 @@ function bindTouchPad() {
 async function loadNetInfo() {
     const ipEl = $('netLanIp');
     const urlEl = $('netPhoneUrl');
+    const url8080El = $('netPhoneUrl8080');
     const listEl = $('netAddrList');
-    if (!ipEl && !urlEl && !listEl) return;
+    const ssidEl = $('netSsid');
+    const hotEl = $('netHotspotHint');
     try {
         const res = await fetch(seekNetInfoUrl(), { cache: 'no-store' });
         if (!res.ok) return;
         const data = await res.json();
-        // Prefer the IP the browser already used (e.g. 192.168.42.209).
-        const hostIp = location.hostname;
-        const lanIp = hostIp && hostIp !== 'localhost' && hostIp !== '127.0.0.1'
-            ? hostIp
-            : (data.lanIp || '');
-        const one = 'http://' + lanIp + ':8080/seek.html';
+        const addrs = (data.addrs || []).filter(function (a) { return a.phoneOk; });
+        const home = addrs.find(function (a) { return a.kind === 'wifi' && !a.hotspot; }) ||
+            addrs.find(function (a) { return a.phoneOk && !a.hotspot; });
+        const hot = addrs.find(function (a) { return a.hotspot; });
+        // Never copy USB 192.168.42.1 from the PC browser — phones cannot reach USB.
+        const lanIp = (home && home.ip) || data.lanIp || '';
+        const url80 = (home && home.url) || data.phoneUrl || (lanIp ? ('http://' + lanIp + '/') : '');
+        const url8080 = (home && home.url8080) || data.phoneUrl8080 || (lanIp ? ('http://' + lanIp + ':8080/') : '');
+        if (ssidEl) {
+            ssidEl.textContent = data.ssid ? data.ssid : 'unknown — check Vector’s Wi‑Fi name in the app';
+        }
         if (ipEl) {
-            ipEl.hidden = false;
-            ipEl.textContent = lanIp || 'waiting for IP…';
+            ipEl.hidden = !lanIp;
+            ipEl.textContent = lanIp || '';
         }
         if (urlEl) {
-            urlEl.hidden = false;
-            if (lanIp) {
-                urlEl.innerHTML = '<a href="' + one + '">' + one + '</a>';
+            urlEl.hidden = !url80;
+            urlEl.innerHTML = url80 ? ('<a href="' + url80 + '">' + url80 + '</a>') : '';
+        }
+        if (url8080El) {
+            url8080El.hidden = !url8080;
+            url8080El.innerHTML = url8080 ? ('backup: <a href="' + url8080 + '">' + url8080 + '</a>') : '';
+        }
+        if (hotEl) {
+            if (hot && hot.ip) {
+                hotEl.hidden = false;
+                hotEl.innerHTML = 'Pairing hotspot only (Vector‑XXXX): <a href="' + (hot.url || ('http://' + hot.ip + '/')) + '">' + hot.ip + '</a> — skip this if Vector is on home Wi‑Fi.';
             } else {
-                urlEl.textContent = 'Connect Vector to Wi‑Fi, then refresh.';
+                hotEl.hidden = true;
+                hotEl.textContent = '';
             }
         }
         if (listEl) {
             listEl.textContent = '';
-            (data.addrs || []).forEach((a) => {
+            addrs.forEach(function (a) {
                 const li = document.createElement('li');
-                li.textContent = a.iface + ' · ' + a.ip + ' · ' + a.kind;
+                const label = a.hotspot ? 'hotspot' : a.kind;
+                li.innerHTML = label + ' · <a href="' + (a.url || ('http://' + a.ip + '/')) + '">' + a.ip + '</a>';
                 listEl.appendChild(li);
             });
         }
@@ -2036,7 +2053,7 @@ async function waitForRobot() {
                 setSeekStatus('Dashboard up — waiting for SDK…', true);
             }
         } catch (_) {
-            setSeekStatus('Cannot reach ' + location.host + ' — use http://<ip>:8080/seek.html on Wi‑Fi.', true);
+            setSeekStatus('Cannot reach ' + location.host + '. Phone must be on the same home Wi‑Fi as Vector. VPN/Private Relay off. Try http://' + location.hostname + '/ (port 80) or :8080.', true);
         }
         await new Promise((r) => setTimeout(r, 1000));
     }
