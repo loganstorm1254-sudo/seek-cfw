@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#07131a">
     <title>Seek Dashboard</title>
-    <link rel="stylesheet" href="css/seek.css?v=33d1">
+    <link rel="stylesheet" href="css/seek.css?v=38d1">
 </head>
 <body>
     <div class="bg" aria-hidden="true"></div>
@@ -17,6 +17,14 @@
             <p class="lede">Control this robot from his own IP.</p>
             <p class="hint">Phone tip: keep the page open — it pings Vector so Wi‑Fi doesn’t sleep. If buttons freeze, pull-to-refresh (don’t need to toggle Wi‑Fi).</p>
             <p class="hint">Thermometer = stock safety (~90°C). Use <b>Regular</b> in <a href="/settings">wired settings</a>, camera off, Release when idle.</p>
+            <h2 class="spaced">Phone site (hosted)</h2>
+            <p class="hint">Paste your hosted Seek portal URL (example <code>wss://seek.yourdomain.com/vector</code>). Vector phones home so the site works on mobile HTTPS. Then open the site, enter this robot’s IP + Wi‑Fi name.</p>
+            <label class="field">
+                <span>Portal URL</span>
+                <input type="url" id="portalUrl" placeholder="wss://seek.yourdomain.com/vector" autocomplete="off">
+            </label>
+            <p id="portalStatus" class="hint"></p>
+            <button type="button" class="ghost" id="btnSavePortal">Save portal URL</button>
             <div id="netInfoBox" class="net-box">
                 <p class="hint">Hosted on Vector. Open this URL in <b>any browser</b> (phone or PC) on the <b>same Wi‑Fi</b> as the robot:</p>
                 <p id="netLanIp" class="net-ip" hidden></p>
@@ -326,7 +334,7 @@
         </section>
     </main>
     <noscript><p class="status err">JavaScript is required for Seek Dashboard.</p></noscript>
-    <script src="js/seek-dashboard.js?v=33d1" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
+    <script src="js/seek-dashboard.js?v=38d1" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh or reinstall OTA.';}})();"></script>
     <script>
     setTimeout(function () {
         if (!window.__seekLoaded) {

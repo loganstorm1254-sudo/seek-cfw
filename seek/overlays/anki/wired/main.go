@@ -45,6 +45,7 @@ func main() {
 			"phoneUrl":     url,
 			"canonicalUrl": url,
 			"oneAddress":   url,
+			"ssid":         vars.WifiSSID(),
 			"hint":         "Open http://192.168.42.209:8080/ in any browser on the same Wi‑Fi.",
 		})
 	})
@@ -89,6 +90,19 @@ func serveFile(w http.ResponseWriter, r *http.Request, name string) {
 	http.ServeFile(w, r, path.Join("/etc/wired/webroot", name))
 }
 
+func seekCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+		w.Header().Set("Access-Control-Max-Age", "600")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 func startweb() {
 	fmt.Println("starting web at port 8080 (all interfaces)")
 	root := http.Dir("/etc/wired/webroot")
@@ -139,6 +153,7 @@ func startweb() {
 	})
 	srv := &http.Server{
 		Addr:              "0.0.0.0:8080",
+		Handler:           seekCORS(http.DefaultServeMux),
 		ReadHeaderTimeout: 8 * time.Second,
 		ReadTimeout:       3 * time.Minute,
 		WriteTimeout:      3 * time.Minute,

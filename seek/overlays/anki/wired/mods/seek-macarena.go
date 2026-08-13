@@ -397,6 +397,22 @@ func (m *SeekDashboard) macarenaDanceLoop(ctx context.Context, v *vector.Vector,
 		return clockStart.Add(time.Duration(ms) * time.Millisecond)
 	}
 	phrase := 0
+	cmdCh := make(chan macMotorCmd, 1)
+	go m.macMotorWorker(ctx, v, cmdCh)
+	send := func(c macMotorCmd) {
+		select {
+		case cmdCh <- c:
+		default:
+			select {
+			case <-cmdCh:
+			default:
+			}
+			select {
+			case cmdCh <- c:
+			default:
+			}
+		}
+	}
 	for {
 		if err := ctx.Err(); err != nil {
 			m.macFreeze(v)
@@ -444,25 +460,64 @@ func (m *SeekDashboard) macarenaDanceLoop(ctx context.Context, v *vector.Vector,
 			}
 			switch s.kind {
 			case "lift":
-				go m.macFireLift(ctx, v, s.speed)
+				send(macMotorCmd{kind: "lift", speed: s.speed})
 			case "head":
-				go m.macFireHead(ctx, v, s.speed)
+				send(macMotorCmd{kind: "head", speed: s.speed})
 			default:
-				go m.macFireWheels(ctx, v, s.lx, s.rx)
+				send(macMotorCmd{kind: "wheels", lx: s.lx, rx: s.rx})
 			}
 			if err := m.macWaitUntil(ctx, endAt); err != nil {
 				m.macFreeze(v)
 				return err
 			}
-			switch s.kind {
-			case "lift":
-				go m.macFireLift(ctx, v, 0)
-			case "head":
-				go m.macFireHead(ctx, v, 0)
-			default:
-				go m.macFireWheels(ctx, v, 0, 0)
-			}
+			send(macMotorCmd{kind: s.kind})
 			cursor += s.beats
+		}
+	}
+}
+
+type macMotorCmd struct {
+	kind  string
+	speed float32
+	lx    float32
+	rx    float32
+}
+
+func (m *SeekDashboard) macMotorWorker(ctx context.Context, v *vector.Vector, ch <-chan macMotorCmd) {
+	cur := macMotorCmd{}
+	tick := time.NewTicker(240 * time.Millisecond)
+	defer tick.Stop()
+	apply := func(c macMotorCmd) {
+		cctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+		defer cancel()
+		switch c.kind {
+		case "lift":
+			_, _ = v.Conn.MoveLift(cctx, &vectorpb.MoveLiftRequest{SpeedRadPerSec: c.speed})
+		case "head":
+			_, _ = v.Conn.MoveHead(cctx, &vectorpb.MoveHeadRequest{SpeedRadPerSec: c.speed})
+		case "wheels":
+			_, _ = v.Conn.DriveWheels(cctx, &vectorpb.DriveWheelsRequest{
+				LeftWheelMmps:   c.lx,
+				RightWheelMmps:  c.rx,
+				LeftWheelMmps2:  abs32(c.lx),
+				RightWheelMmps2: abs32(c.rx),
+			})
+		}
+	}
+	moving := func(c macMotorCmd) bool {
+		return c.speed != 0 || c.lx != 0 || c.rx != 0
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case c := <-ch:
+			cur = c
+			apply(c)
+		case <-tick.C:
+			if moving(cur) {
+				apply(cur)
+			}
 		}
 	}
 }
@@ -473,29 +528,6 @@ func (m *SeekDashboard) macWaitUntil(ctx context.Context, deadline time.Time) er
 	}
 	waitUntilUnixMs(deadline.UnixMilli())
 	return ctx.Err()
-}
-
-func (m *SeekDashboard) macFireLift(ctx context.Context, v *vector.Vector, speed float32) {
-	cctx, cancel := context.WithTimeout(ctx, 80*time.Millisecond)
-	_, _ = v.Conn.MoveLift(cctx, &vectorpb.MoveLiftRequest{SpeedRadPerSec: speed})
-	cancel()
-}
-
-func (m *SeekDashboard) macFireHead(ctx context.Context, v *vector.Vector, speed float32) {
-	cctx, cancel := context.WithTimeout(ctx, 80*time.Millisecond)
-	_, _ = v.Conn.MoveHead(cctx, &vectorpb.MoveHeadRequest{SpeedRadPerSec: speed})
-	cancel()
-}
-
-func (m *SeekDashboard) macFireWheels(ctx context.Context, v *vector.Vector, left, right float32) {
-	cctx, cancel := context.WithTimeout(ctx, 80*time.Millisecond)
-	_, _ = v.Conn.DriveWheels(cctx, &vectorpb.DriveWheelsRequest{
-		LeftWheelMmps:   left,
-		RightWheelMmps:  right,
-		LeftWheelMmps2:  abs32(left),
-		RightWheelMmps2: abs32(right),
-	})
-	cancel()
 }
 
 func (m *SeekDashboard) macFreeze(v *vector.Vector) {

@@ -1,0 +1,15 @@
+{
+  "name": "seek-portal",
+  "private": true,
+  "type": "module",
+  "description": "Hosted Seek dashboard login — enter Vector IP + Wi‑Fi name, then control him from your phone.",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

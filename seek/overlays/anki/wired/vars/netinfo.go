@@ -2,6 +2,9 @@ package vars
 
 import (
 	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -98,4 +101,39 @@ func PreferredPhoneURL() string {
 		return ""
 	}
 	return "http://" + ip + ":8080/seek.html"
+}
+
+// WifiSSID is the current Wi‑Fi network name (empty if unknown / USB-only).
+func WifiSSID() string {
+	try := func(name string, args ...string) string {
+		out, err := exec.Command(name, args...).Output()
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if s := try("iwgetid", "-r"); s != "" {
+		return s
+	}
+	if s := try("iwgetid", "wlan0", "-r"); s != "" {
+		return s
+	}
+	// connman: Name = MyNetwork
+	matches, _ := filepath.Glob("/var/lib/connman/wifi_*/settings")
+	for _, p := range matches {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "Name=") {
+				s := strings.TrimSpace(strings.TrimPrefix(line, "Name="))
+				if s != "" {
+					return s
+				}
+			}
+		}
+	}
+	return ""
 }

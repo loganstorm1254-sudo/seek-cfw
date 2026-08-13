@@ -1,6 +1,25 @@
 const SEEK_FACE_W = 184;
 const SEEK_FACE_H = 96;
-const API = '/api/mods/SeekDashboard';
+function seekApiRoot() {
+    if (typeof window !== 'undefined' && window.SEEK_API_ROOT) {
+        return String(window.SEEK_API_ROOT).replace(/\/$/, '');
+    }
+    try {
+        var s = sessionStorage.getItem('seekPortal');
+        if (s) {
+            var j = JSON.parse(s);
+            if (j && j.apiRoot) return String(j.apiRoot).replace(/\/$/, '');
+        }
+    } catch (e) {}
+    var p = location.pathname || '';
+    var m = p.match(/^(.*\/v)(?:\/|$)/);
+    if (m) return m[1];
+    return '';
+}
+const SEEK_ROOT = seekApiRoot();
+const API = SEEK_ROOT + '/api/mods/SeekDashboard';
+function seekHealthUrl() { return SEEK_ROOT + '/api/health'; }
+function seekNetInfoUrl() { return SEEK_ROOT + '/api/netinfo'; }
 
 let seekVideoAbort = null;
 let seekAudioCtrl = null; // AbortController for in-flight playPcm
@@ -85,12 +104,12 @@ function startKeepalive() {
     // Phone Wi‑Fi power-save drops idle TCP; a light ping keeps the path warm.
     setInterval(function () {
         if (document.hidden) return;
-        fetch('/api/health', { cache: 'no-store', method: 'GET' }).catch(function () {});
+        fetch(seekHealthUrl(), { cache: 'no-store', method: 'GET' }).catch(function () {});
     }, 10000);
 
     function recover(reason) {
         setSeekStatus('Reconnected (' + reason + '). Try again if a button failed.');
-        fetch('/api/health', { cache: 'no-store' }).catch(function () {});
+        fetch(seekHealthUrl(), { cache: 'no-store' }).catch(function () {});
         loadNetInfo();
     }
     window.addEventListener('online', function () { recover('online'); });
@@ -297,7 +316,7 @@ async function seekApplyEyeOverlay() {
     setSeekStatus('Resizing & applying eye texture…');
     try {
         const blob = await resizeImageToFaceJPEG(input.files[0]);
-        const res = await fetch('/api/mods/SeekDashboard/setEyeOverlay', {
+        const res = await fetch(SEEK_ROOT + '/api/mods/SeekDashboard/setEyeOverlay', {
             method: 'POST',
             headers: { 'Content-Type': 'image/jpeg' },
             body: blob,
@@ -1619,6 +1638,8 @@ function bindUI() {
     });
 
     on('btnEye', 'click', seekSetEyeColor);
+    on('btnSavePortal', 'click', seekSavePortal);
+    seekLoadPortal();
     on('btnCopyAIAnswer', 'click', seekCopyAIAnswer);
     seekLoadVoiceChoice();
     on('btnEyeOverlayApply', 'click', seekApplyEyeOverlay);
@@ -1878,13 +1899,55 @@ function bindTouchPad() {
     });
 }
 
+async function seekLoadPortal() {
+    const urlEl = $('portalUrl');
+    const st = $('portalStatus');
+    if (!urlEl && !st) return;
+    try {
+        const res = await api('getPortal', { timeoutMs: 5000, retries: 1 });
+        if (!res.ok) return;
+        const j = await res.json();
+        if (urlEl && j.url) urlEl.value = j.url;
+        if (st) {
+            if (!j.url) st.textContent = 'No portal URL saved — phone site will only work if the host is on this Wi‑Fi.';
+            else if (j.connected) st.textContent = 'Portal connected. Phone site can reach this Vector.';
+            else st.textContent = 'Portal URL saved — waiting to connect…';
+        }
+    } catch (_) {}
+}
+
+async function seekSavePortal() {
+    const urlEl = $('portalUrl');
+    const u = urlEl ? urlEl.value.trim() : '';
+    setSeekStatus('Saving portal URL…');
+    try {
+        const body = new URLSearchParams({ url: u || 'clear' });
+        const res = await api('setPortal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString(),
+            timeoutMs: 8000,
+            retries: 1
+        });
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return {}; });
+            setSeekStatus(e.message || 'portal save failed', true);
+            return;
+        }
+        setSeekStatus(u ? 'Portal URL saved. Vector will connect in a few seconds.' : 'Portal URL cleared.');
+        setTimeout(seekLoadPortal, 2500);
+    } catch (e) {
+        setSeekStatus('portal error: ' + e.message, true);
+    }
+}
+
 async function loadNetInfo() {
     const ipEl = $('netLanIp');
     const urlEl = $('netPhoneUrl');
     const listEl = $('netAddrList');
     if (!ipEl && !urlEl && !listEl) return;
     try {
-        const res = await fetch('/api/netinfo', { cache: 'no-store' });
+        const res = await fetch(seekNetInfoUrl(), { cache: 'no-store' });
         if (!res.ok) return;
         const data = await res.json();
         // Prefer the IP the browser already used (e.g. 192.168.42.209).
@@ -1920,7 +1983,7 @@ async function waitForRobot() {
     setSeekStatus('Connecting to Vector…');
     for (let i = 0; i < 30; i++) {
         try {
-            const res = await fetch('/api/health', { cache: 'no-store' });
+            const res = await fetch(seekHealthUrl(), { cache: 'no-store' });
             if (res.ok) {
                 const data = await res.json();
                 if (data.ready) {
