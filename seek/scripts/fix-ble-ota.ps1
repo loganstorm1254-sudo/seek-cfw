@@ -1,4 +1,5 @@
 # Seek: install BLE OTA fix on a Vector from Windows (PowerShell).
+# ASCII-only (Windows PowerShell 5.1 parser).
 # Fixes: ssh-rsa algo mismatch, robot curl CA (77), bot IP changes on hotspot.
 #
 # Usage:
@@ -39,9 +40,15 @@ function Test-Robot([string]$addr) {
 
 function Install-On([string]$addr) {
   Write-Host "=== Installing BLE OTA fix on $addr ==="
+  $beside = Join-Path $PSScriptRoot "fix-ble-ota.sh"
   $local = Join-Path $env:TEMP "fix-ble-ota.sh"
-  Write-Host "Downloading script to $local ..."
-  Invoke-WebRequest -Uri $ScriptUrl -OutFile $local -UseBasicParsing
+  if (Test-Path $beside) {
+    Copy-Item -Force $beside $local
+    Write-Host "Using local script $beside"
+  } else {
+    Write-Host "Downloading script to $local ..."
+    Invoke-WebRequest -Uri $ScriptUrl -OutFile $local -UseBasicParsing
+  }
 
   Write-Host "Copying via scp..."
   & scp @sshOpts $local "root@${addr}:/tmp/f.sh"
@@ -88,7 +95,7 @@ if ($Scan -or -not $Ip) {
     Write-Host "1) Put Vector on the charger, wait for eyes."
     Write-Host "2) Confirm it rejoined the phone hotspot (IP on face / BLE websetup)."
     Write-Host "3) Re-run this script with the new IP:  -Ip 192.168.43.XX"
-    Write-Host "Or skip SSH: open http://ROBOT_IP in Chrome → Install OTA (file upload)."
+    Write-Host "Or skip SSH: open http://ROBOT_IP in Chrome -> Install OTA (file upload)."
     exit 2
   }
   foreach ($f in $found) {
@@ -96,11 +103,11 @@ if ($Scan -or -not $Ip) {
   }
 } else {
   if (-not (Test-Robot $Ip)) {
-    Write-Host "SSH timeout to $Ip — robot is offline on this network."
+    Write-Host "SSH timeout to $Ip - robot is offline on this network."
     exit 2
   }
   Install-On $Ip
 }
 
 Write-Host ""
-Write-Host "Next: websetup → Install with https://files.anki.org.uk/ota/latest"
+Write-Host "Next: websetup -> Install with https://files.anki.org.uk/ota/latest"
