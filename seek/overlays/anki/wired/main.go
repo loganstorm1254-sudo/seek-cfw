@@ -52,7 +52,34 @@ func main() {
 
 	vars.EnabledMods = EnabledMods
 	vars.InitMods()
+	startLocalOTAServer()
 	startweb()
+}
+
+// startLocalOTAServer serves /data/ota on loopback for update-os.
+// GitHub HTTPS from Vector never gets a real Content-Length (stuck at 0%);
+// a local file + this server lets update-engine flash at LAN/loopback speed.
+func startLocalOTAServer() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		name := path.Base(path.Clean("/" + strings.TrimPrefix(r.URL.Path, "/")))
+		if name == "" || name == "." || name == "/" || strings.Contains(name, "..") {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, path.Join("/data/ota", name))
+	})
+	srv := &http.Server{
+		Addr:              "127.0.0.1:8765",
+		Handler:           mux,
+		ReadHeaderTimeout: 8 * time.Second,
+	}
+	go func() {
+		fmt.Println("local OTA server at 127.0.0.1:8765 (/data/ota)")
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Println("local OTA server:", err)
+		}
+	}()
 }
 
 func setStaticContentType(w http.ResponseWriter, reqPath string) {

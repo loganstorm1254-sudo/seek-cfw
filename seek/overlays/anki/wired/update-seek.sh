@@ -60,13 +60,24 @@ cp "$BIN" /usr/bin/wired
 chmod 0755 /usr/bin/wired
 rm -rf /etc/wired/webroot
 cp -a "$ROOT" /etc/wired/webroot
-if [ -f "$TMP/seek-wired/update-seek" ]; then
-    cp "$TMP/seek-wired/update-seek" /usr/sbin/update-seek
-    chmod 0755 /usr/sbin/update-seek
-elif [ -f "$TMP/update-seek" ]; then
-    cp "$TMP/update-seek" /usr/sbin/update-seek
-    chmod 0755 /usr/sbin/update-seek
-fi
+install_helper() {
+    dest="$1"
+    shift
+    for src in "$@"; do
+        if [ -f "$src" ]; then
+            cp "$src" "$dest"
+            chmod 0755 "$dest"
+            return 0
+        fi
+    done
+    return 0
+}
+install_helper /usr/sbin/update-seek \
+    "$TMP/seek-wired/update-seek" "$TMP/update-seek" \
+    "$TMP/seek-wired/update-seek.sh" "$TMP/update-seek.sh"
+install_helper /usr/sbin/update-os \
+    "$TMP/seek-wired/update-os" "$TMP/update-os" \
+    "$TMP/seek-wired/update-os.sh" "$TMP/update-os.sh"
 sync
 systemctl start wired
 rm -rf "$TMP" "$TGZ"

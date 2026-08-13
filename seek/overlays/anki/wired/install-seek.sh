@@ -16,6 +16,16 @@ cp -a ./webroot /etc/wired/webroot
 if [ -f ./update-seek ]; then
     cp ./update-seek /usr/sbin/update-seek
     chmod 0755 /usr/sbin/update-seek
+elif [ -f ./update-seek.sh ]; then
+    cp ./update-seek.sh /usr/sbin/update-seek
+    chmod 0755 /usr/sbin/update-seek
+fi
+if [ -f ./update-os ]; then
+    cp ./update-os /usr/sbin/update-os
+    chmod 0755 /usr/sbin/update-os
+elif [ -f ./update-os.sh ]; then
+    cp ./update-os.sh /usr/sbin/update-os
+    chmod 0755 /usr/sbin/update-os
 fi
 sync
 systemctl start wired
