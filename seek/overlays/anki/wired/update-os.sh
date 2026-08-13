@@ -39,24 +39,38 @@ if [ $# -gt 0 ]; then
 fi
 
 # GitHub on Vector's old curl is dead-slow over HTTP/2. Force HTTP/1.1 like it used to.
-# /data is noexec — never execute curl/update-os from there (Permission denied).
+# /data is noexec. Some robots also mount /run noexec — remount exec before using /run.
 umount /usr/bin/curl 2>/dev/null || true
-if [ ! -x /run/curl.real ]; then
-    cp -L /usr/bin/curl /run/curl.real 2>/dev/null || cp /usr/bin/curl /run/curl.real
+mount -o remount,exec /run 2>/dev/null || true
+
+CURL_BIN=/usr/bin/curl
+if cp -L /usr/bin/curl /run/curl.real 2>/dev/null || cp /usr/bin/curl /run/curl.real 2>/dev/null; then
     chmod 0755 /run/curl.real
-fi
-cat > /run/curl-shim << 'EOF'
+    if /run/curl.real -V >/dev/null 2>&1; then
+        CURL_BIN=/run/curl.real
+        cat > /run/curl-shim << 'EOF'
 #!/bin/sh
 exec /run/curl.real -L --http1.1 -4 --connect-timeout 20 "$@"
 EOF
-chmod 0755 /run/curl-shim
-mount --bind /run/curl-shim /usr/bin/curl 2>/dev/null || true
+        chmod 0755 /run/curl-shim
+        if /run/curl-shim -V >/dev/null 2>&1; then
+            mount --bind /run/curl-shim /usr/bin/curl 2>/dev/null || true
+            mkdir -p /run/bin
+            cp /run/curl-shim /run/bin/curl
+            chmod 0755 /run/bin/curl
+            USE_RUN_PATH=1
+        fi
+    fi
+fi
 
 # Do not save the OTA on Vector. Follow GitHub's 302 so update-engine
 # streams a 200 URL (its --fail flag dies on the redirect).
 case "$URL" in
   *github.com*|*githubusercontent.com*)
-    FINAL=`/run/curl.real -sI --http1.1 -4 --max-time 20 "$URL" 2>/dev/null | grep -i '^location:' | tail -1 | awk '{print $2}' | tr -d '\r'`
+    FINAL=`$CURL_BIN -sI --http1.1 -4 --max-time 20 "$URL" 2>/dev/null | grep -i '^location:' | tail -1 | awk '{print $2}' | tr -d '\r'`
+    if [ -z "$FINAL" ]; then
+      FINAL=`$CURL_BIN -sI -4 --max-time 20 "$URL" 2>/dev/null | grep -i '^location:' | tail -1 | awk '{print $2}' | tr -d '\r'`
+    fi
     if [ -n "$FINAL" ]; then
       URL="$FINAL"
     fi
@@ -72,12 +86,11 @@ mkdir -p /run/vic-switchboard /run/update-engine
 echo "UPDATE_ENGINE_ENABLED=True" > /run/vic-switchboard/update-engine.env
 echo "UPDATE_ENGINE_MAX_SLEEP=1" >> /run/vic-switchboard/update-engine.env
 echo "UPDATE_ENGINE_ALLOW_DOWNGRADE=True" >> /run/vic-switchboard/update-engine.env
-echo "UPDATE_ENGINE_URL=$URL" >> /run/vic-switchboard/update-engine.env
+printf 'UPDATE_ENGINE_URL=%s\n' "$URL" >> /run/vic-switchboard/update-engine.env
 echo "UPDATE_ENGINE_DEBUG=True" >> /run/vic-switchboard/update-engine.env
-mkdir -p /run/bin
-cp /run/curl-shim /run/bin/curl
-chmod 0755 /run/bin/curl
-echo "PATH=/run/bin:/usr/bin:/bin:/usr/sbin:/sbin" >> /run/vic-switchboard/update-engine.env
+if [ "${USE_RUN_PATH:-0}" = "1" ]; then
+    echo "PATH=/run/bin:/usr/bin:/bin:/usr/sbin:/sbin" >> /run/vic-switchboard/update-engine.env
+fi
 chown -R net:anki /run/vic-switchboard
 
 systemctl reset-failed update-engine || true
