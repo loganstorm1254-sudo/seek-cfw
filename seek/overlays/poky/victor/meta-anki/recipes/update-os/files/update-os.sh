@@ -87,7 +87,7 @@ curl_get() {
 download_remote() {
     local src="$1"
     local base
-    systemctl -q stop update-engine || true
+    systemctl -q stop update-engine.timer update-engine || true
     boost_cpu
     base="$(basename "${src%%\?*}")"
     case "$base" in
@@ -180,7 +180,7 @@ case "$URL" in
         ;;
 esac
 
-systemctl -q stop update-engine || true
+systemctl -q stop update-engine.timer update-engine || true
 rm -rf /run/update-engine
 boost_cpu
 
