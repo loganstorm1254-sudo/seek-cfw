@@ -95,15 +95,46 @@ chown -R net:anki /run/vic-switchboard
 
 systemctl reset-failed update-engine || true
 systemctl start update-engine
-sleep 5
+
+echo "Installing OS update from:"
+echo "$URL"
+echo "Keeping Wi‑Fi up until download is moving..."
+
+# Do NOT kill anki-robot until bytes are actually flowing. Stopping too
+# early drops Wi‑Fi and the update sticks at 0%.
+WAIT=0
+while true; do
+    if [ -f /run/update-engine/error ]; then
+        ERRORMSG=`cat /run/update-engine/error`
+        if [ "$ERRORMSG" != "Unclean exit" ]; then
+            echo "Error updating OS: $ERRORMSG"
+            exit 1
+        fi
+    fi
+    if [ -f /run/update-engine/progress ]; then
+        PROGRESS=`cat /run/update-engine/progress 2>/dev/null || echo 0`
+        if [ -n "$PROGRESS" ] && [ "$PROGRESS" -gt 1048576 ] 2>/dev/null; then
+            break
+        fi
+    fi
+    if [ -f /run/update-engine/done ] && [ -f /run/update-engine/manifest.ini ]; then
+        break
+    fi
+    WAIT=$((WAIT+1))
+    if [ "$WAIT" -gt 180 ]; then
+        echo "Download never started (0%). Check Wi‑Fi."
+        systemctl -q stop update-engine || true
+        exit 1
+    fi
+    echo -n "."
+    sleep 1
+done
+echo
 
 echo "Stopping anki-robot.target... (eyes will go dark)"
 systemctl stop anki-robot.target
 
 echo 1267200 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null || true
-
-echo
-echo -e "Installing OS update from:\n$URL"
 
 echo -e -n "\r."
 DOTS=1
@@ -132,6 +163,7 @@ while true ; do
 	ERRORMSG=`cat /run/update-engine/error`
 	if [ "$ERRORMSG" != "Unclean exit" ]; then
 	    echo "Error updating OS: $ERRORMSG"
+            systemctl start anki-robot.target || true
 	    exit 1
 	fi
     fi
@@ -139,12 +171,14 @@ while true ; do
         if [ ! -f /run/update-engine/manifest.ini ]; then
             echo "Did not flash (stale done flag). Not rebooting."
             rm -f /run/update-engine/done
+            systemctl start anki-robot.target || true
             exit 1
         fi
         break
     fi
     if [ "$WAIT" -gt 3600 ]; then
         echo "Timed out. Not rebooting."
+        systemctl start anki-robot.target || true
         exit 1
     fi
 done
