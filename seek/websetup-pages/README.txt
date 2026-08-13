@@ -1,60 +1,43 @@
-Seek / Vector Web Setup — Cloudflare Pages
-==========================================
+Seek Web Setup — auto OTA menu from R2
+======================================
 
-Based on: https://github.com/digital-dream-labs/vector-web-setup (MIT)
+Upload .ota files to your R2 bucket under folder:
 
-------------------------------------------------
-1) ADD / EDIT OTAs (multi-select menu)
-------------------------------------------------
-Edit:
+  OTA/
+    vicos-3.0.1.42d.ota
+    vicos-3.0.1.41d.ota
+    ...
 
-  static/data/inventory.json
-
-Each entry under "seek" is one row in the OTA menu.
-With 2+ entries, users get a picker. With 1 entry, it auto-starts.
-
-Example:
-
-{
-  "seek": [
-    {
-      "url": "https://files.yourdomain.com/vicos-3.0.1.42d.ota",
-      "name": "SeekOS 3.0.1.42d (latest)",
-      "checksum": ""
-    },
-    {
-      "url": "https://files.yourdomain.com/vicos-3.0.1.41d.ota",
-      "name": "SeekOS 3.0.1.41d",
-      "checksum": ""
-    },
-    {
-      "url": "https://files.yourdomain.com/vicos-3.0.1.40d.ota",
-      "name": "SeekOS 3.0.1.40d",
-      "checksum": ""
-    }
-  ]
-}
-
-Replace FILES.YOURDOMAIN.com with your real R2 / Worker host.
-Upload each .ota file to that host with the same filename.
+The setup site loads them automatically. No inventory edits each release.
 
 ------------------------------------------------
-2) UPLOAD TO CLOUDFLARE PAGES
+A) Worker (file host) — do once
 ------------------------------------------------
-1. Workers & Pages → Create → Pages → Upload assets
-2. Upload these files (folder contents)
-3. Custom domains → setup.yourdomain.com
-4. Open https://setup.yourdomain.com in Chrome
+1. Cloudflare Worker (your file host) → replace code with worker-otas.js
+   from this folder
+2. Settings → Bindings → R2 bucket named exactly: OTA
+3. Custom domain e.g. files.yourdomain.com  (or use workers.dev URL)
+4. Test in browser:
+   https://files.yourdomain.com/api/otas.json
+   You should see JSON listing every .ota under OTA/
 
 ------------------------------------------------
-3) USE IT
+B) Pages (setup GUI) — do once, then only upload OTAs
 ------------------------------------------------
-Chrome + Bluetooth PC
-Vector on charger → recovery / double-press as shown
-Pair with Vector → stack "seek" → pick an OTA from the menu → install
+1. Edit static/data/settings.json → set otaListUrl:
+
+   "otaListUrl": "https://files.yourdomain.com/api/otas.json"
+
+2. Cloudflare Pages → Upload this site → custom domain setup.yourdomain.com
+3. Open https://setup.yourdomain.com in Chrome
+4. Pair Vector → stack "seek" → pick an OTA from the auto list
 
 ------------------------------------------------
-4) NOTES
+C) Every new release
 ------------------------------------------------
-Use direct https OTA links (R2/Worker), not GitHub release redirects.
-BLE requires https (Pages) or localhost.
+Only this:
+  Upload vicos-x.y.z.ota into the R2 bucket folder OTA/
+
+Refresh setup.yourdomain.com — it appears in the menu.
+
+Based on https://github.com/digital-dream-labs/vector-web-setup (MIT)

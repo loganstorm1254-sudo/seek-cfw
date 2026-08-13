@@ -1041,20 +1041,13 @@ function setupOTAFiles() {
 
     setPhase("containerOta");
 
-    // No URL present
+    // Always show the picker so users choose (even if only one OTA).
     if (otaUrls.length == 0) {
       $("#containerOtaSelection").addClass("vec-hidden");
       $("#containerOtaNoImage").removeClass("vec-hidden");
-    }
-    // One URL present
-    else if (otaUrls.length == 1) {
-      $("#containerOtaSelection").addClass("vec-hidden");
-      $("#otaUpdate").removeClass("vec-hidden");
-      _otaEndpoint = otaUrls[0].href;
-      doOta();
-    }
-    // Multiple URL's presents
-    else {
+    } else {
+      $("#containerOtaNoImage").addClass("vec-hidden");
+      $("#containerOtaSelection").removeClass("vec-hidden");
       var urlViews = "";
       otaUrls.map((url, index) => (urlViews += generateOtaFileRow(index, url)));
       $("#otaSelection").html(urlViews);
@@ -1067,8 +1060,6 @@ function setupOTAFiles() {
         _otaEndpoint = otaUrls[selectedUrl].href;
 
         pterm_set("OTA_LKG", _otaEndpoint);
-        // Previous version allowed webclient to be configured using
-        // url params. OTA_URL was used to send that to pterm
         pterm_set("OTA_URL", _otaEndpoint);
 
         doOta();
@@ -1085,11 +1076,45 @@ function parseURL(url) {
 
 function getOtasPresent(env) {
   return new Promise((resolve, reject) => {
-    // Prefer static inventory.json (Cloudflare Pages). Fall back to Node /firmware API.
+    var remote =
+      (_stack && _stack.getOtaListUrl && _stack.getOtaListUrl()) || null;
+
+    var finishWithList = function (list) {
+      if (!Array.isArray(list)) list = [];
+      list = list.slice().sort(function (a, b) {
+        var an = (a && a.name) || (a && a.url) || "";
+        var bn = (b && b.name) || (b && b.url) || "";
+        return String(bn).localeCompare(String(an), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      });
+      resolve({ message: list });
+    };
+
+    if (remote) {
+      $.getJSON(remote)
+        .done(function (data) {
+          var list =
+            (data && data[env]) ||
+            (data && data.otas) ||
+            (data && data.seek) ||
+            (Array.isArray(data) ? data : []);
+          finishWithList(list);
+        })
+        .fail(function () {
+          $.getJSON("/static/data/inventory.json")
+            .done(function (inv) {
+              finishWithList(inv && inv[env] ? inv[env] : []);
+            })
+            .fail(reject);
+        });
+      return;
+    }
+
     $.getJSON("/static/data/inventory.json")
       .done(function (inv) {
-        var list = inv && inv[env] ? inv[env] : [];
-        resolve({ message: list });
+        finishWithList(inv && inv[env] ? inv[env] : []);
       })
       .fail(function () {
         $.ajax({
@@ -15615,6 +15640,7 @@ module.exports = { Settings };
 
 const ACCOUNT_ENDPOINTS = "accountEndpoints";
 const API_KEYS = "apiKeys";
+const OTA_LIST_URL = "otaListUrl";
 
 const TYPE = {
   CLOUD: "cloud",
@@ -15626,6 +15652,7 @@ class Stack {
     this.name = name;
     this.apiKeys = null;
     this.accountEndpoints = null;
+    this.otaListUrl = null;
     this.parse(stackJson);
   }
 
@@ -15637,6 +15664,10 @@ class Stack {
     if (json[ACCOUNT_ENDPOINTS] !== undefined) {
       this.accountEndpoints = json[ACCOUNT_ENDPOINTS];
     }
+
+    if (json[OTA_LIST_URL] !== undefined) {
+      this.otaListUrl = json[OTA_LIST_URL];
+    }
   }
 
   getAccountEndpoints() {
@@ -15645,6 +15676,10 @@ class Stack {
 
   getApiKeys() {
     return this.apiKeys;
+  }
+
+  getOtaListUrl() {
+    return this.otaListUrl;
   }
 }
 
