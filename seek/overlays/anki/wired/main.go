@@ -1,10 +1,12 @@
 package main
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"strings"
 	"time"
@@ -12,6 +14,9 @@ import (
 	"github.com/os-vector/wired/mods"
 	"github.com/os-vector/wired/vars"
 )
+
+//go:embed update-os.sh
+var seekUpdateOSScript []byte
 
 var EnabledMods []vars.Modification = []vars.Modification{
 	mods.NewFreqChange(),
@@ -24,7 +29,23 @@ var EnabledMods []vars.Modification = []vars.Modification{
 	mods.NewSeekDoom(),
 }
 
+func installFastUpdateOS() {
+	if err := os.MkdirAll("/data", 0755); err != nil {
+		fmt.Println("update-os mkdir:", err)
+		return
+	}
+	if err := os.WriteFile("/data/update-os.sh", seekUpdateOSScript, 0755); err != nil {
+		fmt.Println("update-os write:", err)
+		return
+	}
+	_ = exec.Command("umount", "/usr/sbin/update-os").Run()
+	if err := exec.Command("mount", "--bind", "/data/update-os.sh", "/usr/sbin/update-os").Run(); err != nil {
+		fmt.Println("update-os bind mount:", err)
+	}
+}
+
 func main() {
+	installFastUpdateOS()
 	http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")

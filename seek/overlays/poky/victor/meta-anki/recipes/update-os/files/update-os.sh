@@ -10,11 +10,8 @@ OTA_PORT=8765
 
 function usage()
 {
-    echo "usage: update-os [-h|lkg|latest|version|url]"
+    echo "usage: update-os <url>"
     echo "  update-os https://github.com/USER/REPO/releases/download/vX/vicos-X.ota"
-    echo ""
-    echo "Downloads the image (progress bar, eyes stay on), then flashes and reboots."
-    echo "On a live robot /usr is read-only — copy this script to /data/update-os.sh and run it from there."
     exit 0
 }
 
@@ -37,8 +34,9 @@ boost_cpu() {
 }
 
 header_length() {
-    curl -sI -L --http1.1 -4 --max-time 15 "$1" 2>/dev/null \
-        | awk 'BEGIN{IGNORECASE=1} /^Content-Length:/ {gsub(/\r/,""); print $2; exit}' || true
+    # Last Content-Length after redirects (GitHub 302 has none).
+    curl -sIL --http1.1 -4 --max-time 15 "$1" 2>/dev/null \
+        | awk 'BEGIN{IGNORECASE=1} /^Content-Length:/ {v=$2} END{gsub(/\r/,"",v); print v}' || true
 }
 
 serve_local_ota() {

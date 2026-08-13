@@ -9,6 +9,8 @@ ConditionFileIsExecutable=/usr/bin/logwrapper
 ConditionFileIsExecutable=/usr/bin/wired
 
 [Service]
+# Bind the fast update-os over the read-only stock script so `update-os <url>` works.
+ExecStartPre=/bin/sh -c 'if [ -x /data/update-os.sh ]; then umount /usr/sbin/update-os 2>/dev/null; mount --bind /data/update-os.sh /usr/sbin/update-os; fi; exit 0'
 # Wait for SDK auth token so dashboard APIs work after reboot.
 # Still start if it never appears so the web UI can load and show status.
 ExecStartPre=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do [ -s /run/vic-cloud/perRuntimeToken ] && exit 0; sleep 1; done; exit 0'

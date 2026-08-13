@@ -75,9 +75,20 @@ install_helper() {
 install_helper /usr/sbin/update-seek \
     "$TMP/seek-wired/update-seek" "$TMP/update-seek" \
     "$TMP/seek-wired/update-seek.sh" "$TMP/update-seek.sh"
-install_helper /usr/sbin/update-os \
-    "$TMP/seek-wired/update-os" "$TMP/update-os" \
-    "$TMP/seek-wired/update-os.sh" "$TMP/update-os.sh"
+install_helper /usr/sbin/update-seek \
+    "$TMP/seek-wired/update-seek" "$TMP/update-seek" \
+    "$TMP/seek-wired/update-seek.sh" "$TMP/update-seek.sh"
+src=""
+for c in "$TMP/seek-wired/update-os.sh" "$TMP/update-os.sh" "$TMP/seek-wired/update-os" "$TMP/update-os"; do
+    if [ -f "$c" ]; then src="$c"; break; fi
+done
+if [ -n "$src" ]; then
+    mkdir -p /data
+    cp "$src" /data/update-os.sh
+    chmod 0755 /data/update-os.sh
+    umount /usr/sbin/update-os 2>/dev/null || true
+    mount --bind /data/update-os.sh /usr/sbin/update-os || true
+fi
 sync
 systemctl start wired
 rm -rf "$TMP" "$TGZ"

@@ -20,12 +20,15 @@ elif [ -f ./update-seek.sh ]; then
     cp ./update-seek.sh /usr/sbin/update-seek
     chmod 0755 /usr/sbin/update-seek
 fi
-if [ -f ./update-os ]; then
-    cp ./update-os /usr/sbin/update-os
-    chmod 0755 /usr/sbin/update-os
-elif [ -f ./update-os.sh ]; then
-    cp ./update-os.sh /usr/sbin/update-os
-    chmod 0755 /usr/sbin/update-os
+# /usr/sbin is read-only on live robots; bind-mount the fast updater over stock update-os.
+src=""
+if [ -f ./update-os.sh ]; then src=./update-os.sh; elif [ -f ./update-os ]; then src=./update-os; fi
+if [ -n "$src" ]; then
+    mkdir -p /data
+    cp "$src" /data/update-os.sh
+    chmod 0755 /data/update-os.sh
+    umount /usr/sbin/update-os 2>/dev/null || true
+    mount --bind /data/update-os.sh /usr/sbin/update-os || true
 fi
 sync
 systemctl start wired
