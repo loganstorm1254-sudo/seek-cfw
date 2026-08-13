@@ -1105,14 +1105,41 @@ function seekFilesHostOrigin() {
   }
 }
 
-/** Vector's update-engine dies on GitHub 302s — rewrite via Worker /fetch. */
+/** Vector's update-engine dies on GitHub 302s — use Worker /g/TAG/FILE path. */
 function seekRewriteOtaUrl(u) {
   if (!u) return u;
   var s = String(u);
+  // Already a Worker path proxy or R2 path — leave alone
+  if (/\/g\/[^/]+\/[^/]+\.ota(\?|$)/i.test(s)) return s;
+  if (/\/fetch\?url=/i.test(s)) {
+    // Convert legacy query proxy → path proxy when possible
+    try {
+      var q = new URL(s);
+      var src = q.searchParams.get("url") || "";
+      var m = src.match(
+        /github\.com\/[^/]+\/[^/]+\/releases\/download\/([^/]+)\/([^/?#]+\.ota)/i
+      );
+      if (m) {
+        return q.origin + "/g/" + encodeURIComponent(m[1].replace(/^v/i, "")) + "/" + encodeURIComponent(m[2]);
+      }
+    } catch (e) {}
+    return s;
+  }
   if (!/github\.com\//i.test(s)) return s;
   var origin = seekFilesHostOrigin();
   if (!origin) return s;
-  if (s.indexOf(origin + "/fetch") === 0) return s;
+  var m2 = s.match(
+    /github\.com\/[^/]+\/[^/]+\/releases\/download\/([^/]+)\/([^/?#]+\.ota)/i
+  );
+  if (m2) {
+    return (
+      origin +
+      "/g/" +
+      encodeURIComponent(m2[1].replace(/^v/i, "")) +
+      "/" +
+      encodeURIComponent(m2[2])
+    );
+  }
   return origin + "/fetch?url=" + encodeURIComponent(s);
 }
 
@@ -1347,8 +1374,9 @@ function handleDisconnected() {
 }
 
 function otaStatusMessage(status) {
-  // RtsOtaUpdateResponse status codes (Vector BLE)
-  switch (Number(status)) {
+  // OtaStatusCode 1-5, or update-engine exit code (e.g. 203/204) on failure
+  var n = Number(status);
+  switch (n) {
     case 1:
       return "OTA unknown state";
     case 2:
@@ -1358,9 +1386,24 @@ function otaStatusMessage(status) {
     case 4:
       return "OTA rebooting";
     case 5:
-      return "OTA failed (bad URL or download error — use Cloudflare files host, not raw GitHub)";
-    case 6:
-      return "OTA failed (update error on robot)";
+      return "OTA failed (generic error on robot)";
+    case 200:
+      return "Auto-update inhibited on robot";
+    case 201:
+      return "OTA package invalid (missing boot/system)";
+    case 203:
+      return "Robot could not open the OTA URL (status 203).<br/>" +
+        "Use your Cloudflare files host with a short path like " +
+        "<code>/OTA/vicos-….ota</code> or <code>/g/3.0.1.42d/vicos-….ota</code> " +
+        "(no GitHub links, no <code>?url=</code> query).<br/>" +
+        "Also test from SSH: <code>curl -I https://YOUR-FILES-HOST/OTA/your.ota</code>";
+    case 204:
+      return "Download failed / not a valid OTA (status 204).<br/>" +
+        "URL must return HTTP 200 with the .ota body (not a redirect page). " +
+        "Upload the file to R2 under <code>OTA/</code> or fix Worker <code>/g/…</code>.";
+    case 208:
+    case 209:
+      return "Flash pipeline failed on robot (status " + n + ")";
     default:
       return "OTA failed (status " + status + ")";
   }
@@ -1387,15 +1430,16 @@ function doOta() {
     return;
   }
 
-  // Without a files Worker, GitHub 302s make Vector show cloud-with-!
-  if (/github\.com\//i.test(url) && !/\/fetch\?url=/i.test(url)) {
+  // Without a files Worker, GitHub 302s make Vector show cloud-with-! / status 203
+  if (/github\.com\//i.test(url) && !/\/g\/[^/]+\/[^/]+\.ota/i.test(url) && !/\/fetch\?url=/i.test(url)) {
     $("#otaErrorLabel").removeClass("vec-hidden");
     $("#otaErrorLabel").html(
-      "This OTA is still a GitHub link. Vector’s updater cannot follow GitHub redirects (cloud with !).<br/><br/>" +
-        "Fix: deploy <code>worker-otas.js</code> on Cloudflare, set <code>otaListUrl</code> in settings.json " +
-        "to <code>https://YOUR-FILES-HOST/api/otas.json</code>, redeploy this Pages zip, then pick the OTA again.<br/><br/>" +
-        "Quick test without rebuilding: open setup with<br/>" +
-        "<code>?otaListUrl=https://YOUR-FILES-HOST/api/otas.json</code>"
+      "This OTA is still a raw GitHub link. Vector cannot open those (status 203 / cloud with !).<br/><br/>" +
+        "1) Paste new <code>worker-otas.js</code> into your Cloudflare Worker<br/>" +
+        "2) Set <code>otaListUrl</code> to <code>https://YOUR-FILES-HOST/api/otas.json</code><br/>" +
+        "3) Redeploy Pages (or open setup with <code>?otaListUrl=…</code>)<br/><br/>" +
+        "Best: upload the .ota to R2 under <code>OTA/</code> so the URL is " +
+        "<code>https://YOUR-FILES-HOST/OTA/vicos-….ota</code>"
     );
     $("#btnTryAgain").removeClass("vec-hidden");
     return;
@@ -12026,13 +12070,13 @@ class RtsV3Handler {
               }
 
               if (this.waitForResponse == "ota-start") {
-                if (rtsMsg.status == 3) {
+                if (rtsMsg.value.status == 3) {
                   this.resolvePromise(this.waitForResponse, rtsMsg);
-                } else if (rtsMsg.status >= 5) {
+                } else if (rtsMsg.value.status >= 5) {
                   this.rejectPromise(this.waitForResponse, rtsMsg);
                 }
               } else if (this.waitForResponse == "ota-cancel") {
-                if (rtsMsg.status != 2) {
+                if (rtsMsg.value.status != 2) {
                   this.resolvePromise(this.waitForResponse, rtsMsg);
                 }
               }
@@ -12927,13 +12971,13 @@ class RtsV4Handler {
               }
 
               if (this.waitForResponse == "ota-start") {
-                if (rtsMsg.status == 3) {
+                if (rtsMsg.value.status == 3) {
                   this.resolvePromise(this.waitForResponse, rtsMsg);
-                } else if (rtsMsg.status >= 5) {
+                } else if (rtsMsg.value.status >= 5) {
                   this.rejectPromise(this.waitForResponse, rtsMsg);
                 }
               } else if (this.waitForResponse == "ota-cancel") {
-                if (rtsMsg.status != 2) {
+                if (rtsMsg.value.status != 2) {
                   this.resolvePromise(this.waitForResponse, rtsMsg);
                 }
               }
@@ -13848,13 +13892,13 @@ class RtsV5Handler {
               }
 
               if (this.waitForResponse == "ota-start") {
-                if (rtsMsg.status == 3) {
+                if (rtsMsg.value.status == 3) {
                   this.resolvePromise(this.waitForResponse, rtsMsg);
-                } else if (rtsMsg.status >= 5) {
+                } else if (rtsMsg.value.status >= 5) {
                   this.rejectPromise(this.waitForResponse, rtsMsg);
                 }
               } else if (this.waitForResponse == "ota-cancel") {
-                if (rtsMsg.status != 2) {
+                if (rtsMsg.value.status != 2) {
                   this.resolvePromise(this.waitForResponse, rtsMsg);
                 }
               }
@@ -14777,13 +14821,13 @@ class RtsV6Handler {
               }
 
               if (this.waitForResponse == "ota-start") {
-                if (rtsMsg.status == 3) {
+                if (rtsMsg.value.status == 3) {
                   this.resolvePromise(this.waitForResponse, rtsMsg);
-                } else if (rtsMsg.status >= 5) {
+                } else if (rtsMsg.value.status >= 5) {
                   this.rejectPromise(this.waitForResponse, rtsMsg);
                 }
               } else if (this.waitForResponse == "ota-cancel") {
-                if (rtsMsg.status != 2) {
+                if (rtsMsg.value.status != 2) {
                   this.resolvePromise(this.waitForResponse, rtsMsg);
                 }
               }
