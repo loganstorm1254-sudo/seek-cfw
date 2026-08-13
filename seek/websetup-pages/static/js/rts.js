@@ -1522,30 +1522,17 @@ function doOta() {
       function (msg) {
         var ip = null;
         try {
-          // RtsWifiIpResponse: ipv4 is uint32 or dotted fields depending on version
           var v = msg && msg.value ? msg.value : msg;
-          if (v && v.ip && typeof v.ip === "string" && v.ip.indexOf(".") > 0) {
-            ip = v.ip;
-          } else if (v && v.ipv4 != null) {
-            var n = Number(v.ipv4);
+          // RtsWifiIpResponse.ipV4 is a 4-byte array
+          if (v && v.hasIpV4 && v.ipV4 && v.ipV4.length >= 4) {
             ip =
-              ((n >>> 24) & 255) +
+              (v.ipV4[0] & 255) +
               "." +
-              ((n >>> 16) & 255) +
+              (v.ipV4[1] & 255) +
               "." +
-              ((n >>> 8) & 255) +
+              (v.ipV4[2] & 255) +
               "." +
-              (n & 255);
-          } else if (v && v.wipv4 != null) {
-            var n2 = Number(v.wipv4);
-            ip =
-              ((n2 >>> 24) & 255) +
-              "." +
-              ((n2 >>> 16) & 255) +
-              "." +
-              ((n2 >>> 8) & 255) +
-              "." +
-              (n2 & 255);
+              (v.ipV4[3] & 255);
           }
         } catch (e) {
           console.log(e);
