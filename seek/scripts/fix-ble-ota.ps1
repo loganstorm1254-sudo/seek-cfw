@@ -74,7 +74,13 @@ function Install-On([string]$addr) {
     Write-Host "fix script failed on $addr (exit $($r.Code))"
     exit 1
   }
-  Write-Host "DONE on $addr"
+  $v = Invoke-Ssh $addr "test -x /data/update-engine-wrap && test -x /data/seek-ble-ota-apply.sh && mount | grep update-engine && echo VERIFY_OK"
+  $v.Output | ForEach-Object { Write-Host $_ }
+  if ($v.Code -ne 0 -or (($v.Output | Out-String) -notmatch "VERIFY_OK")) {
+    Write-Host "Install reported OK but /data wrap files missing on $addr - refuse DONE."
+    exit 1
+  }
+  Write-Host "DONE on $addr (verified)"
 }
 
 $candidates = @()
