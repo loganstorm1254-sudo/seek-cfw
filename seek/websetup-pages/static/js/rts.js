@@ -926,6 +926,11 @@ function parseParams() {
       auth: 6,
     };
   }
+
+  // Seek: override files host without rebuilding the zip
+  // e.g. ?otaListUrl=https://files.example.com/api/otas.json
+  window.__seekOtaListUrlOverride = params.get("otaListUrl") || null;
+  window.__seekFilesHostOverride = params.get("filesHost") || null;
 }
 
 //************* Settings ******************
@@ -1069,13 +1074,93 @@ function parseURL(url) {
   return obj;
 }
 
+function seekOtaListUrl() {
+  if (window.__seekOtaListUrlOverride) return window.__seekOtaListUrlOverride;
+  var remote =
+    (_stack && _stack.getOtaListUrl && _stack.getOtaListUrl()) || null;
+  if (
+    !remote ||
+    /YOURDOMAIN/i.test(remote) ||
+    /FILES\.YOURDOMAIN/i.test(remote)
+  ) {
+    return null;
+  }
+  return remote;
+}
+
+function seekFilesHostOrigin() {
+  if (window.__seekFilesHostOverride) {
+    try {
+      return new URL(window.__seekFilesHostOverride).origin;
+    } catch (e) {
+      return String(window.__seekFilesHostOverride).replace(/\/$/, "");
+    }
+  }
+  var list = seekOtaListUrl();
+  if (!list) return null;
+  try {
+    return new URL(list).origin;
+  } catch (e) {
+    return null;
+  }
+}
+
+/** Vector's update-engine dies on GitHub 302s — rewrite via Worker /fetch. */
+function seekRewriteOtaUrl(u) {
+  if (!u) return u;
+  var s = String(u);
+  if (!/github\.com\//i.test(s)) return s;
+  var origin = seekFilesHostOrigin();
+  if (!origin) return s;
+  if (s.indexOf(origin + "/fetch") === 0) return s;
+  return origin + "/fetch?url=" + encodeURIComponent(s);
+}
+
+function seekFetchGithubOtas() {
+  return new Promise(function (resolve) {
+    $.ajax({
+      url:
+        "https://api.github.com/repos/loganstorm1254-sudo/seek-cfw/releases?per_page=40",
+      dataType: "json",
+      headers: { Accept: "application/vnd.github+json" },
+    })
+      .done(function (releases) {
+        var list = [];
+        (releases || []).forEach(function (rel) {
+          (rel.assets || []).forEach(function (asset) {
+            var name = asset.name || "";
+            if (!/\.ota$/i.test(name)) return;
+            list.push({
+              url: seekRewriteOtaUrl(asset.browser_download_url),
+              name: name,
+              size: asset.size,
+            });
+          });
+        });
+        resolve(list);
+      })
+      .fail(function () {
+        resolve([]);
+      });
+  });
+}
+
 function getOtasPresent(env) {
-  return new Promise((resolve, reject) => {
-    var remote =
-      (_stack && _stack.getOtaListUrl && _stack.getOtaListUrl()) || null;
+  return new Promise(function (resolve, reject) {
+    var remote = seekOtaListUrl();
 
     var finishWithList = function (list) {
       if (!Array.isArray(list)) list = [];
+      // Prefer proxied / direct non-GitHub URLs when duplicates exist
+      list = list.map(function (item) {
+        if (typeof item === "string") {
+          return { url: seekRewriteOtaUrl(item), name: item.split("/").pop() };
+        }
+        if (item && item.url) {
+          return Object.assign({}, item, { url: seekRewriteOtaUrl(item.url) });
+        }
+        return item;
+      });
       list = list.slice().sort(function (a, b) {
         var an = (a && a.name) || (a && a.url) || "";
         var bn = (b && b.name) || (b && b.url) || "";
@@ -1087,6 +1172,20 @@ function getOtasPresent(env) {
       resolve({ message: list });
     };
 
+    var fallbackGithubThenInventory = function () {
+      seekFetchGithubOtas().then(function (gh) {
+        if (gh && gh.length) {
+          finishWithList(gh);
+          return;
+        }
+        $.getJSON("/static/data/inventory.json")
+          .done(function (inv) {
+            finishWithList(inv && inv[env] ? inv[env] : []);
+          })
+          .fail(reject);
+      });
+    };
+
     if (remote) {
       $.getJSON(remote)
         .done(function (data) {
@@ -1095,35 +1194,20 @@ function getOtasPresent(env) {
             (data && data.otas) ||
             (data && data.seek) ||
             (Array.isArray(data) ? data : []);
+          if (!list || !list.length) {
+            fallbackGithubThenInventory();
+            return;
+          }
           finishWithList(list);
         })
         .fail(function () {
-          $.getJSON("/static/data/inventory.json")
-            .done(function (inv) {
-              finishWithList(inv && inv[env] ? inv[env] : []);
-            })
-            .fail(reject);
+          fallbackGithubThenInventory();
         });
       return;
     }
 
-    $.getJSON("/static/data/inventory.json")
-      .done(function (inv) {
-        finishWithList(inv && inv[env] ? inv[env] : []);
-      })
-      .fail(function () {
-        $.ajax({
-          type: "POST",
-          url: `http://${_serverIp}:${_serverPort}/firmware`,
-          data: { env: env },
-        })
-          .done(function (data) {
-            resolve(data);
-          })
-          .fail(function (data) {
-            reject(data);
-          });
-      });
+    // settings.json still has YOURDOMAIN placeholder — use GitHub list
+    fallbackGithubThenInventory();
   });
 }
 
@@ -1262,22 +1346,81 @@ function handleDisconnected() {
   setPhase("containerDiscover");
 }
 
+function otaStatusMessage(status) {
+  // RtsOtaUpdateResponse status codes (Vector BLE)
+  switch (Number(status)) {
+    case 1:
+      return "OTA unknown state";
+    case 2:
+      return "Downloading / flashing…";
+    case 3:
+      return "OTA complete";
+    case 4:
+      return "OTA rebooting";
+    case 5:
+      return "OTA failed (bad URL or download error — use Cloudflare files host, not raw GitHub)";
+    case 6:
+      return "OTA failed (update error on robot)";
+    default:
+      return "OTA failed (status " + status + ")";
+  }
+}
+
 function doOta() {
   // Seek: always start OTA over BLE; never bounce to account login.
   if (!rtsHandler || typeof rtsHandler.doOtaStart !== "function") {
     $("#otaErrorLabel").removeClass("vec-hidden");
-    $("#otaErrorLabel").text("OTA not supported on this BLE session. Use recovery mode.");
+    $("#otaErrorLabel").html(
+      "OTA not supported on this BLE session. Use recovery mode or SSH update-os."
+    );
     $("#btnTryAgain").removeClass("vec-hidden");
     return;
   }
-  rtsHandler.doOtaStart(getOtaUrl()).then(
+
+  var url = seekRewriteOtaUrl(getOtaUrl());
+  _otaEndpoint = url;
+
+  if (!url) {
+    $("#otaErrorLabel").removeClass("vec-hidden");
+    $("#otaErrorLabel").html("No OTA URL selected.");
+    $("#btnTryAgain").removeClass("vec-hidden");
+    return;
+  }
+
+  // Without a files Worker, GitHub 302s make Vector show cloud-with-!
+  if (/github\.com\//i.test(url) && !/\/fetch\?url=/i.test(url)) {
+    $("#otaErrorLabel").removeClass("vec-hidden");
+    $("#otaErrorLabel").html(
+      "This OTA is still a GitHub link. Vector’s updater cannot follow GitHub redirects (cloud with !).<br/><br/>" +
+        "Fix: deploy <code>worker-otas.js</code> on Cloudflare, set <code>otaListUrl</code> in settings.json " +
+        "to <code>https://YOUR-FILES-HOST/api/otas.json</code>, redeploy this Pages zip, then pick the OTA again.<br/><br/>" +
+        "Quick test without rebuilding: open setup with<br/>" +
+        "<code>?otaListUrl=https://YOUR-FILES-HOST/api/otas.json</code>"
+    );
+    $("#btnTryAgain").removeClass("vec-hidden");
+    return;
+  }
+
+  $("#otaErrorLabel").addClass("vec-hidden");
+  $("#btnTryAgain").addClass("vec-hidden");
+
+  rtsHandler.doOtaStart(url).then(
     function (msg) {
-      console.log("ota success");
+      console.log("ota success", msg);
       toggleIcon("iconOta", true);
     },
     function (msg) {
       console.log(msg);
+      var status =
+        msg && msg.value && msg.value.status != null
+          ? msg.value.status
+          : msg && msg.status != null
+          ? msg.status
+          : "?";
       $("#otaErrorLabel").removeClass("vec-hidden");
+      $("#otaErrorLabel").html(
+        "Error while updating Vector.<br/>" + otaStatusMessage(status)
+      );
       $("#btnTryAgain").removeClass("vec-hidden");
     }
   );
@@ -1725,9 +1868,17 @@ function HandleHandshake(version) {
     } else if (value.status == 3) {
       // handle OTA complete
       toggleIcon("iconOta", true);
-      setPhase("containerDiscover");
-    } else {
-      // todo: handle failure
+      $("#otaErrorLabel").addClass("vec-hidden");
+      $("#otaUpdate").html(
+        "<p>Update installed. Vector is rebooting…</p>" +
+          "<p>Wait ~2 minutes, then refresh this page if you need to pair again.</p>"
+      );
+    } else if (value.status >= 5) {
+      $("#otaErrorLabel").removeClass("vec-hidden");
+      $("#otaErrorLabel").html(
+        "Error while updating Vector.<br/>" + otaStatusMessage(value.status)
+      );
+      $("#btnTryAgain").removeClass("vec-hidden");
     }
   });
 
