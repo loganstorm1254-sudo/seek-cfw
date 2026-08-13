@@ -62,29 +62,44 @@ chmod 755 /usr/bin/curl
 
 CURL_BIN=/usr/bin/curl.anki
 
-# Resolve GitHub 302 → CDN 200 URL (update-engine --fail dies on redirects).
+# Local file already on robot (Seek dash upload → 127.0.0.1:8765/v.ota).
+# Never delete /data/ota/v.ota — older scripts did, then cloud-with-! failed.
 case "$URL" in
-  *github.com*)
-    FINAL=`$CURL_BIN -sI --http1.1 -4 --max-time 25 "$URL" 2>/dev/null | grep -i '^location:' | sed -n '$p' | awk '{print $2}' | tr -d '\r'`
-    if [ -n "$FINAL" ]; then
-      URL="$FINAL"
+  http://127.0.0.1:*|http://localhost:*)
+    if [ ! -f /data/ota/v.ota ]; then
+      echo "Local OTA missing: /data/ota/v.ota"
+      exit 1
+    fi
+    echo "Current OS Version: `getprop ro.anki.version`"
+    echo "Flashing local uploaded OTA:"
+    echo "$URL"
+    ;;
+  *)
+    # Resolve GitHub 302 → CDN 200 URL (update-engine --fail dies on redirects).
+    case "$URL" in
+      *github.com*)
+        FINAL=`$CURL_BIN -sI --http1.1 -4 --max-time 25 "$URL" 2>/dev/null | grep -i '^location:' | sed -n '$p' | awk '{print $2}' | tr -d '\r'`
+        if [ -n "$FINAL" ]; then
+          URL="$FINAL"
+        fi
+        ;;
+    esac
+
+    echo "Current OS Version: `getprop ro.anki.version`"
+    echo "Installing OS update from:"
+    echo "$URL"
+
+    # Prove the CDN actually streams before we hand it to update-engine.
+    echo "Probing download..."
+    CODE=`$CURL_BIN -s -o /dev/null -w '%{http_code}' --http1.1 -4 --max-time 40 -r 0-1048575 "$URL" 2>/dev/null || echo 000`
+    echo "probe=$CODE"
+    if [ "$CODE" != "200" ] && [ "$CODE" != "206" ]; then
+        echo "CDN probe failed ($CODE). Bring Wi-Fi back and retry."
+        systemctl start anki-robot.target 2>/dev/null || true
+        exit 1
     fi
     ;;
 esac
-
-echo "Current OS Version: `getprop ro.anki.version`"
-echo "Installing OS update from:"
-echo "$URL"
-
-# Prove the CDN actually streams before we hand it to update-engine.
-echo "Probing download..."
-CODE=`$CURL_BIN -s -o /dev/null -w '%{http_code}' --http1.1 -4 --max-time 40 -r 0-1048575 "$URL" 2>/dev/null || echo 000`
-echo "probe=$CODE"
-if [ "$CODE" != "200" ] && [ "$CODE" != "206" ]; then
-    echo "CDN probe failed ($CODE). Bring Wi-Fi back and retry."
-    systemctl start anki-robot.target 2>/dev/null || true
-    exit 1
-fi
 
 systemctl -q stop update-engine.timer update-engine || true
 rm -rf /run/update-engine
@@ -103,6 +118,14 @@ echo 1267200 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null
 
 systemctl reset-failed update-engine || true
 systemctl start update-engine
+
+# Local upload flash: Wi‑Fi not required — free CPU immediately.
+case "$URL" in
+  http://127.0.0.1:*|http://localhost:*)
+    echo "Stopping anki-robot.target... (eyes will go dark)"
+    systemctl stop anki-robot.target || true
+    ;;
+esac
 
 echo "Downloading (eyes stay on until data moves)..."
 WAIT=0
@@ -131,13 +154,18 @@ while true; do
     else
         echo "bytes ${PROGRESS}"
     fi
-    if [ "$PROGRESS" -gt 5242880 ] 2>/dev/null; then
-        # Enough data flowing — safe to free CPU for the flash.
-        if systemctl is-active --quiet anki-robot.target 2>/dev/null; then
-            echo "Stopping anki-robot.target... (eyes will go dark)"
-            systemctl stop anki-robot.target || true
+    case "$URL" in
+      http://127.0.0.1:*|http://localhost:*) ;;
+      *)
+        if [ "$PROGRESS" -gt 5242880 ] 2>/dev/null; then
+            # Enough data flowing — safe to free CPU for the flash.
+            if systemctl is-active --quiet anki-robot.target 2>/dev/null; then
+                echo "Stopping anki-robot.target... (eyes will go dark)"
+                systemctl stop anki-robot.target || true
+            fi
         fi
-    fi
+        ;;
+    esac
     if [ "$PROGRESS" -eq "$LAST" ] 2>/dev/null; then
         STALL=$((STALL+1))
     else

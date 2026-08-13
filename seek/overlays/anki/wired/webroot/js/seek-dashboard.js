@@ -1181,6 +1181,40 @@ function seekLinkStartPolling() {
     seekLinkPollTimer = setInterval(seekLinkRefresh, 4000);
 }
 
+async function seekOtaPollFlash(note, bar) {
+    // Local flash — poll until reboot, error, or timeout. Cloud-with-! on the
+    // face means update-engine failed; surface that error here.
+    const started = Date.now();
+    while (Date.now() - started < 55 * 60 * 1000) {
+        await new Promise(function (r) { setTimeout(r, 2000); });
+        let j = null;
+        try {
+            const res = await api('otaStatus', { timeoutMs: 8000, retries: 1 });
+            if (res.ok) j = await res.json();
+        } catch (e) {
+            // Robot rebooting — connection drop is success-ish.
+            note('Vector rebooting (page lost contact). Wait ~2 min, then refresh.');
+            return;
+        }
+        if (!j) continue;
+        if (j.error || j.engineError) {
+            const msg = j.error || j.engineError;
+            note('Update failed: ' + msg, true);
+            return;
+        }
+        if (j.phase === 'rebooting') {
+            note('Flash done — Vector is rebooting…');
+            if (bar) bar.value = 100;
+            return;
+        }
+        if (typeof j.pct === 'number' && bar) {
+            bar.value = Math.max(0, Math.min(100, j.pct));
+        }
+        if (j.detail) note(j.detail);
+    }
+    note('Still flashing — leave this page open, or check Vector.', true);
+}
+
 async function seekOtaInstall() {
     const input = $('otaFile');
     const bar = $('otaProgress');
@@ -1238,14 +1272,15 @@ async function seekOtaInstall() {
             if (bar) bar.value = pct;
             note('Uploading to Vector… ' + pct + '%');
         }
-        note('File on robot. Starting flash — eyes will go dark. Wait for reboot.');
+        note('File on robot. Starting local flash — eyes go dark. Keep this page.');
         const inst = await api('otaInstall', { timeoutMs: 20000, retries: 1 });
         if (!inst.ok) {
             const e = await inst.json().catch(function () { return { message: 'install failed' }; });
             note(e.message || 'install failed', true);
             return;
         }
-        note('Flashing. Keep this page. Vector reboots when done.');
+        note('Flashing from uploaded file…');
+        await seekOtaPollFlash(note, bar);
     } catch (e) {
         note('OTA error: ' + (e && e.message ? e.message : e), true);
     }
