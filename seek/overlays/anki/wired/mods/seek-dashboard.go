@@ -345,6 +345,13 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		vars.HTTPSuccess(w, r)
 		return
+	case "otaFromUrl":
+		if err := m.handleOTAFromUrl(r); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+		vars.HTTPSuccess(w, r)
+		return
 	case "otaStatus":
 		m.handleOTAStatus(w)
 		return

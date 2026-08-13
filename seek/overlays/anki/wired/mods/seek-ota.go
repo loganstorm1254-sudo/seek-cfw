@@ -149,6 +149,38 @@ func (m *SeekDashboard) handleOTAInstall() error {
 	return nil
 }
 
+// handleOTAFromUrl installs from a remote HTTPS URL (Cloudflare files host).
+// Used by Seek websetup after BLE Wi‑Fi — avoids broken BLE→update-engine (203).
+func (m *SeekDashboard) handleOTAFromUrl(r *http.Request) error {
+	u := strings.TrimSpace(r.FormValue("url"))
+	if u == "" {
+		u = strings.TrimSpace(r.URL.Query().Get("url"))
+	}
+	if !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
+		return errors.New("url must be http(s)://…/file.ota")
+	}
+	if !strings.Contains(strings.ToLower(u), ".ota") {
+		return errors.New("url must point to a .ota file")
+	}
+	writeSeekOTAStatus("starting", "Starting update-os from URL", 0, "")
+	go func(otaURL string) {
+		time.Sleep(300 * time.Millisecond)
+		script := "/data/update-os.sh"
+		if _, err := os.Stat(script); err != nil {
+			script = "/usr/sbin/update-os"
+		}
+		cmd := exec.Command("/bin/bash", script, otaURL)
+		cmd.Env = append(os.Environ(), "UPDATE_ENGINE_ALLOW_DOWNGRADE=True")
+		if err := cmd.Start(); err != nil {
+			writeSeekOTAStatus("error", "failed to start update-os", 0, err.Error())
+			return
+		}
+		writeSeekOTAStatus("flashing", "update-os running — eyes may go dark", 1, "")
+		_ = cmd.Process.Release()
+	}(u)
+	return nil
+}
+
 func flashUploadedSeekOTA(size int64) {
 	writeSeekOTAStatus("probe", "Checking local OTA server", 0, "")
 	client := &http.Client{Timeout: 15 * time.Second}

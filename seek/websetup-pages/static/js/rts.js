@@ -1408,12 +1408,11 @@ function otaStatusMessage(status) {
 }
 
 function doOta() {
-  // Seek: always start OTA over BLE; never bounce to account login.
-  if (!rtsHandler || typeof rtsHandler.doOtaStart !== "function") {
+  // Seek: prefer robot HTTP → update-os (works). BLE update-engine often
+  // returns status 203 on Cloudflare URLs.
+  if (!rtsHandler) {
     $("#otaErrorLabel").removeClass("vec-hidden");
-    $("#otaErrorLabel").html(
-      "OTA not supported on this BLE session. Use recovery mode or SSH update-os."
-    );
+    $("#otaErrorLabel").html("Not connected to Vector over BLE.");
     $("#btnTryAgain").removeClass("vec-hidden");
     return;
   }
@@ -1430,6 +1429,7 @@ function doOta() {
 
   console.log("Seek OTA URL:", url);
   $("#otaErrorLabel").addClass("vec-hidden");
+  $("#btnTryAgain").addClass("vec-hidden");
   $("#otaUpdate").find(".seek-ota-url").remove();
   $("#otaUpdate").prepend(
     '<div class="seek-ota-url" style="opacity:0.7;font-size:12px;word-break:break-all;margin-bottom:8px;">URL: ' +
@@ -1437,44 +1437,130 @@ function doOta() {
       "</div>"
   );
 
-  // Without a files Worker, GitHub 302s make Vector show cloud-with-! / status 203
-  if (/github\.com\//i.test(url) && !/\/g\/[^/]+\/[^/]+\.ota/i.test(url) && !/\/fetch\?url=/i.test(url)) {
+  if (/github\.com\//i.test(url) && !/\/g\/[^/]+\/[^/]+\.ota/i.test(url) && !/\/dl\//i.test(url) && !/\/ota\/latest/i.test(url)) {
     $("#otaErrorLabel").removeClass("vec-hidden");
     $("#otaErrorLabel").html(
-      "This OTA is still a raw GitHub link. Vector cannot open those (status 203 / cloud with !).<br/><br/>" +
-        "1) Paste new <code>worker-otas.js</code> into your Cloudflare Worker<br/>" +
-        "2) Set <code>otaListUrl</code> to <code>https://YOUR-FILES-HOST/api/otas.json</code><br/>" +
-        "3) Redeploy Pages (or open setup with <code>?otaListUrl=…</code>)<br/><br/>" +
-        "Best: upload the .ota to R2 under <code>OTA/</code> so the URL is " +
-        "<code>https://YOUR-FILES-HOST/OTA/vicos-….ota</code>"
+      "Raw GitHub links fail on Vector (status 203).<br/>" +
+        "Use https://files.anki.org.uk/ota/latest or upload the .ota to R2."
     );
     $("#btnTryAgain").removeClass("vec-hidden");
     return;
   }
 
-  $("#otaErrorLabel").addClass("vec-hidden");
-  $("#btnTryAgain").addClass("vec-hidden");
+  // Try install via Seek wired HTTP (update-os) using robot LAN IP from BLE.
+  var tryHttpInstall = function (ip) {
+    if (!ip) return Promise.reject(new Error("no ip"));
+    var api =
+      "http://" +
+      ip +
+      "/api/mods/SeekDashboard/otaFromUrl?url=" +
+      encodeURIComponent(url);
+    return fetch(api, { method: "GET", cache: "no-store", mode: "cors" }).then(
+      function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json().catch(function () {
+          return {};
+        });
+      }
+    );
+  };
 
-  rtsHandler.doOtaStart(url).then(
-    function (msg) {
-      console.log("ota success", msg);
-      toggleIcon("iconOta", true);
-    },
-    function (msg) {
-      console.log(msg);
-      var status =
-        msg && msg.value && msg.value.status != null
-          ? msg.value.status
-          : msg && msg.status != null
-          ? msg.status
-          : "?";
+  var bleFallback = function (reason) {
+    console.log("HTTP OTA unavailable, BLE fallback:", reason);
+    if (!rtsHandler || typeof rtsHandler.doOtaStart !== "function") {
       $("#otaErrorLabel").removeClass("vec-hidden");
       $("#otaErrorLabel").html(
-        "Error while updating Vector.<br/>" + otaStatusMessage(status)
+        "Could not reach Vector’s web API (" +
+          (reason || "no route") +
+          ").<br/>Run the one-time BLE OTA fix over SSH, then Try Again.<br/>" +
+          "<code>curl -L -4 -o /tmp/f.sh https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/scripts/fix-ble-ota.sh && sh /tmp/f.sh</code>"
       );
       $("#btnTryAgain").removeClass("vec-hidden");
+      return;
     }
-  );
+    rtsHandler.doOtaStart(url).then(
+      function (msg) {
+        console.log("ota success", msg);
+        toggleIcon("iconOta", true);
+      },
+      function (msg) {
+        console.log(msg);
+        var status =
+          msg && msg.value && msg.value.status != null
+            ? msg.value.status
+            : msg && msg.status != null
+            ? msg.status
+            : "?";
+        $("#otaErrorLabel").removeClass("vec-hidden");
+        $("#otaErrorLabel").html(
+          "Error while updating Vector.<br/>" +
+            otaStatusMessage(status) +
+            "<br/><br/>If this keeps happening, run once on the robot:<br/>" +
+            "<code>curl -L -4 -o /tmp/f.sh https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/scripts/fix-ble-ota.sh && sh /tmp/f.sh</code>"
+        );
+        $("#btnTryAgain").removeClass("vec-hidden");
+      }
+    );
+  };
+
+  var startWithIp = function (ip) {
+    tryHttpInstall(ip).then(
+      function () {
+        toggleIcon("iconOta", true);
+        $("#otaUpdate").append(
+          "<p>Install started on Vector via Seek (update-os). Eyes may go dark. Keep Wi‑Fi on.</p>"
+        );
+      },
+      function (err) {
+        bleFallback(err && err.message ? err.message : err);
+      }
+    );
+  };
+
+  if (typeof rtsHandler.doWifiIp === "function") {
+    rtsHandler.doWifiIp().then(
+      function (msg) {
+        var ip = null;
+        try {
+          // RtsWifiIpResponse: ipv4 is uint32 or dotted fields depending on version
+          var v = msg && msg.value ? msg.value : msg;
+          if (v && v.ip && typeof v.ip === "string" && v.ip.indexOf(".") > 0) {
+            ip = v.ip;
+          } else if (v && v.ipv4 != null) {
+            var n = Number(v.ipv4);
+            ip =
+              ((n >>> 24) & 255) +
+              "." +
+              ((n >>> 16) & 255) +
+              "." +
+              ((n >>> 8) & 255) +
+              "." +
+              (n & 255);
+          } else if (v && v.wipv4 != null) {
+            var n2 = Number(v.wipv4);
+            ip =
+              ((n2 >>> 24) & 255) +
+              "." +
+              ((n2 >>> 16) & 255) +
+              "." +
+              ((n2 >>> 8) & 255) +
+              "." +
+              (n2 & 255);
+          }
+        } catch (e) {
+          console.log(e);
+        }
+        console.log("robot wifi ip", ip);
+        if (ip && ip !== "0.0.0.0") startWithIp(ip);
+        else bleFallback("no wifi ip");
+      },
+      function () {
+        bleFallback("wifi-ip failed");
+      }
+    );
+  } else {
+    bleFallback("no wifi-ip API");
+  }
 }
 
 function setView(mode, animate) {
