@@ -4,16 +4,6 @@ function seekApiRoot() {
     if (typeof window !== 'undefined' && window.SEEK_API_ROOT) {
         return String(window.SEEK_API_ROOT).replace(/\/$/, '');
     }
-    try {
-        var s = sessionStorage.getItem('seekPortal');
-        if (s) {
-            var j = JSON.parse(s);
-            if (j && j.apiRoot) return String(j.apiRoot).replace(/\/$/, '');
-        }
-    } catch (e) {}
-    var p = location.pathname || '';
-    var m = p.match(/^(.*\/v)(?:\/|$)/);
-    if (m) return m[1];
     return '';
 }
 const SEEK_ROOT = seekApiRoot();
@@ -1638,8 +1628,6 @@ function bindUI() {
     });
 
     on('btnEye', 'click', seekSetEyeColor);
-    on('btnSavePortal', 'click', seekSavePortal);
-    seekLoadPortal();
     on('btnCopyAIAnswer', 'click', seekCopyAIAnswer);
     seekLoadVoiceChoice();
     on('btnEyeOverlayApply', 'click', seekApplyEyeOverlay);
@@ -1897,48 +1885,6 @@ function bindTouchPad() {
         btn.addEventListener('mouseleave', stop);
         btn.addEventListener('contextmenu', (e) => e.preventDefault());
     });
-}
-
-async function seekLoadPortal() {
-    const urlEl = $('portalUrl');
-    const st = $('portalStatus');
-    if (!urlEl && !st) return;
-    try {
-        const res = await api('getPortal', { timeoutMs: 5000, retries: 1 });
-        if (!res.ok) return;
-        const j = await res.json();
-        if (urlEl && j.url) urlEl.value = j.url;
-        if (st) {
-            if (!j.url) st.textContent = 'No portal URL saved — phone site will only work if the host is on this Wi‑Fi.';
-            else if (j.connected) st.textContent = 'Portal connected. Phone site can reach this Vector.';
-            else st.textContent = 'Portal URL saved — waiting to connect…';
-        }
-    } catch (_) {}
-}
-
-async function seekSavePortal() {
-    const urlEl = $('portalUrl');
-    const u = urlEl ? urlEl.value.trim() : '';
-    setSeekStatus('Saving portal URL…');
-    try {
-        const body = new URLSearchParams({ url: u || 'clear' });
-        const res = await api('setPortal', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: body.toString(),
-            timeoutMs: 8000,
-            retries: 1
-        });
-        if (!res.ok) {
-            const e = await res.json().catch(function () { return {}; });
-            setSeekStatus(e.message || 'portal save failed', true);
-            return;
-        }
-        setSeekStatus(u ? 'Portal URL saved. Vector will connect in a few seconds.' : 'Portal URL cleared.');
-        setTimeout(seekLoadPortal, 2500);
-    } catch (e) {
-        setSeekStatus('portal error: ' + e.message, true);
-    }
 }
 
 async function loadNetInfo() {

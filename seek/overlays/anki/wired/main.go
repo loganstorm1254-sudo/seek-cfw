@@ -67,7 +67,7 @@ func main() {
 			"canonicalUrl": url,
 			"oneAddress":   url,
 			"ssid":         vars.WifiSSID(),
-			"hint":         "Open http://192.168.42.209:8080/ in any browser on the same Wi‑Fi.",
+			"hint":         "On your phone, join Vector’s Wi‑Fi and open http://<robot-ip>:8080/",
 		})
 	})
 

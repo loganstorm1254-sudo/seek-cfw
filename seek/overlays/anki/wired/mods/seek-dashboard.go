@@ -81,11 +81,6 @@ type SeekDashboard struct {
 	linkState seekLinkState
 	linkSeen  map[string]SeekPeer
 
-	portalOnce sync.Once
-	portalMu   sync.Mutex
-	portalOK   bool
-	portalKick bool
-
 	lastActivity time.Time
 	idleOnce     sync.Once
 }
@@ -105,7 +100,6 @@ func (modu *SeekDashboard) Description() string {
 func (m *SeekDashboard) Load() error {
 	m.touchActivity()
 	m.initLink()
-	m.initPortal()
 	m.idleOnce.Do(func() {
 		go m.idleWatch()
 	})
@@ -331,14 +325,6 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case "macarenaDisarm":
 		m.disarmMacarena()
-	case "getPortal":
-		m.handleGetPortal(w)
-		return
-	case "setPortal":
-		if err := m.handleSetPortal(r); err != nil {
-			vars.HTTPError(w, r, err.Error())
-			return
-		}
 	case "linkGet":
 		m.handleLinkGet(w, r)
 		return
