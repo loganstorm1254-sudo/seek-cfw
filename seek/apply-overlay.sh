@@ -20,4 +20,9 @@ echo "Applying Seek CFW overlay..."
 # Copy overlay files into the working tree (do not commit submodule dirtiness;
 # branding is owned by this repo under seek/overlays).
 cp -a "${OVERLAY}/." "${ROOT}/"
+
+# cp -a cannot delete. Drop files that used to ship and must not land in the OTA.
+rm -f "${ROOT}/anki/wired/mods/seek-portal.go"
+rm -rf "${ROOT}/seek/portal"
+
 echo "Seek overlay applied."
