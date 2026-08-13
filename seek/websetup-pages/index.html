@@ -56,13 +56,13 @@
             id="iconAccount"
             src="/static/images/fontawesome/user-circle-solid.svg"
             src2="/static/images/friends_icon_profileheadshot_sml.svg"
-            class="vec-icon vec-icon-sm"
+            class="vec-icon vec-icon-sm vec-hidden"
           />
           <img
             id="iconSettings"
             src="/static/images/fontawesome/sliders-h-solid.svg"
             src2="/static/images/icon_settings.svg"
-            class="vec-icon vec-icon-sm"
+            class="vec-icon vec-icon-sm vec-hidden"
           />
         </div>
         <div
@@ -231,101 +231,23 @@
           align="center"
         >
           <div id="accountAuth">
-            Authorize vector with the account <br />used in Vector Mobile app<br /><br />
-            <div id="accountErrorLabel" class="vec-error vec-hidden">
-              Error.
-            </div>
-            <input
-              type="text"
-              id="txtAccountUsername"
-              value=""
-              class="vec-field vec-default"
-              placeholder="email"
-            /><br />
-            <div class="vec-password-block">
-              <input
-                type="password"
-                id="txtAccountPw"
-                value=""
-                class="vec-field vec-default"
-                placeholder="password"
-              />
-              <div
-                id="txtAccountPwEye"
-                class="vec-eye-toggle"
-                target="txtAccountPw"
-                state="visible"
-              >
-                <img
-                  src="/static/images/fontawesome/eye-slash-solid.svg"
-                  class="vec-eyecon"
-                />
-              </div>
-            </div>
-            <br /><br />
-            <input
-              type="button"
-              id="btnConnectCloud"
-              value="Sign In"
-              class="vec-field"
-            /><br />
-            <a id="passwordReset" class="vec-action">Reset Password</a> <br />
-            <a id="createAccount" class="vec-action">Create Account</a>
+            No account needed for SeekOS.<br /><br />
+            Loading OTA list…
+            <div id="accountErrorLabel" class="vec-error vec-hidden"></div>
+            <input type="hidden" id="txtAccountUsername" value="" />
+            <input type="hidden" id="txtAccountPw" value="" />
+            <input type="hidden" id="btnConnectCloud" value="" />
+            <a id="passwordReset" class="vec-hidden"></a>
+            <a id="createAccount" class="vec-hidden"></a>
           </div>
-          <div id="newAccount" class="vec-container">
-            Create a new account <br /><br />
-            <div id="accountCreationErrorLabel" class="vec-error vec-hidden">
-              Error.
-            </div>
-
-            <input
-              type="email"
-              id="txtNewAccountEmail"
-              value=""
-              class="vec-field vec-default"
-              placeholder="email"
-              required="required"
-            /><br />
-            <input
-              type="text"
-              id="txtNewAccountDob"
-              value=""
-              class="vec-field vec-default"
-              placeholder="yyyy-mm-dd (Date of birth)"
-            /><br />
-            <div class="vec-password-block">
-              <input
-                type="password"
-                id="txtNewAccountPw"
-                value=""
-                class="vec-field vec-default"
-                placeholder="password"
-              />
-              <div
-                id="txtAccountPwEye"
-                class="vec-eye-toggle"
-                target="txtNewAccountPw"
-                state="visible"
-              >
-                <img
-                  src="/static/images/fontawesome/eye-slash-solid.svg"
-                  class="vec-eyecon"
-                />
-              </div>
-            </div>
-            <br /><br />
-            <input
-              type="button"
-              id="btnCreateAccount"
-              value="Sign Up"
-              class="vec-field"
-            /><br />
-            <input
-              type="button"
-              id="btnCancelAccountCreation"
-              value="Cancel"
-              class="vec-field"
-            /><br />
+          <div id="newAccount" class="vec-hidden">
+            <div id="accountCreationErrorLabel" class="vec-error vec-hidden"></div>
+            <input type="hidden" id="txtNewAccountEmail" value="" />
+            <input type="hidden" id="txtNewAccountDob" value="" />
+            <input type="hidden" id="txtNewAccountPw" value="" />
+            <input type="hidden" id="btnCreateAccount" value="" />
+            <input type="hidden" id="btnCancelAccountCreation" value="" />
+            <div id="txtAccountPwEye" class="vec-hidden"></div>
           </div>
         </div>
 

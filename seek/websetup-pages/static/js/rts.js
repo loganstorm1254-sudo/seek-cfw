@@ -996,12 +996,7 @@ function configurePtrem() {
 
 //**************** OTA *******************
 function setupOTAFiles() {
-  if (_version != 2) {
-    toggleIcon("iconOta", true);
-    setPhase("containerAccount");
-    return;
-  }
-
+  // Seek: skip Anki/DDL account login — users install CFW OTAs without cloud accounts.
   if (_stack === null) {
     return;
   }
@@ -1183,6 +1178,12 @@ function toggleIcon(icon, on) {
 }
 
 function setPhase(phase) {
+  // Seek: never show Anki/DDL account login
+  if (phase == "containerAccount") {
+    setupOTAFiles();
+    return;
+  }
+
   // general clearing
   $("#txtPin").val("");
 
@@ -1262,21 +1263,24 @@ function handleDisconnected() {
 }
 
 function doOta() {
-  if (_version == 2) {
-    rtsHandler.doOtaStart(getOtaUrl()).then(
-      function (msg) {
-        console.log("ota success");
-      },
-      function (msg) {
-        console.log(msg);
-        $("#otaErrorLabel").removeClass("vec-hidden");
-        $("#btnTryAgain").removeClass("vec-hidden");
-      }
-    );
-  } else {
-    toggleIcon("iconOta", true);
-    setPhase("containerAccount");
+  // Seek: always start OTA over BLE; never bounce to account login.
+  if (!rtsHandler || typeof rtsHandler.doOtaStart !== "function") {
+    $("#otaErrorLabel").removeClass("vec-hidden");
+    $("#otaErrorLabel").text("OTA not supported on this BLE session. Use recovery mode.");
+    $("#btnTryAgain").removeClass("vec-hidden");
+    return;
   }
+  rtsHandler.doOtaStart(getOtaUrl()).then(
+    function (msg) {
+      console.log("ota success");
+      toggleIcon("iconOta", true);
+    },
+    function (msg) {
+      console.log(msg);
+      $("#otaErrorLabel").removeClass("vec-hidden");
+      $("#btnTryAgain").removeClass("vec-hidden");
+    }
+  );
 }
 
 function setView(mode, animate) {
