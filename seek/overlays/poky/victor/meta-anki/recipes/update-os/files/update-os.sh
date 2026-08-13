@@ -67,9 +67,9 @@ fi
 # streams a 200 URL (its --fail flag dies on the redirect).
 case "$URL" in
   *github.com*|*githubusercontent.com*)
-    FINAL=`$CURL_BIN -sI --http1.1 -4 --max-time 20 "$URL" 2>/dev/null | grep -i '^location:' | tail -1 | awk '{print $2}' | tr -d '\r'`
+    FINAL=`$CURL_BIN -sI --http1.1 -4 --max-time 20 "$URL" 2>/dev/null | grep -i '^location:' | sed -n '$p' | awk '{print $2}' | tr -d '\r'`
     if [ -z "$FINAL" ]; then
-      FINAL=`$CURL_BIN -sI -4 --max-time 20 "$URL" 2>/dev/null | grep -i '^location:' | tail -1 | awk '{print $2}' | tr -d '\r'`
+      FINAL=`$CURL_BIN -sI -4 --max-time 20 "$URL" 2>/dev/null | grep -i '^location:' | sed -n '$p' | awk '{print $2}' | tr -d '\r'`
     fi
     if [ -n "$FINAL" ]; then
       URL="$FINAL"

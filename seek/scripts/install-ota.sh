@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Short SeekOS OTA install. Streams from GitHub (no save to /data/ota).
 # Usage: bash /data/u.sh [ota-url]
+# BusyBox-safe (Vector).
 set -e
 set -u
 
@@ -8,7 +9,7 @@ URL="${1:-}"
 if [ -z "$URL" ]; then
   URL=`curl -sL -4 --max-time 25 -H 'User-Agent: SeekOS' -H 'Accept: application/vnd.github+json' \
     https://api.github.com/repos/loganstorm1254-sudo/seek-cfw/releases/latest \
-    | grep -o 'https://[^"]*/vicos-[^"]*\.ota' | head -1`
+    | tr '"' '\n' | grep '/vicos-.*\.ota$' | grep '^https://' | sed -n '1p'`
 fi
 if [ -z "$URL" ]; then
   echo "No OTA URL"
@@ -22,6 +23,7 @@ umount /usr/sbin/update-os 2>/dev/null || true
 mount -o remount,exec /run 2>/dev/null || true
 
 CURL=curl
+USE_RUN_PATH=0
 if cp -L /usr/bin/curl /run/curl.real 2>/dev/null; then
   chmod 755 /run/curl.real
   if /run/curl.real -V >/dev/null 2>&1; then
@@ -40,7 +42,7 @@ fi
 
 case "$URL" in
   *github.com*)
-    FINAL=`$CURL -sI --http1.1 -4 --max-time 20 "$URL" 2>/dev/null | grep -i '^location:' | tail -1 | awk '{print $2}' | tr -d '\r'`
+    FINAL=`$CURL -sI --http1.1 -4 --max-time 20 "$URL" 2>/dev/null | grep -i '^location:' | sed -n '$p' | awk '{print $2}' | tr -d '\r'`
     [ -n "$FINAL" ] && URL="$FINAL"
     ;;
 esac
@@ -55,7 +57,7 @@ mkdir -p /run/vic-switchboard /run/update-engine
   echo UPDATE_ENGINE_ALLOW_DOWNGRADE=True
   echo UPDATE_ENGINE_DEBUG=True
   printf 'UPDATE_ENGINE_URL=%s\n' "$URL"
-  if [ "${USE_RUN_PATH:-0}" = "1" ]; then
+  if [ "$USE_RUN_PATH" = "1" ]; then
     echo PATH=/run/bin:/usr/bin:/bin:/usr/sbin:/sbin
   fi
 } >/run/vic-switchboard/update-engine.env
