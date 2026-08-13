@@ -14,6 +14,7 @@ function usage()
     echo "  update-os https://github.com/USER/REPO/releases/download/vX/vicos-X.ota"
     echo ""
     echo "Downloads the image (progress bar, eyes stay on), then flashes and reboots."
+    echo "On a live robot /usr is read-only — copy this script to /data/update-os.sh and run it from there."
     exit 0
 }
 
