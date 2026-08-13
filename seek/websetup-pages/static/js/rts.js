@@ -1391,14 +1391,12 @@ function otaStatusMessage(status) {
       return "OTA package invalid (missing boot/system)";
     case 203:
       return "Robot could not open the OTA URL (status 203).<br/>" +
-        "Use your Cloudflare files host with a short path like " +
-        "<code>/OTA/vicos-….ota</code> or <code>/g/3.0.1.42d/vicos-….ota</code> " +
-        "(no GitHub links, no <code>?url=</code> query).<br/>" +
-        "Also test from SSH: <code>curl -I https://YOUR-FILES-HOST/OTA/your.ota</code>";
+        "Use https://files.anki.org.uk/ota/latest (no GitHub, no spaces in filename).<br/>" +
+        "If it still fails: run <code>fix-ble-ota.ps1</code> from your PC (broken CA / curl on robot).";
     case 204:
       return "Download failed / not a valid OTA (status 204).<br/>" +
-        "URL must return HTTP 200 with the .ota body (not a redirect page). " +
-        "Upload the file to R2 under <code>OTA/</code> or fix Worker <code>/g/…</code>.";
+        "Often curl CA on the robot (exit 77) — run <code>fix-ble-ota.ps1</code>, then retry " +
+        "<code>/ota/latest</code>.";
     case 208:
     case 209:
       return "Flash pipeline failed on robot (status " + n + ")";
@@ -1473,7 +1471,8 @@ function doOta() {
         "Could not reach Vector’s web API (" +
           (reason || "no route") +
           ").<br/>Run the one-time BLE OTA fix over SSH, then Try Again.<br/>" +
-          "<code>curl -L -4 -o /tmp/f.sh https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/scripts/fix-ble-ota.sh && sh /tmp/f.sh</code>"
+          "<code>powershell -ExecutionPolicy Bypass -File fix-ble-ota.ps1</code> " +
+          "(from seek/scripts — pushes fix over scp; do not curl on the robot)."
       );
       $("#btnTryAgain").removeClass("vec-hidden");
       return;
@@ -1496,7 +1495,8 @@ function doOta() {
           "Error while updating Vector.<br/>" +
             otaStatusMessage(status) +
             "<br/><br/>If this keeps happening, run once on the robot:<br/>" +
-            "<code>curl -L -4 -o /tmp/f.sh https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/scripts/fix-ble-ota.sh && sh /tmp/f.sh</code>"
+            "<code>powershell -ExecutionPolicy Bypass -File fix-ble-ota.ps1</code> " +
+          "(from seek/scripts — pushes fix over scp; do not curl on the robot)."
         );
         $("#btnTryAgain").removeClass("vec-hidden");
       }

@@ -56,7 +56,8 @@ fi
 cat > /usr/bin/curl << 'EOF'
 #!/bin/sh
 # SeekOS: Vector's stock curl stalls on GitHub CDN over HTTP/2.
-exec /usr/bin/curl.anki -L --http1.1 -4 --connect-timeout 30 "$@"
+# -k: many robots have a broken/missing CA bundle (curl exit 77).
+exec /usr/bin/curl.anki -k -L --http1.1 -4 --connect-timeout 30 "$@"
 EOF
 chmod 755 /usr/bin/curl
 
@@ -78,7 +79,7 @@ case "$URL" in
     # Resolve GitHub 302 → CDN 200 URL (update-engine --fail dies on redirects).
     case "$URL" in
       *github.com*)
-        FINAL=`$CURL_BIN -sI --http1.1 -4 --max-time 25 "$URL" 2>/dev/null | grep -i '^location:' | sed -n '$p' | awk '{print $2}' | tr -d '\r'`
+        FINAL=`$CURL_BIN -k -sI --http1.1 -4 --max-time 25 "$URL" 2>/dev/null | grep -i '^location:' | sed -n '$p' | awk '{print $2}' | tr -d '\r'`
         if [ -n "$FINAL" ]; then
           URL="$FINAL"
         fi
@@ -91,7 +92,7 @@ case "$URL" in
 
     # Prove the CDN actually streams before we hand it to update-engine.
     echo "Probing download..."
-    CODE=`$CURL_BIN -s -o /dev/null -w '%{http_code}' --http1.1 -4 --max-time 40 -r 0-1048575 "$URL" 2>/dev/null || echo 000`
+    CODE=`$CURL_BIN -k -s -o /dev/null -w '%{http_code}' --http1.1 -4 --max-time 40 -r 0-1048575 "$URL" 2>/dev/null || echo 000`
     echo "probe=$CODE"
     if [ "$CODE" != "200" ] && [ "$CODE" != "206" ]; then
         echo "CDN probe failed ($CODE). Bring Wi-Fi back and retry."
