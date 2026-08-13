@@ -1,53 +1,45 @@
 Seek Web Setup — make BLE OTA actually work
 ============================================
 
-Vector’s updater cannot follow GitHub redirects (that’s the cloud-with-!).
-OTAs must be served as a direct HTTP 200 with Content-Length.
+Status 203 / cloud-with-! = Vector could not open the OTA URL.
+Raw github.com links and long ?url= proxies often fail. Use short paths.
 
 ------------------------------------------------
 Do this once (required)
 ------------------------------------------------
 
 1) Cloudflare Worker (files host)
-   - Create/edit Worker, paste worker-otas.js from this folder
+   - Paste worker-otas.js from this folder
    - Bindings → R2 bucket named exactly: OTA
-   - Custom domain e.g. files.yourdomain.com  (or use *.workers.dev)
-   - Optional: upload .ota files under R2 prefix OTA/
-   - Worker also lists GitHub Seek releases and serves them via /fetch
-     (so BLE install works without uploading to R2)
+   - Custom domain e.g. files.yourdomain.com
+   - Best: upload .ota files under R2 prefix OTA/
+     URL becomes: https://files.yourdomain.com/OTA/vicos-3.0.1.42d.ota
+   - Worker also exposes GitHub releases as:
+     https://files.yourdomain.com/g/3.0.1.42d/vicos-3.0.1.42d.ota
 
-   Test:
+   Test on your PC:
      https://files.yourdomain.com/api/otas.json
-   You should see JSON with "seek": [ { "url": "...", "name": "vicos-….ota" } ]
+   Test FROM THE ROBOT (SSH):
+     curl -I https://files.yourdomain.com/OTA/vicos-3.0.1.42d.ota
 
 2) Edit static/data/settings.json BEFORE uploading Pages:
-
    "otaListUrl": "https://files.yourdomain.com/api/otas.json"
 
-   (replace with YOUR real Worker/files URL)
+3) Upload seek-websetup-pages.zip to Cloudflare Pages
 
-3) Cloudflare Pages → Upload this whole folder (or the zip)
-   Custom domain e.g. setup.yourdomain.com
+4) Chrome + Bluetooth Present/Powered ✓
+   Pair → Wi‑Fi → pick OTA → Install
 
-4) Chrome on a PC with working Bluetooth:
-   https://setup.yourdomain.com
-   Pair Vector → Wi‑Fi → pick an OTA → Install
-
-Quick test without rebuilding the zip:
+Quick test without rebuilding:
   https://setup.yourdomain.com/?otaListUrl=https://files.yourdomain.com/api/otas.json
 
 ------------------------------------------------
-Every new release
+If you still get status 203
 ------------------------------------------------
-Upload vicos-x.y.z.ota into R2 folder OTA/
-  OR just publish a GitHub release — Worker /api/otas.json picks it up via /fetch
-
-------------------------------------------------
-If BLE still fails
-------------------------------------------------
-- chrome://bluetooth-internals/#adapter → Present + Powered must be ✓
-- Do NOT use raw github.com download links for BLE
-- Downgrading (e.g. 42d → 1d) may need SSH:
-    update-os https://…/vicos-3.0.1.1d.ota
+From SSH on Vector:
+  curl -v -I https://YOUR-FILES-HOST/OTA/your.ota
+If that fails, the robot cannot reach Cloudflare (DNS/Wi‑Fi/TLS).
+Fix network first, or use SSH:
+  update-os https://YOUR-FILES-HOST/OTA/your.ota
 
 Based on https://github.com/digital-dream-labs/vector-web-setup (MIT)
