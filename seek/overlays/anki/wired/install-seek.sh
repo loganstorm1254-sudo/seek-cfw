@@ -24,11 +24,12 @@ fi
 src=""
 if [ -f ./update-os.sh ]; then src=./update-os.sh; elif [ -f ./update-os ]; then src=./update-os; fi
 if [ -n "$src" ]; then
-    mkdir -p /data
+    mkdir -p /data /run
     cp "$src" /data/update-os.sh
-    chmod 0755 /data/update-os.sh
+    cp "$src" /run/update-os
+    chmod 0755 /run/update-os
     umount /usr/sbin/update-os 2>/dev/null || true
-    mount --bind /data/update-os.sh /usr/sbin/update-os || true
+    mount --bind /run/update-os /usr/sbin/update-os || true
 fi
 sync
 systemctl start wired

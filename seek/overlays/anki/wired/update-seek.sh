@@ -83,11 +83,12 @@ for c in "$TMP/seek-wired/update-os.sh" "$TMP/update-os.sh" "$TMP/seek-wired/upd
     if [ -f "$c" ]; then src="$c"; break; fi
 done
 if [ -n "$src" ]; then
-    mkdir -p /data
+    mkdir -p /data /run
     cp "$src" /data/update-os.sh
-    chmod 0755 /data/update-os.sh
+    cp "$src" /run/update-os
+    chmod 0755 /run/update-os
     umount /usr/sbin/update-os 2>/dev/null || true
-    mount --bind /data/update-os.sh /usr/sbin/update-os || true
+    mount --bind /run/update-os /usr/sbin/update-os || true
 fi
 sync
 systemctl start wired

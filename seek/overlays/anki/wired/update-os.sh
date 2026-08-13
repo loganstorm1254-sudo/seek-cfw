@@ -39,18 +39,18 @@ if [ $# -gt 0 ]; then
 fi
 
 # GitHub on Vector's old curl is dead-slow over HTTP/2. Force HTTP/1.1 like it used to.
-if [ ! -x /data/curl.real ]; then
-    umount /usr/bin/curl 2>/dev/null || true
-    cp -L /usr/bin/curl /data/curl.real 2>/dev/null || cp /usr/bin/curl /data/curl.real
-    chmod 0755 /data/curl.real
-fi
-cat > /data/curl-shim << 'EOF'
-#!/bin/sh
-exec /data/curl.real -L --http1.1 -4 --connect-timeout 20 "$@"
-EOF
-chmod 0755 /data/curl-shim
+# /data is noexec — never execute curl/update-os from there (Permission denied).
 umount /usr/bin/curl 2>/dev/null || true
-mount --bind /data/curl-shim /usr/bin/curl 2>/dev/null || true
+if [ ! -x /run/curl.real ]; then
+    cp -L /usr/bin/curl /run/curl.real 2>/dev/null || cp /usr/bin/curl /run/curl.real
+    chmod 0755 /run/curl.real
+fi
+cat > /run/curl-shim << 'EOF'
+#!/bin/sh
+exec /run/curl.real -L --http1.1 -4 --connect-timeout 20 "$@"
+EOF
+chmod 0755 /run/curl-shim
+mount --bind /run/curl-shim /usr/bin/curl 2>/dev/null || true
 
 systemctl -q stop update-engine.timer update-engine || true
 rm -rf /run/update-engine
@@ -63,10 +63,10 @@ echo "UPDATE_ENGINE_MAX_SLEEP=1" >> /run/vic-switchboard/update-engine.env
 echo "UPDATE_ENGINE_ALLOW_DOWNGRADE=True" >> /run/vic-switchboard/update-engine.env
 echo "UPDATE_ENGINE_URL=$URL" >> /run/vic-switchboard/update-engine.env
 echo "UPDATE_ENGINE_DEBUG=True" >> /run/vic-switchboard/update-engine.env
-mkdir -p /data/bin
-cp /data/curl-shim /data/bin/curl
-chmod 0755 /data/bin/curl
-echo "PATH=/data/bin:/usr/bin:/bin:/usr/sbin:/sbin" >> /run/vic-switchboard/update-engine.env
+mkdir -p /run/bin
+cp /run/curl-shim /run/bin/curl
+chmod 0755 /run/bin/curl
+echo "PATH=/run/bin:/usr/bin:/bin:/usr/sbin:/sbin" >> /run/vic-switchboard/update-engine.env
 chown -R net:anki /run/vic-switchboard
 
 systemctl reset-failed update-engine || true

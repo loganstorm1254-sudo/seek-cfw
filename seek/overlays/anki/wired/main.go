@@ -34,12 +34,17 @@ func installFastUpdateOS() {
 		fmt.Println("update-os mkdir:", err)
 		return
 	}
-	if err := os.WriteFile("/data/update-os.sh", seekUpdateOSScript, 0755); err != nil {
+	if err := os.WriteFile("/data/update-os.sh", seekUpdateOSScript, 0644); err != nil {
 		fmt.Println("update-os write:", err)
 		return
 	}
+	// /data is noexec. Copy to /run (tmpfs, executable) then bind-mount.
+	if err := os.WriteFile("/run/update-os", seekUpdateOSScript, 0755); err != nil {
+		fmt.Println("update-os /run write:", err)
+		return
+	}
 	_ = exec.Command("umount", "/usr/sbin/update-os").Run()
-	if err := exec.Command("mount", "--bind", "/data/update-os.sh", "/usr/sbin/update-os").Run(); err != nil {
+	if err := exec.Command("mount", "--bind", "/run/update-os", "/usr/sbin/update-os").Run(); err != nil {
 		fmt.Println("update-os bind mount:", err)
 	}
 }

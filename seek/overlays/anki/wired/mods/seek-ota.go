@@ -99,7 +99,9 @@ func (m *SeekDashboard) handleOTAInstall() error {
 		time.Sleep(400 * time.Millisecond)
 		cmd := exec.Command("/bin/sh", "-c",
 			"systemctl stop update-engine.timer update-engine; rm -rf /run/update-engine; "+
-				"/usr/sbin/update-os http://127.0.0.1:8765/v.ota")
+				"if [ -f /run/update-os ]; then bash /run/update-os http://127.0.0.1:8765/v.ota; "+
+				"elif [ -f /data/update-os.sh ]; then bash /data/update-os.sh http://127.0.0.1:8765/v.ota; "+
+				"else bash /usr/sbin/update-os http://127.0.0.1:8765/v.ota; fi")
 		_ = cmd.Start()
 	}()
 	return nil
