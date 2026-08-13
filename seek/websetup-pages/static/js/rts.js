@@ -1117,7 +1117,7 @@ function generateOtaFileRow(value, urlObj) {
   }
 
   return (
-    `<div 'data-value="${value}" class="row vec-ota-row">` +
+    `<div data-value="${value}" class="row vec-ota-row" style="cursor:pointer;padding:12px 8px;border-bottom:1px solid #ddd;">` +
     `<div class="col-md-2"><img class="vec-ota-type" src="${img}" /> </div>` +
     `<div class="vec-ota-name col-md-10">` +
     `<div class="vec-ota-name col-md-12">${urlObj.filename}</div>` +
