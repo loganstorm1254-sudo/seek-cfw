@@ -206,6 +206,9 @@ static bool url_should_skip_device_info(const std::string &url)
       || url.find("githubusercontent.com") != std::string::npos
       || url.find("127.0.0.1") != std::string::npos
       || url.find("localhost") != std::string::npos
+      || url.find("files.anki.org.uk") != std::string::npos
+      || url.find("/dl/") != std::string::npos
+      || url.find("/ota/latest") != std::string::npos
       || url.compare(0, 7, "file://") == 0;
 }
 

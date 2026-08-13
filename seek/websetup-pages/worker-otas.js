@@ -1,13 +1,11 @@
 /**
  * Seek OTA file host Worker
- * - GET /OTA/ or /         → directory index
- * - GET /api/otas.json     → JSON list of .ota files IN YOUR R2 BUCKET ONLY
- * - GET /OTA/foo.ota       → download from R2
+ * - GET /api/otas.json  → R2 .ota files only (clean URLs, no spaces)
+ * - GET /OTA/...        → raw R2 key
+ * - GET /ota/latest     → newest .ota (safe for Vector BLE)
+ * - GET /dl/<safe-name> → same file via ASCII-only path
  *
- * Bind R2 bucket as env.OTA
- * Put files under prefix OTA/  e.g. OTA/vicos-3.0.1.42d.ota
- *
- * Does NOT pull GitHub releases — only what you upload to R2.
+ * Bind R2 as OTA. Upload under OTA/ preferably without spaces in the name.
  */
 function corsHeaders() {
   return {
@@ -15,6 +13,52 @@ function corsHeaders() {
     "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
     "Access-Control-Allow-Headers": "*",
   };
+}
+
+function safeName(name) {
+  return String(name || "update.ota")
+    .replace(/\s+/g, "-")
+    .replace(/[^a-zA-Z0-9._-]+/g, "")
+    .replace(/-+/g, "-")
+    .toLowerCase();
+}
+
+async function listOtaObjects(env) {
+  const prefixes = ["OTA/", "ota/", ""];
+  const seen = new Set();
+  const out = [];
+  for (const prefix of prefixes) {
+    let cursor;
+    do {
+      const listed = await env.OTA.list({ prefix, limit: 1000, cursor });
+      for (const obj of listed.objects || []) {
+        if (!obj.key.toLowerCase().endsWith(".ota")) continue;
+        if (seen.has(obj.key)) continue;
+        seen.add(obj.key);
+        out.push(obj);
+      }
+      cursor = listed.truncated ? listed.cursor : undefined;
+    } while (cursor);
+  }
+  out.sort((a, b) => {
+    const ta = a.uploaded ? new Date(a.uploaded).getTime() : 0;
+    const tb = b.uploaded ? new Date(b.uploaded).getTime() : 0;
+    if (tb !== ta) return tb - ta;
+    return String(b.key).localeCompare(String(a.key));
+  });
+  return out;
+}
+
+function otaResponse(obj, cors, downloadName) {
+  const headers = new Headers(cors);
+  obj.writeHttpMetadata(headers);
+  headers.set("etag", obj.httpEtag);
+  headers.set("accept-ranges", "bytes");
+  headers.set("content-type", "application/octet-stream");
+  const fname = safeName(downloadName || "update.ota");
+  headers.set("content-disposition", 'inline; filename="' + fname + '"');
+  if (obj.size != null) headers.set("content-length", String(obj.size));
+  return new Response(obj.body, { headers });
 }
 
 export default {
@@ -34,36 +78,21 @@ export default {
     }
 
     if (path === "/api/otas.json") {
-      const prefixes = ["OTA/", "ota/", ""];
-      const seen = new Set();
-      const otas = [];
-
-      for (const prefix of prefixes) {
-        let cursor;
-        do {
-          const listed = await env.OTA.list({ prefix, limit: 1000, cursor });
-          for (const obj of listed.objects || []) {
-            if (!obj.key.toLowerCase().endsWith(".ota")) continue;
-            if (seen.has(obj.key)) continue;
-            seen.add(obj.key);
-            const name = obj.key.split("/").pop();
-            otas.push({
-              url: new URL("/" + obj.key, url.origin).href,
-              name: name,
-              size: obj.size,
-              uploaded: obj.uploaded,
-              source: "r2",
-            });
-          }
-          cursor = listed.truncated ? listed.cursor : undefined;
-        } while (cursor);
-      }
-
-      otas.sort((a, b) =>
-        String(b.name).localeCompare(String(a.name), undefined, {
-          numeric: true,
-        })
-      );
+      const objs = await listOtaObjects(env);
+      const otas = objs.map((obj) => {
+        const name = obj.key.split("/").pop();
+        const safe = safeName(name);
+        // Always give Vector a space-free URL (status 203 otherwise).
+        return {
+          url: new URL("/dl/" + safe, url.origin).href,
+          name: name,
+          size: obj.size,
+          uploaded: obj.uploaded,
+          source: "r2",
+          key: obj.key,
+        };
+      });
+      // Also expose /ota/latest as first item convenience is via same list order
       return new Response(JSON.stringify({ seek: otas }, null, 2), {
         headers: {
           ...cors,
@@ -73,11 +102,56 @@ export default {
       });
     }
 
-    // R2 file download
+    // Newest OTA — shortest possible URL for BLE
+    if (path === "/ota/latest" || path === "/latest.ota") {
+      const objs = await listOtaObjects(env);
+      if (!objs.length) {
+        return new Response("No .ota in R2", { status: 404, headers: cors });
+      }
+      const obj = await env.OTA.get(objs[0].key);
+      if (!obj) {
+        return new Response("Missing object", { status: 404, headers: cors });
+      }
+      if (request.method === "HEAD") {
+        const headers = new Headers(cors);
+        headers.set("content-type", "application/octet-stream");
+        headers.set("content-length", String(objs[0].size || obj.size || 0));
+        headers.set("accept-ranges", "bytes");
+        return new Response(null, { headers });
+      }
+      return otaResponse(obj, cors, objs[0].key.split("/").pop());
+    }
+
+    // Clean download alias: /dl/seek-os-3.01.42d.ota
+    const dl = path.match(/^\/dl\/([^/]+)$/i);
+    if (dl) {
+      const want = safeName(decodeURIComponent(dl[1]));
+      const objs = await listOtaObjects(env);
+      const match = objs.find((o) => safeName(o.key.split("/").pop()) === want);
+      if (!match) {
+        return new Response("Not found: /dl/" + want, {
+          status: 404,
+          headers: cors,
+        });
+      }
+      const obj = await env.OTA.get(match.key);
+      if (!obj) {
+        return new Response("Missing object", { status: 404, headers: cors });
+      }
+      if (request.method === "HEAD") {
+        const headers = new Headers(cors);
+        headers.set("content-type", "application/octet-stream");
+        headers.set("content-length", String(match.size || obj.size || 0));
+        headers.set("accept-ranges", "bytes");
+        return new Response(null, { headers });
+      }
+      return otaResponse(obj, cors, match.key.split("/").pop());
+    }
+
+    // Raw R2 key path
     if (!path.endsWith("/")) {
       const key = path.replace(/^\/+/, "");
       if (!key) return Response.redirect(url.origin + "/", 302);
-      // decode spaces etc. (e.g. "seek os 3.01.42d.ota")
       let decoded = key;
       try {
         decoded = decodeURIComponent(key);
@@ -91,19 +165,14 @@ export default {
           headers: cors,
         });
       }
-      const headers = new Headers(cors);
-      obj.writeHttpMetadata(headers);
-      headers.set("etag", obj.httpEtag);
-      headers.set("accept-ranges", "bytes");
-      if (decoded.toLowerCase().endsWith(".ota") || key.toLowerCase().endsWith(".ota")) {
+      if (request.method === "HEAD") {
+        const headers = new Headers(cors);
         headers.set("content-type", "application/octet-stream");
-        headers.set(
-          "content-disposition",
-          'inline; filename="' + decoded.split("/").pop() + '"'
-        );
+        if (obj.size != null) headers.set("content-length", String(obj.size));
+        headers.set("accept-ranges", "bytes");
+        return new Response(null, { headers });
       }
-      if (obj.size != null) headers.set("content-length", String(obj.size));
-      return new Response(obj.body, { headers });
+      return otaResponse(obj, cors, decoded.split("/").pop());
     }
 
     // Directory listing
@@ -118,8 +187,9 @@ export default {
       const name = obj.key.slice(prefix.length);
       if (!name) continue;
       const when = obj.uploaded.toISOString().replace("T", " ").slice(0, 16);
+      const safe = safeName(name);
       rows.push(
-        `<a href="/${encodeURI(obj.key)}">${name}</a>` +
+        `<a href="/dl/${safe}">${name}</a>` +
           " ".repeat(Math.max(2, 40 - name.length)) +
           when +
           " ".repeat(4) +
