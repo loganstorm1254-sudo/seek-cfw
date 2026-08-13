@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# SeekOS update-os: flash a full OTA from a local file (or a LAN URL).
-# Vector cannot pull GitHub release assets at a usable speed — the stock
-# updater HEAD-probes without -L, never gets Content-Length, and sits at 0%.
+# SeekOS update-os: download the .ota first (real progress), then flash from localhost.
+# Stock update-engine HEAD-probes GitHub without -L and sits at 0%.
 
 set -e
 set -u
@@ -11,41 +10,37 @@ OTA_PORT=8765
 
 function usage()
 {
-    echo "usage: update-os [-h|lkg|latest|version|url|file]"
-    echo "-h                   This message"
-    echo "lkg                  Update to Last Known Good OS (default) via full OTA"
-    echo "latest               Update to latest OS via full OTA"
-    echo "version              Like 1.2.1.2210 - Update to a specific version via full OTA"
-    echo "delta-latest         Update to latest OS via delta OTA (may not work)"
-    echo "url                  http://laptop:5555/os.ota  (LAN) or a local path"
-    echo "file                 /data/ota/vicos-3.0.1.38d.ota"
+    echo "usage: update-os [-h|lkg|latest|version|url]"
+    echo "  update-os https://github.com/USER/REPO/releases/download/vX/vicos-X.ota"
     echo ""
-    echo "Do not pass a GitHub https URL. Download the .ota on your PC, copy it"
-    echo "to the robot over LAN, then point update-os at the local file:"
-    echo "  scp -i KEY vicos-3.0.1.38d.ota root@VECTOR_IP:/data/ota/"
-    echo "  ssh ... update-os /data/ota/vicos-3.0.1.38d.ota"
-    echo ""
-    echo "The robot reboots when the flash finishes."
-    echo ""
+    echo "Downloads the image (progress bar, eyes stay on), then flashes and reboots."
     exit 0
 }
 
 trap ctrl_c INT
-
 function ctrl_c() {
-    echo -e "\n\nStopping OS update and exiting..."
-    systemctl -q stop update-engine
+    echo -e "\n\nStopping OS update..."
+    systemctl -q stop update-engine || true
     exit 1
 }
 
+boost_cpu() {
+    echo 1267200 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null || true
+    echo disabled > /sys/kernel/debug/msm_otg/bus_voting 2>/dev/null || true
+    echo 0 > /sys/kernel/debug/msm-bus-dbg/shell-client/update_request 2>/dev/null || true
+    echo 1 > /sys/kernel/debug/msm-bus-dbg/shell-client/mas 2>/dev/null || true
+    echo 512 > /sys/kernel/debug/msm-bus-dbg/shell-client/slv 2>/dev/null || true
+    echo 0 > /sys/kernel/debug/msm-bus-dbg/shell-client/ab 2>/dev/null || true
+    echo 'active clk2 0 1 max 800000' > /sys/kernel/debug/rpm_send_msg/message 2>/dev/null || true
+    echo 1 > /sys/kernel/debug/msm-bus-dbg/shell-client/update_request 2>/dev/null || true
+}
+
 header_length() {
-    # $1 = URL. Prints Content-Length or empty.
-    curl -sI -L --max-time 8 "$1" 2>/dev/null \
-        | awk 'BEGIN{IGNORECASE=1} /^Content-Length:/ {gsub(/\r/,""); print $2; exit}'
+    curl -sI -L --http1.1 -4 --max-time 15 "$1" 2>/dev/null \
+        | awk 'BEGIN{IGNORECASE=1} /^Content-Length:/ {gsub(/\r/,""); print $2; exit}' || true
 }
 
 serve_local_ota() {
-    # $1 = absolute path to .ota. Sets URL to a loopback http URL.
     local file="$1"
     local name
     name="$(basename "$file")"
@@ -55,13 +50,10 @@ serve_local_ota() {
     fi
 
     local probe="http://127.0.0.1:${OTA_PORT}/${name}"
-    local cl
-
-    # Prefer an already-running local server (Seek wired :8765 or busybox httpd).
+    local cl=""
     cl="$(header_length "$probe" || true)"
     if [ -n "${cl:-}" ] && [ "$cl" -gt 1000 ] 2>/dev/null; then
         URL="$probe"
-        echo "Serving OTA from $file via $URL (${cl} bytes)"
         return 0
     fi
 
@@ -73,69 +65,81 @@ serve_local_ota() {
         cl="$(header_length "$probe" || true)"
         if [ -n "${cl:-}" ] && [ "$cl" -gt 1000 ] 2>/dev/null; then
             URL="$probe"
-            echo "Serving OTA from $file via busybox httpd $URL (${cl} bytes)"
             return 0
         fi
     fi
 
-    # Last resort: dashboard FileServer on :8080 (works on 38d, no extra binary).
     if [ -d /etc/wired/webroot ]; then
         ln -sf "$OTA_DIR/$name" "/etc/wired/webroot/$name"
-        probe="http://127.0.0.1:8080/${name}"
-        cl="$(header_length "$probe" || true)"
-        if [ -n "${cl:-}" ] && [ "$cl" -gt 1000 ] 2>/dev/null; then
-            URL="$probe"
-            echo "Serving OTA from $file via dashboard $URL (${cl} bytes)"
-            return 0
-        fi
+        URL="http://127.0.0.1:8080/${name}"
+        return 0
     fi
 
-    echo "Could not serve $file over local HTTP (need busybox httpd or wired :8080)."
+    echo "Could not serve $file over local HTTP."
     exit 1
+}
+
+curl_get() {
+    # HTTP/1.1 + IPv4 is much faster on Vector's old curl than GitHub HTTP/2.
+    curl -fL --http1.1 -4 --retry 8 --retry-delay 3 --connect-timeout 20 --continue-at - --progress-bar -o "$2" "$1" \
+        || curl -fL -4 --retry 8 --retry-delay 3 --connect-timeout 20 --progress-bar -o "$2" "$1"
+}
+
+download_remote() {
+    local src="$1"
+    local base
+    systemctl -q stop update-engine || true
+    boost_cpu
+    base="$(basename "${src%%\?*}")"
+    case "$base" in
+        *.ota) ;;
+        *) base="update.ota" ;;
+    esac
+    mkdir -p "$OTA_DIR"
+    local dest="$OTA_DIR/$base"
+    local expected=""
+    expected="$(header_length "$src" || true)"
+
+    if [ -f "$dest" ] && [ -n "${expected:-}" ] && [ "$(stat -c%s "$dest" 2>/dev/null || echo 0)" = "$expected" ]; then
+        echo "Already have $dest ($expected bytes)"
+    else
+        echo "Downloading OS image (eyes stay on)..."
+        echo "$src"
+        rm -f "$dest"
+        if ! curl_get "$src" "$dest"; then
+            echo "Download failed."
+            exit 1
+        fi
+    fi
+    local got
+    got="$(stat -c%s "$dest" 2>/dev/null || echo 0)"
+    if [ "$got" -lt 1000000 ]; then
+        echo "Download too small ($got bytes) — bad URL?"
+        exit 1
+    fi
+    echo "Download complete ($got bytes). Flashing from localhost..."
+    serve_local_ota "$dest"
 }
 
 resolve_url() {
     local src="$1"
-    local base
     case "$src" in
         http://127.0.0.1/*|http://localhost/*|http://[::1]/*)
             URL="$src"
-            return 0
             ;;
         http://*|https://*)
-            base="$(basename "${src%%\?*}")"
-            case "$src" in
-                *github.com*|*githubusercontent.com*)
-                    if [ -f "$OTA_DIR/$base" ]; then
-                        echo "GitHub URLs stall on Vector. Using local $OTA_DIR/$base instead."
-                        serve_local_ota "$OTA_DIR/$base"
-                        return 0
-                    fi
-                    echo "Vector cannot download GitHub OTAs at a usable speed (stuck at 0%)."
-                    echo "On your PC, download the .ota in a browser, then copy it over LAN:"
-                    echo "  scp -i KEY $base root@VECTOR_IP:$OTA_DIR/$base"
-                    echo "  ssh ... update-os $OTA_DIR/$base"
-                    exit 1
-                    ;;
-            esac
-            URL="$src"
-            return 0
+            download_remote "$src"
             ;;
         /*)
-            if [ ! -f "$src" ]; then
-                echo "No such file: $src"
-                exit 1
-            fi
+            [ -f "$src" ] || { echo "No such file: $src"; exit 1; }
             serve_local_ota "$src"
-            return 0
             ;;
         *)
             if [ -f "$src" ]; then
                 serve_local_ota "$(pwd)/$src"
-                return 0
+            else
+                URL="$src"
             fi
-            URL="$src"
-            return 0
             ;;
     esac
 }
@@ -168,19 +172,26 @@ if [ $# -gt 0 ]; then
     esac
 fi
 
-# Always kill a hung updater first (GitHub HEAD can sit forever at 0%).
+# Remote Anki/GitHub URLs still need a local copy so update-engine doesn't hang at 0%.
+case "$URL" in
+    http://127.0.0.1/*|http://localhost/*|file:*)
+        ;;
+    http://*|https://*)
+        download_remote "$URL"
+        ;;
+esac
+
 systemctl -q stop update-engine || true
+boost_cpu
 
 echo "Current OS Version: `getprop ro.anki.version`"
 
 mkdir -p /run/vic-switchboard
-
 echo "UPDATE_ENGINE_ENABLED=True" > /run/vic-switchboard/update-engine.env
 echo "UPDATE_ENGINE_MAX_SLEEP=1" >> /run/vic-switchboard/update-engine.env
 echo "UPDATE_ENGINE_ALLOW_DOWNGRADE=True" >> /run/vic-switchboard/update-engine.env
 echo "UPDATE_ENGINE_URL=$URL" >> /run/vic-switchboard/update-engine.env
 echo "UPDATE_ENGINE_DEBUG=True" >> /run/vic-switchboard/update-engine.env
-
 chown -R net:anki /run/vic-switchboard
 
 systemctl restart update-engine
@@ -188,19 +199,7 @@ systemctl restart update-engine
 echo "Stopping anki-robot.target... (eyes will go dark)"
 systemctl stop anki-robot.target
 
-echo "Upping CPU+RAM frequencies..."
-echo 1267200 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
-echo disabled > /sys/kernel/debug/msm_otg/bus_voting  # This prevents USB from pinning RAM to 400MHz
-echo 0 > /sys/kernel/debug/msm-bus-dbg/shell-client/update_request
-echo 1 > /sys/kernel/debug/msm-bus-dbg/shell-client/mas
-echo 512 > /sys/kernel/debug/msm-bus-dbg/shell-client/slv
-echo 0 > /sys/kernel/debug/msm-bus-dbg/shell-client/ab
-echo active clk2 0 1 max 800000 > /sys/kernel/debug/rpm_send_msg/message # Max RAM freq in KHz = 400MHz
-echo 1 > /sys/kernel/debug/msm-bus-dbg/shell-client/update_request
-
-echo
-
-echo -e "Installing OS update from:\n$URL"
+echo -e "Installing from:\n$URL"
 
 echo -e -n "\r."
 DOTS=1
@@ -230,11 +229,9 @@ while [[ ! -f /run/update-engine/done ]] ; do
 	    exit 1
 	fi
     fi
-
 done
 
 echo -e "\n\nRebooting....."
-
 sleep 2
 sync
 reboot & exit
