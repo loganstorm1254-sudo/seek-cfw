@@ -7,7 +7,7 @@ set -e
 URL="${1:-}"
 if [ -z "$URL" ] || [ "$URL" = "-h" ] || [ "$URL" = "--help" ]; then
     echo "usage: update-seek <url>"
-    echo "example: update-seek https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.38d/seek-wired.tgz"
+    echo "example: update-seek https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.39d/seek-wired.tgz"
     exit 0
 fi
 
