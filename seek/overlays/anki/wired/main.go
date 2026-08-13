@@ -203,8 +203,8 @@ func startweb() {
 		Addr:              "0.0.0.0:8080",
 		Handler:           seekCORS(http.DefaultServeMux),
 		ReadHeaderTimeout: 8 * time.Second,
-		ReadTimeout:       3 * time.Minute,
-		WriteTimeout:      3 * time.Minute,
+		ReadTimeout:       20 * time.Minute,
+		WriteTimeout:      20 * time.Minute,
 		IdleTimeout:       70 * time.Second,
 	}
 	if err := srv.ListenAndServe(); err != nil {

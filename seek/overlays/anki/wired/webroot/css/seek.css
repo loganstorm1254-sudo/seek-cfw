@@ -14,15 +14,21 @@
 
 * { box-sizing: border-box; }
 
-html { color-scheme: dark; }
+html {
+    color-scheme: dark;
+    touch-action: manipulation;
+}
 
 body {
     margin: 0;
     min-height: 100vh;
+    min-height: 100dvh;
     color: var(--ink);
     font-family: var(--font);
     background: var(--bg0);
     -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    overscroll-behavior-y: contain;
 }
 
 .bg {
@@ -74,11 +80,17 @@ h1 {
     margin: 1rem 0 0.85rem;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    padding: 0.35rem 0;
+    background: linear-gradient(var(--bg0) 70%, transparent);
 }
 
 .tab {
     flex: 1 0 auto;
     min-width: 4.5rem;
+    min-height: 2.85rem;
     padding: 0.65rem 0.9rem;
     border: 1px solid var(--line);
     background: transparent;
@@ -86,6 +98,7 @@ h1 {
     font: inherit;
     font-weight: 700;
     cursor: pointer;
+    touch-action: manipulation;
 }
 
 .tab.active {
@@ -153,6 +166,16 @@ h2.spaced { margin-top: 1.4rem; }
 
 input[type="text"],
 input[type="number"],
+input[type="password"],
+input[type="url"],
+select,
+textarea,
+button {
+    font-size: 16px;
+}
+
+input[type="text"],
+input[type="number"],
 select {
     width: 100%;
     padding: 0.55rem 0.65rem;
@@ -161,6 +184,7 @@ select {
     background: rgba(255, 255, 255, 0.04);
     color: var(--ink);
     font: inherit;
+    font-size: 16px;
 }
 
 input[type="range"] {
@@ -175,13 +199,17 @@ input[type="file"] {
 
 button {
     appearance: none;
+    -webkit-appearance: none;
     border: 1px solid transparent;
-    padding: 0.6rem 0.95rem;
+    padding: 0.75rem 0.95rem;
+    min-height: 2.85rem;
     font: inherit;
+    font-size: 16px;
     font-weight: 700;
     cursor: pointer;
     color: var(--ink);
     background: transparent;
+    touch-action: manipulation;
 }
 
 button:disabled { opacity: 0.5; cursor: wait; }
@@ -516,6 +544,26 @@ textarea#askAIAnswer {
 
 .field.checkbox input {
     margin-top: 0.2rem;
+}
+
+.ota-card {
+    margin: 0.9rem 0 0.25rem;
+    padding: 0.95rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background:
+        linear-gradient(160deg, rgba(62, 207, 178, 0.14), transparent 55%),
+        var(--panel);
+}
+
+.ota-card h2 { margin-bottom: 0.45rem; }
+
+#otaProgress {
+    display: block;
+    width: 100%;
+    height: 0.7rem;
+    margin: 0.35rem 0 0.5rem;
+    accent-color: var(--accent-2);
 }
 
 @media (max-width: 720px) {

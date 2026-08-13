@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
     <title>Seek Dashboard</title>
-    <link rel="stylesheet" href="css/seek.css?v=39d1">
+    <link rel="stylesheet" href="css/seek.css?v=40d1">
 </head>
 <body>
     <div class="bg" aria-hidden="true"></div>
@@ -24,6 +24,19 @@
                 <p id="netLanIp" class="net-ip" hidden></p>
                 <p id="netPhoneUrl" class="net-url" hidden></p>
                 <ul id="netAddrList" class="net-list"></ul>
+            </div>
+            <div class="ota-card">
+                <h2>Install SeekOS (fast)</h2>
+                <p class="hint">Download the <code>.ota</code> on your phone first (cellular or home Wi‑Fi). Then join Vector’s Wi‑Fi, pick that file, tap Install. The phone sends it over LAN — not GitHub on the robot.</p>
+                <label class="field">
+                    <span>OTA file</span>
+                    <input type="file" id="otaFile" accept=".ota,application/octet-stream,*/*">
+                </label>
+                <progress id="otaProgress" max="100" value="0" hidden></progress>
+                <p id="otaStatus" class="hint"></p>
+                <div class="actions">
+                    <button type="button" class="primary" id="btnOtaInstall">Install on Vector</button>
+                </div>
             </div>
             <p class="meta"><a href="/settings">wired settings</a></p>
         </header>
@@ -328,7 +341,7 @@
         </section>
     </main>
     <noscript><p class="status err">JavaScript is required for Seek Dashboard.</p></noscript>
-    <script src="js/seek-dashboard.js?v=39d1" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh.';}})();"></script>
+    <script src="js/seek-dashboard.js?v=40d1" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh.';}})();"></script>
     <script>
     setTimeout(function () {
         if (!window.__seekLoaded) {

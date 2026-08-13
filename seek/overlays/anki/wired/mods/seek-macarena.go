@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -397,22 +398,9 @@ func (m *SeekDashboard) macarenaDanceLoop(ctx context.Context, v *vector.Vector,
 		return clockStart.Add(time.Duration(ms) * time.Millisecond)
 	}
 	phrase := 0
-	cmdCh := make(chan macMotorCmd, 1)
-	go m.macMotorWorker(ctx, v, cmdCh)
-	send := func(c macMotorCmd) {
-		select {
-		case cmdCh <- c:
-		default:
-			select {
-			case <-cmdCh:
-			default:
-			}
-			select {
-			case cmdCh <- c:
-			default:
-			}
-		}
-	}
+	box := &macMotorBox{wake: make(chan struct{}, 1)}
+	go m.macMotorWorker(ctx, v, box)
+	send := func(c macMotorCmd) { box.set(c) }
 	for {
 		if err := ctx.Err(); err != nil {
 			m.macFreeze(v)
@@ -432,24 +420,26 @@ func (m *SeekDashboard) macarenaDanceLoop(ctx context.Context, v *vector.Vector,
 			lx    float32
 			rx    float32
 		}
+		// Reverse every beat at moderate speed so lift/head travel the
+		// whole beat instead of slamming a stop and sitting frozen.
 		steps := []step{
-			{kind: "lift", speed: 3.5, beats: 1},
-			{kind: "lift", speed: 4.5, beats: 1},
-			{kind: "head", speed: 3.0, beats: 1},
-			{kind: "head", speed: -2.5, beats: 1},
-			{kind: "lift", speed: -3.0, beats: 1},
-			{kind: "head", speed: 2.0, beats: 1},
-			{kind: "lift", speed: 3.0, beats: 1},
-			{kind: "head", speed: -3.0, beats: 1},
-			{kind: "lift", speed: 2.5, beats: 0.9},
-			{kind: "lift", speed: -2.5, beats: 0.9},
-			{kind: "lift", speed: 3.5, beats: 0.9},
+			{kind: "lift", speed: 1.8, beats: 1},
+			{kind: "lift", speed: -1.8, beats: 1},
+			{kind: "head", speed: 1.6, beats: 1},
+			{kind: "head", speed: -1.6, beats: 1},
+			{kind: "lift", speed: 1.8, beats: 1},
+			{kind: "head", speed: 1.4, beats: 1},
+			{kind: "lift", speed: -1.8, beats: 1},
+			{kind: "head", speed: -1.6, beats: 1},
+			{kind: "lift", speed: 2.0, beats: 0.9},
 			{kind: "lift", speed: -2.0, beats: 0.9},
-			{kind: "wheels", lx: 75, rx: -75, beats: 0.5},
-			{kind: "wheels", lx: -75, rx: 75, beats: 0.5},
-			{kind: "wheels", lx: 75, rx: -75, beats: 0.5},
-			{kind: "wheels", lx: -75, rx: 75, beats: 0.5},
-			{kind: "wheels", lx: -90 * turnDir, rx: 90 * turnDir, beats: 2},
+			{kind: "lift", speed: 2.0, beats: 0.9},
+			{kind: "lift", speed: -2.0, beats: 0.9},
+			{kind: "wheels", lx: 80, rx: -80, beats: 0.5},
+			{kind: "wheels", lx: -80, rx: 80, beats: 0.5},
+			{kind: "wheels", lx: 80, rx: -80, beats: 0.5},
+			{kind: "wheels", lx: -80, rx: 80, beats: 0.5},
+			{kind: "wheels", lx: -95 * turnDir, rx: 95 * turnDir, beats: 2},
 		}
 		for _, s := range steps {
 			startAt := at(cursor)
@@ -470,7 +460,6 @@ func (m *SeekDashboard) macarenaDanceLoop(ctx context.Context, v *vector.Vector,
 				m.macFreeze(v)
 				return err
 			}
-			send(macMotorCmd{kind: s.kind})
 			cursor += s.beats
 		}
 	}
@@ -483,12 +472,39 @@ type macMotorCmd struct {
 	rx    float32
 }
 
-func (m *SeekDashboard) macMotorWorker(ctx context.Context, v *vector.Vector, ch <-chan macMotorCmd) {
-	cur := macMotorCmd{}
-	tick := time.NewTicker(240 * time.Millisecond)
+// macMotorBox keeps only the latest command so a slow RPC cannot drop the
+// current beat (the old 1-slot channel did — freeze, then jump back in sync).
+type macMotorBox struct {
+	mu     sync.Mutex
+	latest macMotorCmd
+	seq    uint64
+	wake   chan struct{}
+}
+
+func (b *macMotorBox) set(c macMotorCmd) {
+	b.mu.Lock()
+	b.latest = c
+	b.seq++
+	b.mu.Unlock()
+	select {
+	case b.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (b *macMotorBox) get() (macMotorCmd, uint64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.latest, b.seq
+}
+
+func (m *SeekDashboard) macMotorWorker(ctx context.Context, v *vector.Vector, box *macMotorBox) {
+	tick := time.NewTicker(90 * time.Millisecond)
 	defer tick.Stop()
+	var applied uint64
+	cur := macMotorCmd{}
 	apply := func(c macMotorCmd) {
-		cctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+		cctx, cancel := context.WithTimeout(context.Background(), 140*time.Millisecond)
 		defer cancel()
 		switch c.kind {
 		case "lift":
@@ -502,23 +518,47 @@ func (m *SeekDashboard) macMotorWorker(ctx context.Context, v *vector.Vector, ch
 				LeftWheelMmps2:  abs32(c.lx),
 				RightWheelMmps2: abs32(c.rx),
 			})
+		case "stop":
+			_, _ = v.Conn.MoveLift(cctx, &vectorpb.MoveLiftRequest{SpeedRadPerSec: 0})
+			_, _ = v.Conn.MoveHead(cctx, &vectorpb.MoveHeadRequest{SpeedRadPerSec: 0})
+			_, _ = v.Conn.DriveWheels(cctx, &vectorpb.DriveWheelsRequest{})
+		}
+	}
+	stopKind := func(kind string) {
+		cctx, cancel := context.WithTimeout(context.Background(), 120*time.Millisecond)
+		defer cancel()
+		switch kind {
+		case "lift":
+			_, _ = v.Conn.MoveLift(cctx, &vectorpb.MoveLiftRequest{SpeedRadPerSec: 0})
+		case "head":
+			_, _ = v.Conn.MoveHead(cctx, &vectorpb.MoveHeadRequest{SpeedRadPerSec: 0})
+		case "wheels":
+			_, _ = v.Conn.DriveWheels(cctx, &vectorpb.DriveWheelsRequest{})
 		}
 	}
 	moving := func(c macMotorCmd) bool {
-		return c.speed != 0 || c.lx != 0 || c.rx != 0
+		return c.kind != "stop" && (c.speed != 0 || c.lx != 0 || c.rx != 0)
 	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case c := <-ch:
-			cur = c
-			apply(c)
+		case <-box.wake:
 		case <-tick.C:
+		}
+		c, seq := box.get()
+		if seq == applied {
 			if moving(cur) {
 				apply(cur)
 			}
+			continue
 		}
+		if cur.kind != "" && c.kind != cur.kind {
+			stopKind(cur.kind)
+		}
+		cur = c
+		applied = seq
+		apply(c)
 	}
 }
 

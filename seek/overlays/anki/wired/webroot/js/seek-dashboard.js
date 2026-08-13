@@ -22,6 +22,28 @@ let driveHeartbeat = null;
 
 function $(id) { return document.getElementById(id); }
 
+// One tap on phones: click + pointerup without firing twice.
+function bindTap(el, fn) {
+    if (!el || el.__seekTap) return;
+    el.__seekTap = true;
+    let lock = 0;
+    const run = function (e) {
+        const now = Date.now();
+        if (now - lock < 400) {
+            if (e && e.cancelable) e.preventDefault();
+            return;
+        }
+        lock = now;
+        fn(e);
+    };
+    el.addEventListener('click', run);
+    el.addEventListener('pointerup', function (e) {
+        if (e.pointerType === 'mouse') return;
+        if (e.cancelable) e.preventDefault();
+        run(e);
+    });
+}
+
 function setSeekStatus(msg, isError) {
     const el = $('seekStatus');
     if (!el) return;
@@ -179,7 +201,7 @@ function switchTab(name) {
 
 function initTabs() {
     document.querySelectorAll('.tab').forEach((btn) => {
-        btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+        bindTap(btn, function () { switchTab(btn.dataset.tab); });
     });
 }
 
@@ -1159,6 +1181,76 @@ function seekLinkStartPolling() {
     seekLinkPollTimer = setInterval(seekLinkRefresh, 4000);
 }
 
+async function seekOtaInstall() {
+    const input = $('otaFile');
+    const bar = $('otaProgress');
+    const st = $('otaStatus');
+    const file = input && input.files && input.files[0];
+    function note(msg, err) {
+        if (st) st.textContent = msg;
+        setSeekStatus(msg, !!err);
+    }
+    if (!file) {
+        note('Pick the .ota file first (download it on cellular, then join Vector’s Wi‑Fi).', true);
+        return;
+    }
+    const name = (file.name || '').toLowerCase();
+    if (name && name.indexOf('.ota') === -1) {
+        note('That file is not a .ota', true);
+        return;
+    }
+    if (file.size < 8 * 1024 * 1024 || file.size > 220 * 1024 * 1024) {
+        note('OTA should be about 170MB. This file is ' + Math.round(file.size / 1048576) + 'MB.', true);
+        return;
+    }
+    const CHUNK = 512 * 1024;
+    try {
+        if (bar) {
+            bar.hidden = false;
+            bar.value = 0;
+        }
+        note('Preparing robot…');
+        const begin = await api('otaBegin?size=' + file.size + '&name=' + encodeURIComponent(file.name || 'v.ota'), {
+            timeoutMs: 15000,
+            retries: 1
+        });
+        if (!begin.ok) {
+            const e = await begin.json().catch(function () { return { message: 'begin failed' }; });
+            note(e.message || 'begin failed', true);
+            return;
+        }
+        let off = 0;
+        while (off < file.size) {
+            const end = Math.min(off + CHUNK, file.size);
+            const blob = file.slice(off, end);
+            const res = await fetch(API + '/otaChunk?off=' + off, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/octet-stream' },
+                body: blob,
+                cache: 'no-store'
+            });
+            if (!res.ok) {
+                note('Upload failed at ' + Math.round(off / 1048576) + 'MB', true);
+                return;
+            }
+            off = end;
+            const pct = Math.round((off / file.size) * 100);
+            if (bar) bar.value = pct;
+            note('Uploading to Vector… ' + pct + '%');
+        }
+        note('File on robot. Starting flash — eyes will go dark. Wait for reboot.');
+        const inst = await api('otaInstall', { timeoutMs: 20000, retries: 1 });
+        if (!inst.ok) {
+            const e = await inst.json().catch(function () { return { message: 'install failed' }; });
+            note(e.message || 'install failed', true);
+            return;
+        }
+        note('Flashing. Keep this page. Vector reboots when done.');
+    } catch (e) {
+        note('OTA error: ' + (e && e.message ? e.message : e), true);
+    }
+}
+
 async function seekMacarena() {
     if (cameraOn) stopCamera();
     setArmedUI(false);
@@ -1608,7 +1700,9 @@ function stopCamera() {
 function bindUI() {
     function on(id, ev, fn) {
         const el = $(id);
-        if (el) el.addEventListener(ev, fn);
+        if (!el) return;
+        if (ev === 'click') bindTap(el, fn);
+        else el.addEventListener(ev, fn);
     }
 
     on('eyeMode', 'change', seekEyeModeChanged);
@@ -1666,6 +1760,7 @@ function bindUI() {
     on('btnListen', 'click', activateVoice);
     on('btnMacarena', 'click', seekMacarena);
     on('btnMacarenaStop', 'click', seekStopMedia);
+    on('btnOtaInstall', 'click', seekOtaInstall);
     on('btnLinkRefresh', 'click', function () { seekLinkRefresh(); });
     on('btnLinkAddIP', 'click', function () { seekLinkAddIP(); });
     on('linkMasterToggle', 'change', async function () {
@@ -1760,7 +1855,7 @@ function fillMoveGrid(el, items, kind) {
         btn.className = 'ghost';
         btn.textContent = item.label;
         btn.dataset.id = item.id;
-        btn.addEventListener('click', () => runMove(kind, item));
+        bindTap(btn, function () { runMove(kind, item); });
         el.appendChild(btn);
     });
 }

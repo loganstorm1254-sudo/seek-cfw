@@ -146,7 +146,7 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	action := strings.TrimPrefix(r.URL.Path, "/api/mods/"+m.Name()+"/")
 	switch action {
-	case "status", "moves", "getEyeColor", "getVolume", "cameraFrame", "cameraMjpeg", "getEyeOverlay", "getOpenAIKey", "getSeekLights":
+	case "status", "moves", "getEyeColor", "getVolume", "cameraFrame", "cameraMjpeg", "getEyeOverlay", "getOpenAIKey", "getSeekLights", "otaStatus":
 		// read-only / streaming — don't count as "user activity" for idle release
 	default:
 		m.touchActivity()
@@ -325,6 +325,29 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case "macarenaDisarm":
 		m.disarmMacarena()
+	case "otaBegin":
+		if err := m.handleOTABegin(r); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+		vars.HTTPSuccess(w, r)
+		return
+	case "otaChunk":
+		if err := m.handleOTAChunk(w, r); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+		return
+	case "otaInstall":
+		if err := m.handleOTAInstall(); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+		vars.HTTPSuccess(w, r)
+		return
+	case "otaStatus":
+		m.handleOTAStatus(w)
+		return
 	case "linkGet":
 		m.handleLinkGet(w, r)
 		return
@@ -811,6 +834,15 @@ func (m *SeekDashboard) streamPCMOnPreparedStream(ctx context.Context, stream ve
 		}
 	}
 
+	// Macarena (alreadyPrepared) must not burst ~750ms of audio — that
+	// starves motor RPCs on the same gRPC conn, so arms freeze then jump.
+	maxAhead := 0.75
+	keepAhead := 0.35
+	if alreadyPrepared {
+		maxAhead = 0.14
+		keepAhead = 0.04
+	}
+
 	const chunkBytes = 1024 // engine max
 	buf := make([]byte, chunkBytes)
 	var leftover []byte
@@ -867,8 +899,8 @@ func (m *SeekDashboard) streamPCMOnPreparedStream(ctx context.Context, stream ve
 				elapsed := time.Since(start).Seconds()
 				expected := elapsed * float64(rate)
 				ahead := (float64(sentSamples) - expected) / float64(rate)
-				if ahead > 0.75 {
-					sleep := time.Duration((ahead - 0.35) * float64(time.Second))
+				if ahead > maxAhead {
+					sleep := time.Duration((ahead - keepAhead) * float64(time.Second))
 					timer := time.NewTimer(sleep)
 					select {
 					case <-ctx.Done():
