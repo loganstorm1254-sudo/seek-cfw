@@ -1200,17 +1200,15 @@ function getOtasPresent(env) {
     };
 
     var fallbackGithubThenInventory = function () {
-      seekFetchGithubOtas().then(function (gh) {
-        if (gh && gh.length) {
-          finishWithList(gh);
-          return;
-        }
-        $.getJSON("/static/data/inventory.json")
-          .done(function (inv) {
-            finishWithList(inv && inv[env] ? inv[env] : []);
-          })
-          .fail(reject);
-      });
+      // Seek: do NOT auto-pull GitHub releases into the menu.
+      // Only show what otaListUrl / inventory.json provides (your R2 files).
+      $.getJSON("/static/data/inventory.json")
+        .done(function (inv) {
+          finishWithList(inv && inv[env] ? inv[env] : []);
+        })
+        .fail(function () {
+          finishWithList([]);
+        });
     };
 
     if (remote) {
