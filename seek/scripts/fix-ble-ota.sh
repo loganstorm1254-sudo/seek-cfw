@@ -1,7 +1,8 @@
 #!/bin/sh
 # Fix BLE websetup OTA (status 203) on a live Seek robot.
-# BusyBox-safe: never overwrite a running binary (Text file busy) —
-# write sidecars and bind-mount over the paths.
+# Strategy: download the OTA with a known-good curl to /data/ota/v.ota,
+# then run real update-engine against http://127.0.0.1:8766/v.ota
+# (Vector's updater often can't open Cloudflare URLs directly → 203).
 set -e
 
 mount -o remount,rw / 2>/dev/null || true
@@ -9,51 +10,46 @@ umount /usr/bin/curl 2>/dev/null || true
 umount /usr/sbin/update-os 2>/dev/null || true
 umount /anki/bin/update-engine 2>/dev/null || true
 
-mkdir -p /data /run
+mkdir -p /data /data/ota /run /run/update-engine
 
-# --- curl HTTP/1.1 shim (bind-mount; don't clobber busy /usr/bin/curl) ---
-if [ ! -x /data/curl.anki ]; then
-  cp -L /usr/bin/curl /data/curl.anki 2>/dev/null || cp /usr/bin/curl /data/curl.anki
-  chmod 755 /data/curl.anki
-fi
-# If /usr/bin/curl is already a script pointing at curl.anki, keep a real binary copy
-if head -1 /data/curl.anki 2>/dev/null | grep -q '^#!'; then
-  # bad copy — try curl.anki on /usr if present
-  if [ -x /usr/bin/curl.anki ]; then
-    cp -L /usr/bin/curl.anki /data/curl.anki
-    chmod 755 /data/curl.anki
-  fi
-fi
+# Real curl binary on /data (never overwrite busy /usr/bin/curl)
+pick_curl() {
+  for c in /usr/bin/curl.anki /bin/curl /usr/bin/curl; do
+    if [ -x "$c" ] && ! head -1 "$c" 2>/dev/null | grep -q '^#!'; then
+      echo "$c"
+      return 0
+    fi
+  done
+  echo /usr/bin/curl
+}
+REALCURL=$(pick_curl)
+cp -L "$REALCURL" /data/curl.anki 2>/dev/null || cp "$REALCURL" /data/curl.anki
+chmod 755 /data/curl.anki
 
 cat > /data/curl-shim << 'EOF'
 #!/bin/sh
-REAL=/data/curl.anki
-[ -x /usr/bin/curl.anki ] && REAL=/usr/bin/curl.anki
-exec "$REAL" -L --http1.1 -4 --connect-timeout 30 "$@"
+exec /data/curl.anki -L --http1.1 -4 --connect-timeout 30 "$@"
 EOF
 chmod 755 /data/curl-shim
 mount --bind /data/curl-shim /usr/bin/curl 2>/dev/null || true
 
-# --- save real update-engine once ---
-if [ ! -x /data/update-engine.real ]; then
-  # Prefer non-wrapper binary
-  if [ -x /anki/bin/update-engine.real ]; then
-    cp -a /anki/bin/update-engine.real /data/update-engine.real
-  else
-    cp -a /anki/bin/update-engine /data/update-engine.real
-  fi
+# Save real update-engine once (must be ELF, not a script)
+if [ ! -x /data/update-engine.real ] || head -1 /data/update-engine.real 2>/dev/null | grep -q '^#!'; then
+  umount /anki/bin/update-engine 2>/dev/null || true
+  SRC=/anki/bin/update-engine
+  [ -x /anki/bin/update-engine.real ] && SRC=/anki/bin/update-engine.real
+  cp -a "$SRC" /data/update-engine.real
   chmod 755 /data/update-engine.real
 fi
 
-# --- update-engine wrapper (bind-mount) ---
+# Wrapper: BLE starts update-engine.service → we download then flash local
 cat > /data/update-engine-wrap << 'EOF'
 #!/bin/bash
-mkdir -p /run/update-engine
-{
-  echo "wrapper start $(date)"
-  echo "env URL=${UPDATE_ENGINE_URL-}"
-  echo "args=$*"
-} >> /run/update-engine/wrapper.log 2>&1
+mkdir -p /run/update-engine /data/ota
+LOG=/run/update-engine/wrapper.log
+echo "wrapper start $(date)" >> "$LOG"
+echo "env URL=${UPDATE_ENGINE_URL-}" >> "$LOG"
+echo "args=$*" >> "$LOG"
 
 export UPDATE_ENGINE_ALLOW_DOWNGRADE=True
 export UPDATE_ENGINE_ENABLED=True
@@ -61,7 +57,6 @@ export UPDATE_ENGINE_ENABLED=True
 URL="${UPDATE_ENGINE_URL-}"
 URL="${URL%\"}"
 URL="${URL#\"}"
-
 if [ -z "$URL" ]; then
   for a in "$@"; do
     case "$a" in
@@ -69,53 +64,67 @@ if [ -z "$URL" ]; then
     esac
   done
 fi
-
-echo "using URL=$URL" >> /run/update-engine/wrapper.log 2>&1
+echo "using URL=$URL" >> "$LOG"
 
 REAL=/data/update-engine.real
-[ -x /anki/bin/update-engine.real ] && REAL=/anki/bin/update-engine.real
-
 CURL=/data/curl.anki
-[ -x /usr/bin/curl.anki ] && CURL=/usr/bin/curl.anki
 
-if [ -n "$URL" ]; then
-  CODE=$($CURL -s -o /dev/null -w '%{http_code}' --http1.1 -4 --max-time 25 -I "$URL" 2>/dev/null || echo 000)
-  echo "probe=$CODE" >> /run/update-engine/wrapper.log 2>&1
-  if [ "$CODE" != "200" ] && [ "$CODE" != "206" ] && [ "$CODE" != "301" ] && [ "$CODE" != "302" ]; then
-    echo "failed to open URL (probe $CODE)" > /run/update-engine/error
-    echo 203 > /run/update-engine/exit_code
-    exit 203
-  fi
-  exec "$REAL" -v "$URL"
+# Already a local flash URL — just run engine
+case "$URL" in
+  http://127.0.0.1:*|http://localhost:*)
+    exec "$REAL" -v "$URL"
+    ;;
+esac
+
+if [ -z "$URL" ]; then
+  echo "no URL" > /run/update-engine/error
+  echo 203 > /run/update-engine/exit_code
+  exit 203
 fi
 
-exec "$REAL" "$@"
+echo "Downloading to /data/ota/v.ota ..." >> "$LOG"
+rm -f /data/ota/v.ota
+if ! "$CURL" -L --http1.1 -4 --retry 3 --connect-timeout 30 --max-time 1800 -o /data/ota/v.ota "$URL" >> "$LOG" 2>&1; then
+  echo "download failed" > /run/update-engine/error
+  echo 204 > /run/update-engine/exit_code
+  echo "download failed" >> "$LOG"
+  exit 204
+fi
+SZ=$(stat -c %s /data/ota/v.ota 2>/dev/null || echo 0)
+echo "downloaded $SZ bytes" >> "$LOG"
+if [ "$SZ" -lt 8000000 ]; then
+  echo "download too small ($SZ)" > /run/update-engine/error
+  echo 204 > /run/update-engine/exit_code
+  exit 204
+fi
+
+# Local HTTP for update-engine (no Cloudflare)
+killall httpd 2>/dev/null || true
+busybox httpd -p 127.0.0.1:8766 -h /data/ota 2>/dev/null || httpd -p 127.0.0.1:8766 -h /data/ota 2>/dev/null || true
+sleep 1
+echo "flashing local http://127.0.0.1:8766/v.ota" >> "$LOG"
+exec "$REAL" -v "http://127.0.0.1:8766/v.ota"
 EOF
 chmod 755 /data/update-engine-wrap
 mount --bind /data/update-engine-wrap /anki/bin/update-engine
 
-# --- update-os helper for SSH installs ---
-if [ ! -f /data/update-os.sh ]; then
-  /data/curl-shim -L -4 --max-time 60 -o /data/update-os.sh \
-    https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/overlays/anki/wired/update-os.sh \
-    || curl -L -4 --max-time 60 -o /data/update-os.sh \
-    https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/overlays/anki/wired/update-os.sh \
-    || true
+# update-os for SSH
+if [ ! -f /data/update-os.sh ] || ! grep -q 'WireOS-style\|SeekOS\|http1.1' /data/update-os.sh 2>/dev/null; then
+  /data/curl.anki -L --http1.1 -4 --max-time 60 -o /data/update-os.sh \
+    https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/overlays/anki/wired/update-os.sh || true
   chmod 644 /data/update-os.sh 2>/dev/null || true
 fi
 touch /data/keep-update-os 2>/dev/null || true
-if [ -f /data/update-os.sh ]; then
-  printf '%s\n' '#!/bin/bash' 'exec /bin/bash /data/update-os.sh "$@"' >/data/update-os-wrap
-  chmod 755 /data/update-os-wrap
-  umount /usr/sbin/update-os 2>/dev/null || true
-  # Prefer writing wrapper if possible; else bind
-  if printf '%s\n' '#!/bin/bash' 'exec /bin/bash /data/update-os.sh "$@"' >/usr/sbin/update-os 2>/dev/null; then
-    chmod 755 /usr/sbin/update-os
-  else
-    mount --bind /data/update-os-wrap /usr/sbin/update-os
-  fi
+printf '%s\n' '#!/bin/bash' 'exec /bin/bash /data/update-os.sh "$@"' >/data/update-os-wrap
+chmod 755 /data/update-os-wrap
+umount /usr/sbin/update-os 2>/dev/null || true
+if printf '%s\n' '#!/bin/bash' 'exec /bin/bash /data/update-os.sh "$@"' >/usr/sbin/update-os 2>/dev/null; then
+  chmod 755 /usr/sbin/update-os
+else
+  mount --bind /data/update-os-wrap /usr/sbin/update-os 2>/dev/null || true
 fi
 
-echo "OK — BLE websetup OTA fixed. Try Install again on the setup site."
+echo "OK — BLE OTA fix v2 installed (download then local flash)."
 echo "Log: /run/update-engine/wrapper.log"
-mount | grep -E 'curl|update-engine|update-os' || true
+mount | grep -E 'curl|update-engine' || true
+ls -la /data/curl.anki /data/update-engine.real /data/update-engine-wrap
