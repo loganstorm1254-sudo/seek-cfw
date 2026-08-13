@@ -1428,6 +1428,15 @@ function doOta() {
     return;
   }
 
+  console.log("Seek OTA URL:", url);
+  $("#otaErrorLabel").addClass("vec-hidden");
+  $("#otaUpdate").find(".seek-ota-url").remove();
+  $("#otaUpdate").prepend(
+    '<div class="seek-ota-url" style="opacity:0.7;font-size:12px;word-break:break-all;margin-bottom:8px;">URL: ' +
+      $("<div>").text(url).html() +
+      "</div>"
+  );
+
   // Without a files Worker, GitHub 302s make Vector show cloud-with-! / status 203
   if (/github\.com\//i.test(url) && !/\/g\/[^/]+\/[^/]+\.ota/i.test(url) && !/\/fetch\?url=/i.test(url)) {
     $("#otaErrorLabel").removeClass("vec-hidden");
