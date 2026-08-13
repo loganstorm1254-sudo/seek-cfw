@@ -27,6 +27,7 @@ var EnabledMods []vars.Modification = []vars.Modification{
 	mods.NewFaces(),
 	mods.NewSeekDashboard(),
 	mods.NewSeekDoom(),
+	mods.NewSeekFaceUpdate(),
 }
 
 func installFastUpdateOS() {
