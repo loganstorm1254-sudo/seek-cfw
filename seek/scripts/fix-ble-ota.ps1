@@ -14,7 +14,9 @@ param(
   [switch]$Scan
 )
 
-$ErrorActionPreference = "Stop"
+# Do NOT use Stop: ssh.exe writes warnings to stderr and PS 5.1 turns those
+# into terminating NativeCommandError even when ssh succeeded.
+$ErrorActionPreference = "Continue"
 
 if (-not (Test-Path $Key)) {
   Write-Host "SSH key not found: $Key"
@@ -28,14 +30,22 @@ $sshOpts = @(
   "-o", "HostkeyAlgorithms=+ssh-rsa",
   "-o", "StrictHostKeyChecking=no",
   "-o", "UserKnownHostsFile=NUL",
+  "-o", "LogLevel=ERROR",
   "-o", "IdentitiesOnly=yes",
   "-o", "ConnectTimeout=6",
   "-o", "BatchMode=yes"
 )
 
+function Invoke-Ssh([string]$addr, [string]$remoteCmd) {
+  # Merge stderr so host-key warnings never become terminating errors.
+  $output = & ssh @sshOpts "root@$addr" $remoteCmd 2>&1
+  $code = $LASTEXITCODE
+  return @{ Code = $code; Output = $output }
+}
+
 function Test-Robot([string]$addr) {
-  & ssh @sshOpts "root@$addr" "echo OK" 2>$null
-  return ($LASTEXITCODE -eq 0)
+  $r = Invoke-Ssh $addr "echo OK"
+  return ($r.Code -eq 0)
 }
 
 function Install-On([string]$addr) {
@@ -51,12 +61,19 @@ function Install-On([string]$addr) {
   }
 
   Write-Host "Copying via scp..."
-  & scp @sshOpts $local "root@${addr}:/tmp/f.sh"
-  if ($LASTEXITCODE -ne 0) { throw "scp failed to $addr" }
+  & scp @sshOpts $local "root@${addr}:/tmp/f.sh" 2>&1 | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "scp failed to $addr (exit $LASTEXITCODE)"
+    exit 1
+  }
 
   Write-Host "Running fix on robot..."
-  & ssh @sshOpts "root@$addr" "chmod +x /tmp/f.sh && sh /tmp/f.sh"
-  if ($LASTEXITCODE -ne 0) { throw "fix script failed on $addr" }
+  $r = Invoke-Ssh $addr "chmod +x /tmp/f.sh && sh /tmp/f.sh"
+  $r.Output | ForEach-Object { Write-Host $_ }
+  if ($r.Code -ne 0) {
+    Write-Host "fix script failed on $addr (exit $($r.Code))"
+    exit 1
+  }
   Write-Host "DONE on $addr"
 }
 
