@@ -559,7 +559,7 @@ int main(int argc, char **argv)
   }
 
   // my dorm wifi is shitty
-  std::string curl_cmd = "curl -L --http1.1 -4 --silent --show-error --fail --retry 5 --retry-delay 2 --connect-timeout 20 \"" + url + "\"";
+  std::string curl_cmd = "curl -L --http1.1 -4 --silent --show-error --retry 3 --connect-timeout 20 \"" + url + "\"";
   FILE *curl_pipe = popen(curl_cmd.c_str(), "r");
   if (!curl_pipe)
   {
