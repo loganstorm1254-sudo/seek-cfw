@@ -181,11 +181,12 @@ case "$URL" in
 esac
 
 systemctl -q stop update-engine || true
+rm -rf /run/update-engine
 boost_cpu
 
 echo "Current OS Version: `getprop ro.anki.version`"
 
-mkdir -p /run/vic-switchboard
+mkdir -p /run/vic-switchboard /run/update-engine
 echo "UPDATE_ENGINE_ENABLED=True" > /run/vic-switchboard/update-engine.env
 echo "UPDATE_ENGINE_MAX_SLEEP=1" >> /run/vic-switchboard/update-engine.env
 echo "UPDATE_ENGINE_ALLOW_DOWNGRADE=True" >> /run/vic-switchboard/update-engine.env
@@ -193,7 +194,15 @@ echo "UPDATE_ENGINE_URL=$URL" >> /run/vic-switchboard/update-engine.env
 echo "UPDATE_ENGINE_DEBUG=True" >> /run/vic-switchboard/update-engine.env
 chown -R net:anki /run/vic-switchboard
 
-systemctl restart update-engine
+systemctl reset-failed update-engine || true
+systemctl start update-engine
+sleep 1
+if ! systemctl is-active --quiet update-engine && [ ! -f /run/update-engine/manifest.ini ]; then
+    echo "update-engine did not start."
+    cat /run/update-engine/error 2>/dev/null || true
+    systemctl status update-engine --no-pager || true
+    exit 1
+fi
 
 echo "Stopping anki-robot.target... (eyes will go dark)"
 systemctl stop anki-robot.target
@@ -203,10 +212,12 @@ echo -e "Installing from:\n$URL"
 echo -e -n "\r."
 DOTS=1
 UPDATE_VERSION=""
-while [[ ! -f /run/update-engine/done ]] ; do
+WAIT=0
+while true ; do
     sleep 1
+    WAIT=$((WAIT+1))
     if [ -z "${UPDATE_VERSION}" -a -f /run/update-engine/manifest.ini ]; then
-	UPDATE_VERSION=`grep update_version /run/update-engine/manifest.ini | awk -F= '{print $NF;}'`
+	UPDATE_VERSION=`grep update_version /run/update-engine/manifest.ini | awk -F= '{print $NF;}' || true`
     fi
     if [ -f /run/update-engine/progress -a -f /run/update-engine/expected-size ] ; then
 	PROGRESS=`cat /run/update-engine/progress`
@@ -224,9 +235,30 @@ while [[ ! -f /run/update-engine/done ]] ; do
     if [ -f /run/update-engine/error ]; then
 	ERRORMSG=`cat /run/update-engine/error`
 	if [ "$ERRORMSG" != "Unclean exit" ]; then
-	    echo "Error updating OS . $ERRORMSG"
+	    echo "Error updating OS: $ERRORMSG"
 	    exit 1
 	fi
+    fi
+    if [ -f /run/update-engine/done ]; then
+        if [ ! -f /run/update-engine/manifest.ini ]; then
+            echo "update-engine said done but did not flash (stale flag). Not rebooting."
+            rm -f /run/update-engine/done
+            exit 1
+        fi
+        CODE=`cat /run/update-engine/exit_code 2>/dev/null || true`
+        if [ -z "$CODE" ]; then
+            sleep 1
+            CODE=`cat /run/update-engine/exit_code 2>/dev/null || echo 0`
+        fi
+        if [ "$CODE" != "0" ]; then
+            echo "update-engine failed (exit $CODE). Not rebooting."
+            exit 1
+        fi
+        break
+    fi
+    if [ "$WAIT" -gt 3600 ]; then
+        echo "Timed out waiting for the flash. Not rebooting."
+        exit 1
     fi
 done
 
