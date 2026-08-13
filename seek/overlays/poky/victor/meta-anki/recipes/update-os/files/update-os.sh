@@ -52,31 +52,21 @@ EOF
 chmod 0755 /run/curl-shim
 mount --bind /run/curl-shim /usr/bin/curl 2>/dev/null || true
 
-# GitHub 302 + update-engine --fail = "download failed. likely a bad URL".
-# Pull the file with our curl first (Wi‑Fi still up), then flash from loopback.
-mkdir -p /data/ota
-echo "Current OS Version: `getprop ro.anki.version`"
-echo "Downloading OS update to /data/ota/v.ota"
-echo "$URL"
-rm -f /data/ota/v.ota
-if ! /run/curl.real -L --http1.1 -4 --retry 3 --connect-timeout 20 -# -o /data/ota/v.ota "$URL"; then
-    if ! /run/curl.real -L -4 --connect-timeout 20 -# -o /data/ota/v.ota "$URL"; then
-        echo "GitHub download failed. Bring the robot back: systemctl start anki-robot.target"
-        exit 1
+# Do not save the OTA on Vector. Follow GitHub's 302 so update-engine
+# streams a 200 URL (its --fail flag dies on the redirect).
+case "$URL" in
+  *github.com*|*githubusercontent.com*)
+    FINAL=`/run/curl.real -sI --http1.1 -4 --max-time 20 "$URL" 2>/dev/null | grep -i '^location:' | tail -1 | awk '{print $2}' | tr -d '\r'`
+    if [ -n "$FINAL" ]; then
+      URL="$FINAL"
     fi
-fi
-SZ=`stat -c %s /data/ota/v.ota 2>/dev/null || echo 0`
-if [ "$SZ" -lt 80000000 ]; then
-    echo "Download too small ($SZ bytes). Not flashing."
-    echo "Bring the robot back: systemctl start anki-robot.target"
-    exit 1
-fi
-echo "Download complete ($SZ bytes). Flashing from local file."
-busybox httpd -p 127.0.0.1:8766 -h /data/ota 2>/dev/null || true
-URL="http://127.0.0.1:8766/v.ota"
+    ;;
+esac
 
 systemctl -q stop update-engine.timer update-engine || true
 rm -rf /run/update-engine
+
+echo "Current OS Version: `getprop ro.anki.version`"
 
 mkdir -p /run/vic-switchboard /run/update-engine
 echo "UPDATE_ENGINE_ENABLED=True" > /run/vic-switchboard/update-engine.env
@@ -92,6 +82,7 @@ chown -R net:anki /run/vic-switchboard
 
 systemctl reset-failed update-engine || true
 systemctl start update-engine
+sleep 5
 
 echo "Stopping anki-robot.target... (eyes will go dark)"
 systemctl stop anki-robot.target
@@ -99,7 +90,7 @@ systemctl stop anki-robot.target
 echo 1267200 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null || true
 
 echo
-echo -e "Flashing from local file:\n$URL"
+echo -e "Installing OS update from:\n$URL"
 
 echo -e -n "\r."
 DOTS=1
