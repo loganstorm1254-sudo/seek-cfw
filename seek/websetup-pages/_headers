@@ -1,2 +1,8 @@
 /*
   Access-Control-Allow-Origin: *
+
+/index.html
+  Cache-Control: no-cache
+
+/static/js/rts.js
+  Cache-Control: no-cache

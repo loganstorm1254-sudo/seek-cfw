@@ -146,7 +146,7 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	action := strings.TrimPrefix(r.URL.Path, "/api/mods/"+m.Name()+"/")
 	switch action {
-	case "status", "moves", "getEyeColor", "getVolume", "cameraFrame", "cameraMjpeg", "getEyeOverlay", "getOpenAIKey", "getSeekLights", "otaStatus":
+	case "status", "moves", "getEyeColor", "getVolume", "cameraFrame", "cameraMjpeg", "getEyeOverlay", "getOpenAIKey", "getHoundify", "getSeekLights", "otaStatus":
 		// read-only / streaming — don't count as "user activity" for idle release
 	default:
 		m.touchActivity()
@@ -190,6 +190,14 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case "setOpenAIKey":
 		if err := m.handleSetOpenAIKey(r); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+	case "getHoundify":
+		m.handleGetHoundify(w, r)
+		return
+	case "setHoundify":
+		if err := m.handleSetHoundify(r); err != nil {
 			vars.HTTPError(w, r, err.Error())
 			return
 		}

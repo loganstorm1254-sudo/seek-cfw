@@ -23,6 +23,8 @@ var seekChatGPTLogoJPEG []byte
 
 const (
 	seekOpenAIKeyPath    = "/data/data/com.anki.victor/persistent/seek/openai_api_key"
+	seekHoundifyIDPath   = "/data/data/com.anki.victor/persistent/seek/houndify_client_id"
+	seekHoundifyKeyPath  = "/data/data/com.anki.victor/persistent/seek/houndify_client_key"
 	seekVoiceAskURL      = "http://127.0.0.1:8080/api/mods/SeekDashboard/voiceAsk"
 	seekEyeOverlayPath   = "/data/data/customFaceOverlay.jpg"
 	seekEyeOverlayBackup = "/data/data/customFaceOverlay.jpg.seekbak"
@@ -37,8 +39,14 @@ var (
 )
 
 func seekAIKeyPresent() bool {
-	b, err := os.ReadFile(seekOpenAIKeyPath)
-	return err == nil && len(strings.TrimSpace(string(b))) > 20
+	if b, err := os.ReadFile(seekOpenAIKeyPath); err == nil && len(strings.TrimSpace(string(b))) > 20 {
+		return true
+	}
+	id, err1 := os.ReadFile(seekHoundifyIDPath)
+	key, err2 := os.ReadFile(seekHoundifyKeyPath)
+	return err1 == nil && err2 == nil &&
+		len(strings.TrimSpace(string(id))) > 8 &&
+		len(strings.TrimSpace(string(key))) > 20
 }
 
 func seekShowChatGPTLogo() {

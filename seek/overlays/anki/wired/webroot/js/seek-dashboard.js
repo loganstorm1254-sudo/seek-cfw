@@ -236,6 +236,7 @@ async function seekRefresh() {
         if (volRes.ok) $('masterVolume').value = (await volRes.text()).trim();
         seekRefreshEyeOverlay();
         seekRefreshOpenAIKey();
+        seekRefreshHoundify();
     } catch (e) {
         console.log('seekRefresh', e);
     }
@@ -728,21 +729,141 @@ async function seekTestOpenAI() {
     }
 }
 
+async function seekRefreshHoundify() {
+    const st = $('houndifyStatus');
+    if (!st) return;
+    try {
+        const res = await api('getHoundify');
+        if (!res.ok) {
+            st.textContent = 'Could not read Houndify status from Vector.';
+            return;
+        }
+        const info = await res.json();
+        if (info && info.configured) {
+            st.textContent = 'Houndify saved on Vector (' + (info.masked || 'client') + '). Hey Vector, question will use it.';
+        } else {
+            st.textContent = 'No Houndify client saved yet.';
+        }
+    } catch (e) {
+        st.textContent = 'Vector unreachable for Houndify status.';
+    }
+}
+
+async function seekSaveHoundify() {
+    const id = ($('houndifyClientId') && $('houndifyClientId').value || '').trim();
+    const key = ($('houndifyClientKey') && $('houndifyClientKey').value || '').trim();
+    if (!id || !key) {
+        setSeekStatus('Paste both Houndify Client ID and Client Key.', true);
+        return;
+    }
+    if (id.length < 8 || key.length < 20) {
+        setSeekStatus('Houndify Client ID/Key look too short.', true);
+        return;
+    }
+    setSeekStatus('Saving Houndify on Vector…');
+    try {
+        const res = await api('setHoundify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'clientId=' + encodeURIComponent(id) + '&clientKey=' + encodeURIComponent(key),
+            timeoutMs: 15000,
+            retries: 1
+        });
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'save failed' }; });
+            setSeekStatus('Houndify save failed: ' + (e.message || 'error'), true);
+            seekRefreshHoundify();
+            return;
+        }
+        if ($('houndifyClientId')) $('houndifyClientId').value = '';
+        if ($('houndifyClientKey')) $('houndifyClientKey').value = '';
+        setSeekStatus('Houndify saved — Hey Vector, question will use it.');
+        seekRefreshHoundify();
+    } catch (e) {
+        setSeekStatus('Houndify save failed: ' + e.message, true);
+        seekRefreshHoundify();
+    }
+}
+
+async function seekClearHoundify() {
+    setSeekStatus('Clearing Houndify…');
+    if ($('houndifyClientId')) $('houndifyClientId').value = '';
+    if ($('houndifyClientKey')) $('houndifyClientKey').value = '';
+    try {
+        await api('setHoundify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'clientId=clear&clientKey=clear',
+            timeoutMs: 10000,
+            retries: 1
+        });
+    } catch (_) {}
+    setSeekStatus('Houndify cleared.');
+    seekRefreshHoundify();
+}
+
+async function seekTestHoundify() {
+    setSeekStatus('Testing Houndify from Vector…');
+    try {
+        const res = await api('askAI?text=' + encodeURIComponent('what is two plus two') + '&speak=0', {
+            timeoutMs: 45000,
+            retries: 1
+        });
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'test failed' }; });
+            setSeekStatus('Houndify test failed: ' + (e.message || 'error'), true);
+            return;
+        }
+        const info = await res.json();
+        const ans = (info.answer || '').trim();
+        if (!ans) {
+            setSeekStatus('Houndify returned an empty answer.', true);
+            return;
+        }
+        seekShowAIAnswer(ans);
+        setSeekStatus('Houndify OK — got: ' + ans);
+    } catch (e) {
+        setSeekStatus('Houndify test failed: ' + e.message, true);
+    }
+}
+
 async function seekAskAI(text) {
     const q = (text || ($('askAIText') && $('askAIText').value) || '').trim();
     if (!q) {
         setSeekStatus('Type a question (or use Hold to talk).', true);
         return;
     }
-    setSeekStatus('Asking ChatGPT from your phone/PC…');
+    setSeekStatus('Asking from your phone/PC…');
     seekShowAIAnswer('');
     let answer = '';
     let via = 'browser';
-    try {
-        answer = await seekBrowserChatGPT(q);
-    } catch (browserErr) {
-        setSeekStatus('Browser OpenAI failed (' + browserErr.message + '). Trying robot…');
+    const key = seekResolveOpenAIKey();
+    if (key) {
+        try {
+            answer = await seekBrowserChatGPT(q);
+        } catch (browserErr) {
+            setSeekStatus('Browser OpenAI failed (' + browserErr.message + '). Trying robot…');
+            via = 'robot';
+            try {
+                const res = await api('askAI?text=' + encodeURIComponent(q) + '&speak=0', {
+                    timeoutMs: 60000,
+                    retries: 1
+                });
+                if (!res.ok) {
+                    const e = await res.json().catch(function () { return { message: 'ask failed' }; });
+                    setSeekStatus((e.message || 'ask failed') + ' — save Houndify or OpenAI key.', true);
+                    return;
+                }
+                const info = await res.json();
+                answer = (info.answer || '').trim();
+            } catch (e) {
+                setSeekStatus('Ask failed: ' + browserErr.message, true);
+                return;
+            }
+        }
+    } else {
         via = 'robot';
+        setSeekStatus('Asking Vector (Houndify / robot)…');
         try {
             const res = await api('askAI?text=' + encodeURIComponent(q) + '&speak=0', {
                 timeoutMs: 60000,
@@ -750,13 +871,13 @@ async function seekAskAI(text) {
             });
             if (!res.ok) {
                 const e = await res.json().catch(function () { return { message: 'ask failed' }; });
-                setSeekStatus((e.message || 'ask failed') + ' — save key + ensure this device has internet.', true);
+                setSeekStatus((e.message || 'ask failed') + ' — save Houndify or OpenAI key.', true);
                 return;
             }
             const info = await res.json();
             answer = (info.answer || '').trim();
         } catch (e) {
-            setSeekStatus('Ask failed: ' + browserErr.message, true);
+            setSeekStatus('Ask failed: ' + e.message, true);
             return;
         }
     }
@@ -1774,6 +1895,9 @@ function bindUI() {
     on('btnSaveOpenAI', 'click', seekSaveOpenAIKey);
     on('btnClearOpenAI', 'click', seekClearOpenAIKey);
     on('btnTestOpenAI', 'click', seekTestOpenAI);
+    on('btnSaveHoundify', 'click', seekSaveHoundify);
+    on('btnClearHoundify', 'click', seekClearHoundify);
+    on('btnTestHoundify', 'click', seekTestHoundify);
     on('btnAskAI', 'click', function () { seekAskAI(); });
     bindAskAIMic();
     on('btnAudio', 'click', seekPlayAudio);

@@ -5,9 +5,12 @@
 # /data is often ~58MB, too small for a 171MB OTA — store payload on /ota.
 # BLE on old OS execs: /anki/bin/update-engine <url>
 # BLE on new OS writes UPDATE_ENGINE_URL into an env file (no argv).
+#
+# v8: force http:// for files.anki.org.uk, skip HEAD, no 10-minute kill,
+# write /run/update-engine/progress immediately so the BLE bar moves.
 set -e
 
-VERSION=7
+VERSION=8
 
 mount -o remount,rw / 2>/dev/null || true
 umount /usr/bin/curl 2>/dev/null || true
@@ -46,10 +49,10 @@ fi
 
 cat > /anki/bin/update-engine << 'EOF'
 #!/bin/sh
-# Seek BLE OTA wrap v7
+# Seek BLE OTA wrap v8
 mkdir -p /run/update-engine /ota
 LOG=/run/update-engine/wrapper.log
-echo "wrapper v7 start" >> "$LOG"
+echo "wrapper v8 start $(date 2>/dev/null || true)" >> "$LOG"
 echo "env URL=${UPDATE_ENGINE_URL-}" >> "$LOG"
 echo "args=$*" >> "$LOG"
 
@@ -78,6 +81,14 @@ if [ -z "$URL" ]; then
   done
 fi
 
+# Vector cannot verify TLS. files.anki.org.uk already serves the OTA over HTTP.
+case "$URL" in
+  https://files.anki.org.uk/*|https://*.anki.org.uk/*)
+    URL=`echo "$URL" | sed 's|^https://|http://|'`
+    echo "rewrote to HTTP $URL" >> "$LOG"
+    ;;
+esac
+
 OTA=/ota/v.ota
 SZ=0
 [ -f "$OTA" ] && SZ=`stat -c %s "$OTA" 2>/dev/null || echo 0`
@@ -89,7 +100,7 @@ if [ -z "$URL" ] && [ "$SZ" -ge 8000000 ]; then
 fi
 
 if [ -z "$URL" ]; then
-  URL="https://files.anki.org.uk/ota/latest"
+  URL="http://files.anki.org.uk/ota/latest"
   echo "defaulting URL=$URL" >> "$LOG"
 fi
 
@@ -110,33 +121,46 @@ NEED=1
 case "$URL" in
   http://127.0.0.1:*|http://localhost:*) NEED=0 ;;
 esac
+
+# BLE polls these files every 1s — write them BEFORE curl so the bar moves.
+echo 179517440 > /run/update-engine/expected-size
+echo 0 > /run/update-engine/progress
+rm -f /run/update-engine/error /run/update-engine/done /run/update-engine/exit_code
+
 # Never reuse a leftover /ota/v.ota for a remote URL (150-byte error pages, wrong OS).
 if [ "$NEED" = 1 ]; then
   echo "Downloading to $OTA ..." >> "$LOG"
-  rm -f "$OTA"
-  EXP=`"$CURL" -k -sI --http1.1 -4 --max-time 20 "$URL" 2>/dev/null | grep -i '^content-length:' | tail -n 1 | awk '{print $2}' | tr -d '\r'`
-  [ -z "$EXP" ] && EXP=179517440
-  echo "$EXP" > /run/update-engine/expected-size
-  echo 0 > /run/update-engine/progress
   echo download > /run/update-engine/phase
-  "$CURL" -k -L --http1.1 -4 --retry 2 --connect-timeout 20 --max-time 600 -o "$OTA" "$URL" >> "$LOG" 2>&1 &
+  rm -f "$OTA"
+  # No --max-time: 171MB on a phone hotspot often takes >10 min.
+  # --fail: do not save HTML error pages as v.ota.
+  "$CURL" -k -L --http1.1 -4 --fail --connect-timeout 20 -o "$OTA" "$URL" >> "$LOG" 2>&1 &
   CPID=$!
+  TICK=0
   while kill -0 "$CPID" 2>/dev/null; do
     NOW=`stat -c %s "$OTA" 2>/dev/null || echo 0`
     echo "$NOW" > /run/update-engine/progress
+    TICK=`expr "$TICK" + 1`
+    if [ `expr "$TICK" % 5` -eq 0 ]; then
+      echo "progress $NOW bytes" >> "$LOG"
+    fi
     sleep 1
   done
   wait "$CPID"
   CR=$?
+  NOW=`stat -c %s "$OTA" 2>/dev/null || echo 0`
+  echo "$NOW" > /run/update-engine/progress
   if [ "$CR" != 0 ]; then
     echo "download failed" > /run/update-engine/error
     echo 204 > /run/update-engine/exit_code
-    echo "download failed rc=$CR" >> "$LOG"
+    echo "download failed rc=$CR size=$NOW" >> "$LOG"
     exit 204
   fi
 fi
 
 SZ=`stat -c %s "$OTA" 2>/dev/null || echo 0`
+echo "$SZ" > /run/update-engine/progress
+echo "$SZ" > /run/update-engine/expected-size
 echo "ota size $SZ" >> "$LOG"
 if [ "$SZ" -lt 8000000 ]; then
   echo "download too small ($SZ)" > /run/update-engine/error
@@ -165,6 +189,7 @@ if [ "$CODE" != "200" ] && [ "$CODE" != "206" ]; then
   exit 204
 fi
 
+echo flash > /run/update-engine/phase
 echo "flashing local http://127.0.0.1:8767/v.ota via $REAL" >> "$LOG"
 exec "$REAL" -v "http://127.0.0.1:8767/v.ota"
 EOF
@@ -179,7 +204,7 @@ cat > /data/seek-ble-ota-apply.sh << 'EOF'
 mount -o remount,rw / 2>/dev/null || true
 umount /anki/bin/update-engine 2>/dev/null || true
 if [ -x /data/update-engine-wrap ]; then
-  if grep -q 'Seek BLE OTA wrap v7' /anki/bin/update-engine 2>/dev/null; then
+  if grep -q 'Seek BLE OTA wrap v8' /anki/bin/update-engine 2>/dev/null; then
     exit 0
   fi
   cp -a /data/update-engine-wrap /anki/bin/update-engine

@@ -147,7 +147,7 @@
             <button type="button" class="primary" id="btnSay">Say it</button>
 
             <h2 class="spaced">ChatGPT</h2>
-            <p class="hint"><b>On Vector:</b> say <b>Hey Vector, question</b> (or <b>I have a question</b>). He shows the ChatGPT mark, says <b>I'm ready</b>, then listen and ask. Needs an OpenAI key saved below and robot internet to api.openai.com. Dashboard Ask still runs on your phone/PC.</p>
+            <p class="hint"><b>On Vector:</b> say <b>Hey Vector, question</b> (or <b>I have a question</b>). He shows the ChatGPT mark, says <b>I'm ready</b>, then listen and ask. Save a <b>Houndify</b> Client ID + Key below (preferred for questions) and/or an OpenAI key. Dashboard Ask still runs on your phone/PC when OpenAI is saved.</p>
             <label class="field">
                 <span>OpenAI API key</span>
                 <input type="password" id="openaiKey" placeholder="sk-… or sk-proj-…" autocomplete="off">
@@ -157,6 +157,23 @@
                 <button type="button" class="primary" id="btnSaveOpenAI">Save key</button>
                 <button type="button" class="ghost danger" id="btnClearOpenAI">Clear key</button>
                 <button type="button" class="ghost" id="btnTestOpenAI">Test key</button>
+            </div>
+
+            <h2 class="spaced">Houndify (questions)</h2>
+            <p class="hint">SoundHound Houndify answers <b>Hey Vector, question</b> on the robot (no OpenAI needed). Create a free client at <a href="https://www.houndify.com/" target="_blank" rel="noopener">houndify.com</a> and paste Client ID + Client Key.</p>
+            <label class="field">
+                <span>Houndify Client ID</span>
+                <input type="text" id="houndifyClientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off">
+            </label>
+            <label class="field">
+                <span>Houndify Client Key</span>
+                <input type="password" id="houndifyClientKey" placeholder="Client Key from Houndify dashboard" autocomplete="off">
+            </label>
+            <p id="houndifyStatus" class="hint"></p>
+            <div class="actions">
+                <button type="button" class="primary" id="btnSaveHoundify">Save Houndify</button>
+                <button type="button" class="ghost danger" id="btnClearHoundify">Clear Houndify</button>
+                <button type="button" class="ghost" id="btnTestHoundify">Test Houndify</button>
             </div>
             <label class="field spaced">
                 <span>Ask ChatGPT</span>
@@ -345,7 +362,7 @@
         </section>
     </main>
     <noscript><p class="status err">JavaScript is required for Seek Dashboard.</p></noscript>
-    <script src="js/seek-dashboard.js?v=41d1" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh.';}})();"></script>
+    <script src="js/seek-dashboard.js?v=42h1" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh.';}})();"></script>
     <script>
     setTimeout(function () {
         if (!window.__seekLoaded) {

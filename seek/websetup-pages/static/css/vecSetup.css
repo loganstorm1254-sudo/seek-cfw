@@ -298,7 +298,23 @@ select.vec-field {
   right: 0;
   box-sizing: border-box;
   position: absolute;
-  transition: width 1s;
+  transition: width 0.25s linear;
+}
+
+.seek-ota-pct {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 40px;
+  line-height: 40px;
+  text-align: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 16px;
+  z-index: 4;
+  pointer-events: none;
+  text-shadow: 0 1px 2px #000;
 }
 
 .vec-progress-bar.seek-wait .vec-progress-bar-fill {

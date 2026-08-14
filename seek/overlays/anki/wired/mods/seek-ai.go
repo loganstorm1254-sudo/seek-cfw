@@ -118,7 +118,7 @@ func (m *SeekDashboard) handleAskAI(r *http.Request) (string, error) {
 	if len(q) > 800 {
 		return "", errors.New("question too long")
 	}
-	answer, err := seekChatGPT(q)
+	answer, err := seekAnswerQuestion(q)
 	if err != nil {
 		return "", err
 	}
@@ -163,14 +163,41 @@ func (m *SeekDashboard) handleVoiceTranscribe(w http.ResponseWriter, r *http.Req
 }
 
 // handleVoiceAsk receives raw s16le @16kHz PCM (or a tiny WAV) from cloudless
-// after "Hey Vector", runs Whisper + ChatGPT, returns JSON {answer,transcript}.
+// after "Hey Vector, question". Prefers Houndify (speech+answer in one call);
+// falls back to Whisper + ChatGPT when an OpenAI key is saved.
 func (m *SeekDashboard) handleVoiceAsk(w http.ResponseWriter, r *http.Request) {
 	wav, err := seekReadVoicePCM(r)
 	if err != nil {
 		vars.HTTPError(w, r, err.Error())
 		return
 	}
-	transcript, err := seekWhisper(wav)
+
+	var transcript, answer string
+	var houndErr error
+	if seekHoundifyConfigured() {
+		transcript, answer, houndErr = seekHoundifyVoice(wav)
+		if houndErr == nil && strings.TrimSpace(answer) != "" {
+			out, _ := json.Marshal(map[string]string{
+				"transcript": strings.TrimSpace(transcript),
+				"answer":     answer,
+				"via":        "houndify",
+			})
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(out)
+			return
+		}
+	}
+
+	if !seekOpenAIKeyConfigured() {
+		if houndErr != nil {
+			vars.HTTPError(w, r, "houndify: "+houndErr.Error())
+			return
+		}
+		vars.HTTPError(w, r, "save a Houndify or OpenAI key in Speak")
+		return
+	}
+
+	transcript, err = seekWhisper(wav)
 	if err != nil {
 		vars.HTTPError(w, r, "whisper: "+err.Error())
 		return
@@ -180,14 +207,19 @@ func (m *SeekDashboard) handleVoiceAsk(w http.ResponseWriter, r *http.Request) {
 		vars.HTTPError(w, r, "could not hear a question")
 		return
 	}
-	answer, err := seekChatGPT(transcript)
+	answer, err = seekAnswerQuestion(transcript)
 	if err != nil {
-		vars.HTTPError(w, r, "chatgpt: "+err.Error())
+		vars.HTTPError(w, r, "answer: "+err.Error())
 		return
+	}
+	via := "chatgpt"
+	if seekHoundifyConfigured() {
+		via = "houndify"
 	}
 	out, _ := json.Marshal(map[string]string{
 		"transcript": transcript,
 		"answer":     answer,
+		"via":        via,
 	})
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(out)

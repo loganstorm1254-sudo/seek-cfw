@@ -1,5 +1,5 @@
 #!/bin/sh
-# Unstick Vector stuck on the OTA face, then reinstall BLE OTA wrap v7.
+# Unstick Vector stuck on the OTA face, then reinstall BLE OTA wrap v8.
 set -e
 mount -o remount,rw / 2>/dev/null || true
 killall -9 update-engine python httpd curl 2>/dev/null || true

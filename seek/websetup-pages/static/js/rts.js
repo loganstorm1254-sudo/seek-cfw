@@ -896,6 +896,7 @@ let _seekOtaBusy = false;
 let _seekOtaTimer = null;
 let _seekOtaStartedAt = 0;
 let _seekOtaRealPct = -1;
+let _seekOtaBytes = null;
 setView(_sessions.getViewMode(), false);
 
 window.sodium = {
@@ -1394,7 +1395,18 @@ function setOtaProgress(percent) {
   if (percent !== percent || percent < 0) return;
   if (percent > 1) percent = 1;
   if (percent > 0.01) $("#progressBarOta").removeClass("seek-wait");
-  let maskWidth = (1 - percent) * 100;
+  var pctInt = Math.round(percent * 100);
+  var maskWidth = (1 - percent) * 100;
+  var bar = document.getElementById("progressBarOta");
+  var mask = bar && bar.querySelector(".vec-progress-bar-mask");
+  var fill = bar && bar.querySelector(".vec-progress-bar-fill");
+  var label = document.getElementById("otaPctLabel");
+  if (mask) mask.style.width = maskWidth + "%";
+  if (fill) {
+    fill.style.right = "auto";
+    fill.style.width = pctInt + "%";
+  }
+  if (label) label.textContent = pctInt + "%";
   $("#progressBarOta")
     .children(".vec-progress-bar-mask")
     .css("width", maskWidth + "%");
@@ -1464,6 +1476,7 @@ function seekOtaNote(msg) {
 function seekOtaStartClock() {
   _seekOtaStartedAt = Date.now();
   _seekOtaRealPct = -1;
+  _seekOtaBytes = null;
   if (_seekOtaTimer) clearInterval(_seekOtaTimer);
   $("#progressBarOta").addClass("seek-wait");
   var tick = function () {
@@ -1473,20 +1486,29 @@ function seekOtaStartClock() {
     var r = s % 60;
     var clock = m + ":" + (r < 10 ? "0" : "") + r;
     var pct = _seekOtaRealPct;
+    var bytesNote = "";
+    if (_seekOtaBytes && _seekOtaBytes.exp > 0) {
+      var curMb = (_seekOtaBytes.cur / 1048576).toFixed(1);
+      var expMb = (_seekOtaBytes.exp / 1048576).toFixed(0);
+      bytesNote = "  " + curMb + " / " + expMb + " MB";
+    }
     if (!(pct >= 0)) {
-      pct = Math.min(0.92, 0.06 + s / 480);
+      // Visible ramp until BLE reports real bytes (was ~8 min to 92% — looked stuck).
+      pct = Math.min(0.22, 0.05 + s * 0.012);
     }
     setOtaProgress(pct);
     seekOtaNote(
       "Updating Vector… " +
         Math.round(pct * 100) +
-        "%  elapsed " +
+        "%" +
+        bytesNote +
+        "  elapsed " +
         clock +
         ". Keep the hotspot on. Do not retry."
     );
   };
   tick();
-  _seekOtaTimer = setInterval(tick, 500);
+  _seekOtaTimer = setInterval(tick, 250);
 }
 
 function seekOtaDone() {
@@ -1568,8 +1590,7 @@ function doOta() {
   }
   _seekOtaBusy = true;
   seekOtaStartClock();
-  setOtaProgress(0.08);
-  seekOtaNote("Starting update…");
+  setOtaProgress(0.05);
   rtsHandler.doOtaStart(url).then(
     function (msg) {
       console.log("ota success", msg);
@@ -2039,9 +2060,12 @@ function HandleHandshake(version) {
     if (st == 2 || st == 1) {
       var exp = Number(value.expected);
       var cur = Number(value.current);
-      if (exp > 0) {
-        _seekOtaRealPct = cur / exp;
-        setOtaProgress(_seekOtaRealPct);
+      if (exp > 0 && cur >= 0) {
+        _seekOtaBytes = { cur: cur, exp: exp };
+        if (cur > 0) {
+          _seekOtaRealPct = Math.min(0.99, cur / exp);
+          setOtaProgress(_seekOtaRealPct);
+        }
       }
     } else if (st == 3) {
       seekOtaDone();

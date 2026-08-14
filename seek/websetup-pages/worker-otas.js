@@ -60,6 +60,8 @@ function otaHeadHeaders(cors, size) {
   headers.set("cache-control", "public, max-age=86400");
   return headers;
 }
+
+function otaResponse(obj, cors, downloadName) {
   const headers = new Headers(cors);
   obj.writeHttpMetadata(headers);
   headers.set("etag", obj.httpEtag);
