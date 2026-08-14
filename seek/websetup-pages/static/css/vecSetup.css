@@ -301,6 +301,19 @@ select.vec-field {
   transition: width 1s;
 }
 
+.vec-progress-bar.seek-wait .vec-progress-bar-fill {
+  animation: seekOtaPulse 1.2s ease-in-out infinite;
+}
+@keyframes seekOtaPulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 .vec-progress-bar.vec-sm {
   height: 16px;
   position: relative;

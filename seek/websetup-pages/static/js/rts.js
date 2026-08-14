@@ -892,6 +892,9 @@ let _enableAutoFlow = true;
 let _sessions = new Sessions();
 let _filter = null;
 let _cmdPending = false;
+let _seekOtaBusy = false;
+let _seekOtaTimer = null;
+let _seekOtaStartedAt = 0;
 setView(_sessions.getViewMode(), false);
 
 window.sodium = {
@@ -1387,6 +1390,9 @@ function setPhase(phase) {
 }
 
 function setOtaProgress(percent) {
+  if (!(percent > 0) || percent !== percent) return;
+  if (percent > 1) percent = 1;
+  $("#progressBarOta").removeClass("seek-wait");
   let maskWidth = (1 - percent) * 100;
   $("#progressBarOta")
     .children(".vec-progress-bar-mask")
@@ -1440,7 +1446,45 @@ function handleDisconnected() {
   clearInterval(_statusInterval);
   $("#boxVectorStatus").addClass("vec-hidden");
   toggleIcon("iconBle", false);
+  if (_seekOtaBusy) {
+    seekOtaNote(
+      "Bluetooth dropped (normal). Vector keeps downloading/flashing. Leave this page open."
+    );
+    return;
+  }
   setPhase("containerDiscover");
+}
+
+function seekOtaNote(msg) {
+  var el = $("#otaStatusLine");
+  if (el.length) el.text(msg);
+}
+
+function seekOtaStartClock() {
+  _seekOtaStartedAt = Date.now();
+  if (_seekOtaTimer) clearInterval(_seekOtaTimer);
+  $("#progressBarOta").addClass("seek-wait");
+  _seekOtaTimer = setInterval(function () {
+    if (!_seekOtaBusy) return;
+    var s = Math.floor((Date.now() - _seekOtaStartedAt) / 1000);
+    var m = Math.floor(s / 60);
+    var r = s % 60;
+    var clock = m + ":" + (r < 10 ? "0" : "") + r;
+    seekOtaNote(
+      "Vector is pulling ~171MB over your hotspot, then flashing. Typical 4–12 min. Elapsed " +
+        clock +
+        ". Bar may stay empty — BLE often drops. Do not retry."
+    );
+  }, 1000);
+}
+
+function seekOtaDone() {
+  _seekOtaBusy = false;
+  if (_seekOtaTimer) {
+    clearInterval(_seekOtaTimer);
+    _seekOtaTimer = null;
+  }
+  $("#progressBarOta").removeClass("seek-wait");
 }
 
 function otaStatusMessage(status) {
@@ -1511,20 +1555,27 @@ function doOta() {
     if (!rtsHandler || typeof rtsHandler.doOtaStart !== "function") {
       $("#otaErrorLabel").removeClass("vec-hidden");
       $("#otaErrorLabel").html(
-        "Could not start OTA over BLE (" +
-          (reason || "no handler") +
-          ").<br/>Run Seek Web Setup locally: <code>seek/websetup/serve.cmd</code> then open http://localhost:8000/"
+        "Could not start OTA over BLE (" + (reason || "no handler") + ")."
       );
       $("#btnTryAgain").removeClass("vec-hidden");
       return;
     }
+    _seekOtaBusy = true;
+    seekOtaStartClock();
+    seekOtaNote("Told Vector to fetch " + otaUrl);
     rtsHandler.doOtaStart(otaUrl).then(
       function (msg) {
         console.log("ota success", msg);
+        seekOtaDone();
         toggleIcon("iconOta", true);
+        seekOtaNote("Update installed. Vector is rebooting.");
       },
       function (msg) {
         console.log(msg);
+        if (_seekOtaBusy && (!msg || msg === "disconnected")) {
+          return;
+        }
+        seekOtaDone();
         var status =
           msg && msg.value && msg.value.status != null
             ? msg.value.status
@@ -1533,14 +1584,20 @@ function doOta() {
             : "?";
         $("#otaErrorLabel").removeClass("vec-hidden");
         $("#otaErrorLabel").html(
-          "Error while updating Vector.<br/>" +
-            otaStatusMessage(status) +
-            "<br/><br/>Use local Seek Web Setup so Vector downloads HTTP from your PC:<br/>" +
-            "<code>seek\\websetup\\serve.cmd</code> then Chrome http://localhost:8000/"
+          "Error while updating Vector.<br/>" + otaStatusMessage(status)
         );
         $("#btnTryAgain").removeClass("vec-hidden");
       }
     );
+    // BLE + Wi-Fi on Vector share the radio. Drop BLE so the download can run.
+    setTimeout(function () {
+      if (!_seekOtaBusy) return;
+      try {
+        if (vecBle && typeof vecBle.tryDisconnect === "function") {
+          vecBle.tryDisconnect();
+        }
+      } catch (e) {}
+    }, 2500);
   };
 
   // Plain HTTP (LAN or Cloudflare http://files.anki.org.uk) — Vector has no TLS.
@@ -2058,18 +2115,21 @@ function HandleHandshake(version) {
   }
 
   rtsHandler.onOtaProgress(function (value) {
-    if (value.status == 2) {
-      let progress = Number(value.current) / Number(value.expected);
-      setOtaProgress(progress);
-    } else if (value.status == 3) {
-      // handle OTA complete
+    var st = Number(value.status);
+    if (st == 2 || st == 1) {
+      var exp = Number(value.expected);
+      var cur = Number(value.current);
+      if (exp > 0) setOtaProgress(cur / exp);
+    } else if (st == 3) {
+      seekOtaDone();
       toggleIcon("iconOta", true);
       $("#otaErrorLabel").addClass("vec-hidden");
       $("#otaUpdate").html(
         "<p>Update installed. Vector is rebooting…</p>" +
           "<p>Wait ~2 minutes, then refresh this page if you need to pair again.</p>"
       );
-    } else if (value.status >= 5) {
+    } else if (st >= 5) {
+      seekOtaDone();
       $("#otaErrorLabel").removeClass("vec-hidden");
       $("#otaErrorLabel").html(
         "Error while updating Vector.<br/>" + otaStatusMessage(value.status)

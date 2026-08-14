@@ -51,7 +51,15 @@ async function listOtaObjects(env) {
   return out;
 }
 
-function otaResponse(obj, cors, downloadName) {
+function otaHeadHeaders(cors, size) {
+  const headers = new Headers(cors);
+  headers.set("content-type", "application/octet-stream");
+  if (size != null) headers.set("content-length", String(size));
+  headers.set("accept-ranges", "bytes");
+  headers.set("alt-svc", "clear");
+  headers.set("cache-control", "public, max-age=86400");
+  return headers;
+}
   const headers = new Headers(cors);
   obj.writeHttpMetadata(headers);
   headers.set("etag", obj.httpEtag);
@@ -60,6 +68,9 @@ function otaResponse(obj, cors, downloadName) {
   const fname = safeName(downloadName || "update.ota");
   headers.set("content-disposition", 'inline; filename="' + fname + '"');
   if (obj.size != null) headers.set("content-length", String(obj.size));
+  // Old Vector curl stalls if the edge advertises HTTP/3.
+  headers.set("alt-svc", "clear");
+  headers.set("cache-control", "public, max-age=86400");
   return new Response(obj.body, { headers });
 }
 
@@ -134,11 +145,9 @@ export default {
         return new Response("Missing object", { status: 404, headers: cors });
       }
       if (request.method === "HEAD") {
-        const headers = new Headers(cors);
-        headers.set("content-type", "application/octet-stream");
-        headers.set("content-length", String(objs[0].size || obj.size || 0));
-        headers.set("accept-ranges", "bytes");
-        return new Response(null, { headers });
+        return new Response(null, {
+          headers: otaHeadHeaders(cors, objs[0].size || obj.size || 0),
+        });
       }
       return otaResponse(obj, cors, objs[0].key.split("/").pop());
     }
