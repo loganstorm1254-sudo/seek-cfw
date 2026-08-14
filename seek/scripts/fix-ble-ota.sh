@@ -3,14 +3,13 @@
 #
 # Stock update-engine uses TLS against Cloudflare → 203.
 # /data is often ~58MB, too small for a 171MB OTA — store payload on /ota.
-# BLE on old OS execs: /anki/bin/update-engine <url>
-# BLE on new OS writes UPDATE_ENGINE_URL into an env file (no argv).
 #
-# v8: force http:// for files.anki.org.uk, skip HEAD, no 10-minute kill,
-# write /run/update-engine/progress immediately so the BLE bar moves.
+# v9: resume stalled downloads, flash file:///ota/v.ota (no second HTTP pull).
+# The 92% freeze was wrap finishing the download then hanging while
+# update-engine.real re-downloaded the same file via Python httpd.
 set -e
 
-VERSION=8
+VERSION=9
 
 mount -o remount,rw / 2>/dev/null || true
 umount /usr/bin/curl 2>/dev/null || true
@@ -49,10 +48,10 @@ fi
 
 cat > /anki/bin/update-engine << 'EOF'
 #!/bin/sh
-# Seek BLE OTA wrap v8
+# Seek BLE OTA wrap v9
 mkdir -p /run/update-engine /ota
 LOG=/run/update-engine/wrapper.log
-echo "wrapper v8 start $(date 2>/dev/null || true)" >> "$LOG"
+echo "wrapper v9 start $(date 2>/dev/null || true)" >> "$LOG"
 echo "env URL=${UPDATE_ENGINE_URL-}" >> "$LOG"
 echo "args=$*" >> "$LOG"
 
@@ -65,7 +64,7 @@ URL=`echo "$URL" | tr -d '"'`
 if [ -z "$URL" ]; then
   for a in "$@"; do
     case "$a" in
-      http://*|https://*) URL="$a" ;;
+      http://*|https://*|file://*) URL="$a" ;;
     esac
   done
 fi
@@ -81,7 +80,6 @@ if [ -z "$URL" ]; then
   done
 fi
 
-# Vector cannot verify TLS. files.anki.org.uk already serves the OTA over HTTP.
 case "$URL" in
   https://files.anki.org.uk/*|https://*.anki.org.uk/*)
     URL=`echo "$URL" | sed 's|^https://|http://|'`
@@ -93,10 +91,9 @@ OTA=/ota/v.ota
 SZ=0
 [ -f "$OTA" ] && SZ=`stat -c %s "$OTA" 2>/dev/null || echo 0`
 
-# Already have a full OTA on disk — flash it (website 203 with empty URL).
 if [ -z "$URL" ] && [ "$SZ" -ge 8000000 ]; then
-  URL="http://127.0.0.1:8767/v.ota"
-  echo "no URL from BLE; reusing $OTA ($SZ)" >> "$LOG"
+  URL="file://$OTA"
+  echo "no URL from BLE; flashing existing $OTA ($SZ)" >> "$LOG"
 fi
 
 if [ -z "$URL" ]; then
@@ -119,41 +116,52 @@ CURL=/usr/bin/curl.anki
 
 NEED=1
 case "$URL" in
-  http://127.0.0.1:*|http://localhost:*) NEED=0 ;;
+  http://127.0.0.1:*|http://localhost:*|file://*) NEED=0 ;;
 esac
 
-# BLE polls these files every 1s — write them BEFORE curl so the bar moves.
-echo 179517440 > /run/update-engine/expected-size
-echo 0 > /run/update-engine/progress
+echo 180000000 > /run/update-engine/expected-size
+echo "$SZ" > /run/update-engine/progress
 rm -f /run/update-engine/error /run/update-engine/done /run/update-engine/exit_code
 
-# Never reuse a leftover /ota/v.ota for a remote URL (150-byte error pages, wrong OS).
 if [ "$NEED" = 1 ]; then
-  echo "Downloading to $OTA ..." >> "$LOG"
   echo download > /run/update-engine/phase
-  rm -f "$OTA"
-  # No --max-time: 171MB on a phone hotspot often takes >10 min.
-  # --fail: do not save HTML error pages as v.ota.
-  "$CURL" -k -L --http1.1 -4 --fail --connect-timeout 20 -o "$OTA" "$URL" >> "$LOG" 2>&1 &
-  CPID=$!
-  TICK=0
-  while kill -0 "$CPID" 2>/dev/null; do
-    NOW=`stat -c %s "$OTA" 2>/dev/null || echo 0`
-    echo "$NOW" > /run/update-engine/progress
-    TICK=`expr "$TICK" + 1`
-    if [ `expr "$TICK" % 5` -eq 0 ]; then
-      echo "progress $NOW bytes" >> "$LOG"
+  # Keep a partial /ota/v.ota and resume. Do not delete a 90%+ download.
+  if [ "$SZ" -lt 8000000 ]; then
+    rm -f "$OTA"
+    SZ=0
+  fi
+  TRIES=0
+  CR=1
+  while [ "$TRIES" -lt 8 ]; do
+    TRIES=`expr "$TRIES" + 1`
+    echo "curl try $TRIES size=$SZ" >> "$LOG"
+    "$CURL" -k -L --http1.1 -4 --fail --connect-timeout 20 --retry 0 \
+      --speed-limit 2048 --speed-time 45 -C - -o "$OTA" "$URL" >> "$LOG" 2>&1 &
+    CPID=$!
+    TICK=0
+    while kill -0 "$CPID" 2>/dev/null; do
+      NOW=`stat -c %s "$OTA" 2>/dev/null || echo 0`
+      echo "$NOW" > /run/update-engine/progress
+      TICK=`expr "$TICK" + 1`
+      if [ `expr "$TICK" % 5` -eq 0 ]; then
+        echo "progress $NOW bytes" >> "$LOG"
+      fi
+      sleep 1
+    done
+    wait "$CPID"
+    CR=$?
+    SZ=`stat -c %s "$OTA" 2>/dev/null || echo 0`
+    echo "$SZ" > /run/update-engine/progress
+    echo "try $TRIES done rc=$CR size=$SZ" >> "$LOG"
+    if [ "$CR" = 0 ] && [ "$SZ" -ge 8000000 ]; then
+      break
     fi
-    sleep 1
+    sleep 3
   done
-  wait "$CPID"
-  CR=$?
-  NOW=`stat -c %s "$OTA" 2>/dev/null || echo 0`
-  echo "$NOW" > /run/update-engine/progress
-  if [ "$CR" != 0 ]; then
+  if [ "$CR" != 0 ] || [ "$SZ" -lt 8000000 ]; then
     echo "download failed" > /run/update-engine/error
     echo 204 > /run/update-engine/exit_code
-    echo "download failed rc=$CR size=$NOW" >> "$LOG"
+    echo "download failed rc=$CR size=$SZ" >> "$LOG"
     exit 204
   fi
 fi
@@ -168,30 +176,15 @@ if [ "$SZ" -lt 8000000 ]; then
   exit 204
 fi
 
-# Serve /ota — busybox httpd is missing on some images.
 killall httpd 2>/dev/null || true
 killall python 2>/dev/null || true
-sleep 1
-if busybox httpd -p 8767 -h /ota >> "$LOG" 2>&1; then
-  echo "httpd ok" >> "$LOG"
-elif httpd -p 8767 -h /ota >> "$LOG" 2>&1; then
-  echo "httpd ok" >> "$LOG"
-else
-  echo "starting python SimpleHTTPServer" >> "$LOG"
-  ( cd /ota && python -m SimpleHTTPServer 8767 >> "$LOG" 2>&1 ) &
-  sleep 2
-fi
-CODE=`"$CURL" -k -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8767/v.ota 2>/dev/null || echo 000`
-echo "local probe=$CODE" >> "$LOG"
-if [ "$CODE" != "200" ] && [ "$CODE" != "206" ]; then
-  echo "local httpd not serving OTA ($CODE)" > /run/update-engine/error
-  echo 204 > /run/update-engine/exit_code
-  exit 204
-fi
 
 echo flash > /run/update-engine/phase
-echo "flashing local http://127.0.0.1:8767/v.ota via $REAL" >> "$LOG"
-exec "$REAL" -v "http://127.0.0.1:8767/v.ota"
+cp -f "$LOG" /data/update-engine-wrapper.log 2>/dev/null || true
+echo "flashing file://$OTA via $REAL" >> "$LOG"
+echo "flashing file://$OTA via $REAL" >> /data/update-engine-wrapper.log
+# Do NOT HTTP-serve and re-download. That is what froze the bar at ~92%.
+exec "$REAL" -v "file://$OTA"
 EOF
 chmod 755 /anki/bin/update-engine
 
@@ -204,7 +197,7 @@ cat > /data/seek-ble-ota-apply.sh << 'EOF'
 mount -o remount,rw / 2>/dev/null || true
 umount /anki/bin/update-engine 2>/dev/null || true
 if [ -x /data/update-engine-wrap ]; then
-  if grep -q 'Seek BLE OTA wrap v8' /anki/bin/update-engine 2>/dev/null; then
+  if grep -q 'Seek BLE OTA wrap v9' /anki/bin/update-engine 2>/dev/null; then
     exit 0
   fi
   cp -a /data/update-engine-wrap /anki/bin/update-engine

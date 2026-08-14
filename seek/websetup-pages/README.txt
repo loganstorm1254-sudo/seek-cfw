@@ -22,7 +22,7 @@ settings.json:
   "otaListUrl": "https://files.anki.org.uk/api/otas.json"
 
 Zip the websetup-pages folder (index.html at the zip root) and upload.
-Hard-refresh Chrome so rts.js?v=seek8 loads.
+Hard-refresh Chrome so rts.js?v=seek9 loads.
 
 Robot downloads: http://files.anki.org.uk/dl/... or
 http://files.anki.org.uk/ota/latest

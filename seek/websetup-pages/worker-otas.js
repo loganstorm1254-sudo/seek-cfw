@@ -76,6 +76,47 @@ function otaResponse(obj, cors, downloadName) {
   return new Response(obj.body, { headers });
 }
 
+function parseBytesRange(header, size) {
+  if (!header || !size) return null;
+  const m = String(header).match(/^bytes=(\d*)-(\d*)$/i);
+  if (!m) return null;
+  const start = m[1] === "" ? 0 : Number(m[1]);
+  let end = m[2] === "" ? size - 1 : Number(m[2]);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  if (start < 0 || start >= size || end < start) return null;
+  end = Math.min(end, size - 1);
+  return { offset: start, length: end - start + 1, start, end, size };
+}
+
+async function serveOtaKey(env, key, request, cors, downloadName, listedSize) {
+  const size = listedSize || 0;
+  if (request.method === "HEAD") {
+    return new Response(null, { headers: otaHeadHeaders(cors, size) });
+  }
+  const range = parseBytesRange(request.headers.get("range"), size);
+  if (range) {
+    const obj = await env.OTA.get(key, {
+      range: { offset: range.offset, length: range.length },
+    });
+    if (!obj) {
+      return new Response("Missing object", { status: 404, headers: cors });
+    }
+    const headers = new Headers(cors);
+    headers.set("content-type", "application/octet-stream");
+    headers.set("accept-ranges", "bytes");
+    headers.set("content-range", "bytes " + range.start + "-" + range.end + "/" + range.size);
+    headers.set("content-length", String(range.length));
+    headers.set("alt-svc", "clear");
+    headers.set("cache-control", "public, max-age=86400");
+    return new Response(obj.body, { status: 206, headers });
+  }
+  const obj = await env.OTA.get(key);
+  if (!obj) {
+    return new Response("Missing object", { status: 404, headers: cors });
+  }
+  return otaResponse(obj, cors, downloadName);
+}
+
 export default {
   async fetch(request, env) {
     if (!env.OTA) {
@@ -142,16 +183,14 @@ export default {
       if (!objs.length) {
         return new Response("No .ota in R2", { status: 404, headers: cors });
       }
-      const obj = await env.OTA.get(objs[0].key);
-      if (!obj) {
-        return new Response("Missing object", { status: 404, headers: cors });
-      }
-      if (request.method === "HEAD") {
-        return new Response(null, {
-          headers: otaHeadHeaders(cors, objs[0].size || obj.size || 0),
-        });
-      }
-      return otaResponse(obj, cors, objs[0].key.split("/").pop());
+      return serveOtaKey(
+        env,
+        objs[0].key,
+        request,
+        cors,
+        objs[0].key.split("/").pop(),
+        objs[0].size || 0
+      );
     }
 
     // Clean download alias: /dl/seek-os-3.01.42d.ota
@@ -166,16 +205,14 @@ export default {
           headers: cors,
         });
       }
-      const obj = await env.OTA.get(match.key);
-      if (!obj) {
-        return new Response("Missing object", { status: 404, headers: cors });
-      }
-      if (request.method === "HEAD") {
-        return new Response(null, {
-          headers: otaHeadHeaders(cors, match.size || obj.size || 0),
-        });
-      }
-      return otaResponse(obj, cors, match.key.split("/").pop());
+      return serveOtaKey(
+        env,
+        match.key,
+        request,
+        cors,
+        match.key.split("/").pop(),
+        match.size || 0
+      );
     }
 
     // Raw R2 key path
@@ -186,21 +223,24 @@ export default {
       try {
         decoded = decodeURIComponent(key);
       } catch (e) {}
-      const obj =
-        (await env.OTA.get(decoded)) ||
-        (decoded !== key ? await env.OTA.get(key) : null);
-      if (!obj) {
+      const objHead =
+        (await env.OTA.head(decoded)) ||
+        (decoded !== key ? await env.OTA.head(key) : null);
+      if (!objHead) {
         return new Response("Not found: " + key, {
           status: 404,
           headers: cors,
         });
       }
-      if (request.method === "HEAD") {
-        return new Response(null, {
-          headers: otaHeadHeaders(cors, obj.size),
-        });
-      }
-      return otaResponse(obj, cors, decoded.split("/").pop());
+      const realKey = objHead.key || decoded;
+      return serveOtaKey(
+        env,
+        realKey,
+        request,
+        cors,
+        decoded.split("/").pop(),
+        objHead.size || 0
+      );
     }
 
     // Directory listing

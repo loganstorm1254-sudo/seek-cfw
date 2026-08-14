@@ -897,6 +897,8 @@ let _seekOtaTimer = null;
 let _seekOtaStartedAt = 0;
 let _seekOtaRealPct = -1;
 let _seekOtaBytes = null;
+let _seekOtaLastByteAt = 0;
+let _seekOtaLastCur = -1;
 setView(_sessions.getViewMode(), false);
 
 window.sodium = {
@@ -1461,7 +1463,7 @@ function handleDisconnected() {
   toggleIcon("iconBle", false);
   if (_seekOtaBusy) {
     seekOtaNote(
-      "Bluetooth dropped (normal). Vector keeps downloading/flashing. Leave this page open."
+      "Bluetooth dropped (normal). If the bar is stuck near 90%, Vector is flashing. Wait for reboot. Do not retry."
     );
     return;
   }
@@ -1477,6 +1479,8 @@ function seekOtaStartClock() {
   _seekOtaStartedAt = Date.now();
   _seekOtaRealPct = -1;
   _seekOtaBytes = null;
+  _seekOtaLastByteAt = 0;
+  _seekOtaLastCur = -1;
   if (_seekOtaTimer) clearInterval(_seekOtaTimer);
   $("#progressBarOta").addClass("seek-wait");
   var tick = function () {
@@ -1493,19 +1497,35 @@ function seekOtaStartClock() {
       bytesNote = "  " + curMb + " / " + expMb + " MB";
     }
     if (!(pct >= 0)) {
-      // Visible ramp until BLE reports real bytes (was ~8 min to 92% — looked stuck).
-      pct = Math.min(0.22, 0.05 + s * 0.012);
+      pct = Math.min(0.18, 0.05 + s * 0.01);
     }
     setOtaProgress(pct);
-    seekOtaNote(
-      "Updating Vector… " +
+    var stalled =
+      _seekOtaLastByteAt > 0 && Date.now() - _seekOtaLastByteAt > 120000;
+    var msg;
+    if (!( _seekOtaBytes && _seekOtaBytes.exp) && pct >= 0.9 && s > 420) {
+      msg =
+        "This 92% is the old fake bar (Pages JS not updated). " +
+        "elapsed " +
+        clock +
+        ". Do not retry. SSH recover-ota.sh v9, or hard-refresh so rts.js?v=seek9 loads.";
+    } else if (pct >= 0.8 || stalled) {
+      msg =
+        "Download done / flashing on the robot. The bar often freezes here. " +
+        "Wait for Vector to reboot (2–5 min). Do not retry. elapsed " +
+        clock +
+        bytesNote;
+    } else {
+      msg =
+        "Updating Vector… " +
         Math.round(pct * 100) +
         "%" +
         bytesNote +
         "  elapsed " +
         clock +
-        ". Keep the hotspot on. Do not retry."
-    );
+        ". Keep the hotspot on. Do not retry.";
+    }
+    seekOtaNote(msg);
   };
   tick();
   _seekOtaTimer = setInterval(tick, 250);
@@ -2062,8 +2082,12 @@ function HandleHandshake(version) {
       var cur = Number(value.current);
       if (exp > 0 && cur >= 0) {
         _seekOtaBytes = { cur: cur, exp: exp };
+        if (cur !== _seekOtaLastCur) {
+          _seekOtaLastCur = cur;
+          _seekOtaLastByteAt = Date.now();
+        }
         if (cur > 0) {
-          _seekOtaRealPct = Math.min(0.99, cur / exp);
+          _seekOtaRealPct = Math.min(1, cur / exp);
           setOtaProgress(_seekOtaRealPct);
         }
       }
