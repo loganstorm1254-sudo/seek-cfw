@@ -110,10 +110,7 @@ NEED=1
 case "$URL" in
   http://127.0.0.1:*|http://localhost:*) NEED=0 ;;
 esac
-if [ "$SZ" -ge 8000000 ]; then
-  echo "reusing existing $OTA ($SZ)" >> "$LOG"
-  NEED=0
-fi
+# Never reuse a leftover /ota/v.ota for a remote URL (150-byte error pages, wrong OS).
 if [ "$NEED" = 1 ]; then
   echo "Downloading to $OTA ..." >> "$LOG"
   rm -f "$OTA"

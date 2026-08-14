@@ -1532,8 +1532,7 @@ function otaStatusMessage(status) {
 }
 
 function doOta() {
-  // Original vector-web-setup: robot fetches HTTP from this PC (no TLS).
-  // Hosted HTTPS Cloudflare URLs → Vector 203 (broken CA).
+  // Public HTTPS Pages cannot fetch the robot (mixed content). BLE only.
   if (!rtsHandler) {
     $("#otaErrorLabel").removeClass("vec-hidden");
     $("#otaErrorLabel").html("Not connected to Vector over BLE.");
@@ -1561,127 +1560,43 @@ function doOta() {
       "</div>"
   );
 
-  var startBle = function (otaUrl, reason) {
-    console.log("BLE OTA start", otaUrl, reason || "");
-    if (!rtsHandler || typeof rtsHandler.doOtaStart !== "function") {
-      $("#otaErrorLabel").removeClass("vec-hidden");
-      $("#otaErrorLabel").html(
-        "Could not start OTA over BLE (" + (reason || "no handler") + ")."
-      );
-      $("#btnTryAgain").removeClass("vec-hidden");
-      return;
-    }
-    _seekOtaBusy = true;
-    seekOtaStartClock();
-    setOtaProgress(0.06);
-    seekOtaNote("Starting update…");
-    rtsHandler.doOtaStart(otaUrl).then(
-      function (msg) {
-        console.log("ota success", msg);
-        seekOtaDone();
-        toggleIcon("iconOta", true);
-        seekOtaNote("Update installed. Vector is rebooting.");
-      },
-      function (msg) {
-        console.log(msg);
-        if (_seekOtaBusy && (!msg || msg === "disconnected")) {
-          return;
-        }
-        seekOtaDone();
-        var status =
-          msg && msg.value && msg.value.status != null
-            ? msg.value.status
-            : msg && msg.status != null
-            ? msg.status
-            : "?";
-        $("#otaErrorLabel").removeClass("vec-hidden");
-        $("#otaErrorLabel").html(
-          "Error while updating Vector.<br/>" + otaStatusMessage(status)
-        );
-        $("#btnTryAgain").removeClass("vec-hidden");
-      }
-    );
-    // Keep BLE connected so progress packets can arrive. If they don't,
-    // seekOtaStartClock still advances the bar from elapsed time.
-  };
-
-  // Plain HTTP (LAN or Cloudflare http://files.anki.org.uk) — Vector has no TLS.
-  if (/^http:\/\//i.test(url)) {
-    startBle(url, "plain-http");
-    return;
-  }
-
-  if (/github\.com\//i.test(url) && !/\/g\/[^/]+\/[^/]+\.ota/i.test(url) && !/\/dl\//i.test(url) && !/\/ota\/latest/i.test(url)) {
+  if (!rtsHandler || typeof rtsHandler.doOtaStart !== "function") {
     $("#otaErrorLabel").removeClass("vec-hidden");
-    $("#otaErrorLabel").html(
-      "Raw GitHub links fail on Vector (status 203).<br/>" +
-        "Run <code>seek/websetup/serve.cmd</code> and install from http://localhost:8000/"
-    );
+    $("#otaErrorLabel").html("BLE OTA is not available on this connection.");
     $("#btnTryAgain").removeClass("vec-hidden");
     return;
   }
-
-  var tryHttpInstall = function (ip) {
-    if (!ip) return Promise.reject(new Error("no ip"));
-    var api =
-      "http://" +
-      ip +
-      "/api/mods/SeekDashboard/otaFromUrl?url=" +
-      encodeURIComponent(url);
-    return fetch(api, { method: "GET", cache: "no-store", mode: "cors" }).then(
-      function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.json().catch(function () {
-          return {};
-        });
+  _seekOtaBusy = true;
+  seekOtaStartClock();
+  setOtaProgress(0.08);
+  seekOtaNote("Starting update…");
+  rtsHandler.doOtaStart(url).then(
+    function (msg) {
+      console.log("ota success", msg);
+      seekOtaDone();
+      setOtaProgress(1);
+      toggleIcon("iconOta", true);
+      seekOtaNote("Update installed. Vector is rebooting.");
+    },
+    function (msg) {
+      console.log(msg);
+      if (_seekOtaBusy && (!msg || msg === "disconnected")) {
+        return;
       }
-    );
-  };
-
-  var startWithIp = function (ip) {
-    tryHttpInstall(ip).then(
-      function () {
-        toggleIcon("iconOta", true);
-        $("#otaUpdate").append(
-          "<p>Install started on Vector via Seek (update-os). Eyes may go dark. Keep Wi-Fi on.</p>"
-        );
-      },
-      function (err) {
-        startBle(url, err && err.message ? err.message : err);
-      }
-    );
-  };
-
-  if (typeof rtsHandler.doWifiIp === "function") {
-    rtsHandler.doWifiIp().then(
-      function (msg) {
-        var ip = null;
-        try {
-          var v = msg && msg.value ? msg.value : msg;
-          if (v && v.hasIpV4 && v.ipV4 && v.ipV4.length >= 4) {
-            ip =
-              (v.ipV4[0] & 255) +
-              "." +
-              (v.ipV4[1] & 255) +
-              "." +
-              (v.ipV4[2] & 255) +
-              "." +
-              (v.ipV4[3] & 255);
-          }
-        } catch (e) {
-          console.log(e);
-        }
-        console.log("robot wifi ip", ip);
-        if (ip && ip !== "0.0.0.0") startWithIp(ip);
-        else startBle(url, "no wifi ip");
-      },
-      function () {
-        startBle(url, "wifi-ip failed");
-      }
-    );
-  } else {
-    startBle(url, "no wifi-ip API");
-  }
+      seekOtaDone();
+      var status =
+        msg && msg.value && msg.value.status != null
+          ? msg.value.status
+          : msg && msg.status != null
+          ? msg.status
+          : "?";
+      $("#otaErrorLabel").removeClass("vec-hidden");
+      $("#otaErrorLabel").html(
+        "Error while updating Vector.<br/>" + otaStatusMessage(status)
+      );
+      $("#btnTryAgain").removeClass("vec-hidden");
+    }
+  );
 }
 
 function setView(mode, animate) {
