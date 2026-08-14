@@ -1022,13 +1022,27 @@ function setupOTAFiles() {
         var cloud = parseURL(String(endpoint.url).trim());
         cloud.type = TYPE.CLOUD;
         if (endpoint.name) cloud.filename = endpoint.name;
-        otaUrls.push(cloud);
+        if (seekIsLocalServe()) {
+          var lan = parseURL(seekPreferLanOta(cloud.href));
+          lan.type = TYPE.LOCAL;
+          lan.filename = cloud.filename || lan.filename;
+          otaUrls.push(lan);
+        } else {
+          otaUrls.push(cloud);
+        }
         return;
       }
       if (typeof endpoint === "string" && /^https?:\/\//i.test(endpoint)) {
         var direct = parseURL(endpoint.trim());
         direct.type = TYPE.CLOUD;
-        otaUrls.push(direct);
+        if (seekIsLocalServe()) {
+          var lanDirect = parseURL(seekPreferLanOta(direct.href));
+          lanDirect.type = TYPE.LOCAL;
+          lanDirect.filename = direct.filename;
+          otaUrls.push(lanDirect);
+        } else {
+          otaUrls.push(direct);
+        }
         return;
       }
       var localUrlPrefix = `http://${_networkIp}:${_serverPort}/static/firmware/${_stack.name}/`;
@@ -1105,7 +1119,32 @@ function seekFilesHostOrigin() {
   }
 }
 
-/** Vector's update-engine dies on GitHub 302s — use Worker /g/TAG/FILE path. */
+function seekIsLocalServe() {
+  var ip = String(_networkIp || "").trim();
+  if (!ip || ip === "127.0.0.1" || ip === "localhost" || ip === "::1") {
+    return false;
+  }
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(ip);
+}
+
+/** Original vector-web-setup trick: robot pulls OTA over LAN HTTP from this PC. */
+function seekLanFirmwareUrl(name) {
+  var file = String(name || "latest.ota").split("?")[0].split("/").pop() || "latest.ota";
+  file = file.replace(/\s+/g, "-");
+  if (!/\.ota$/i.test(file)) file = "latest.ota";
+  return "http://" + _networkIp + ":" + _serverPort + "/firmware/" + file;
+}
+
+function seekPreferLanOta(u) {
+  if (!u || !seekIsLocalServe()) return u;
+  try {
+    var parsed = new URL(u);
+    if (parsed.protocol === "http:" && parsed.hostname === _networkIp) return u;
+  } catch (e) {}
+  var name = String(u).split("?")[0].split("/").pop();
+  if (/ota\/latest/i.test(u) || /latest\.ota/i.test(u)) name = "latest.ota";
+  return seekLanFirmwareUrl(name);
+}
 function seekRewriteOtaUrl(u) {
   if (!u) return u;
   var s = String(u);
@@ -1390,13 +1429,12 @@ function otaStatusMessage(status) {
     case 201:
       return "OTA package invalid (missing boot/system)";
     case 203:
-      return "Robot could not open the OTA URL (status 203 — broken TLS on Vector).<br/>" +
-        "SSH once, then retry Install:<br/>" +
-        "<code>ssh -o PubkeyAcceptedAlgorithms=+ssh-rsa -i KEY root@ROBOT_IP \"curl -k -L -4 -o /tmp/f.sh https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/scripts/fix-ble-ota.sh && sh /tmp/f.sh\"</code>";
+      return "Robot could not open the OTA URL (status 203 — Vector cannot do Cloudflare TLS).<br/>" +
+        "Do not use the online site for Install. Run <code>seek\\websetup\\serve.cmd</code> and open " +
+        "<code>http://localhost:8000/</code> in Chrome (robot downloads HTTP from your PC).";
     case 204:
       return "Download failed / not a valid OTA (status 204).<br/>" +
-        "Often curl CA on the robot (exit 77) — run <code>fix-ble-ota.ps1</code>, then retry " +
-        "<code>/ota/latest</code>.";
+        "Use local Seek Web Setup so the robot pulls HTTP from your PC, not HTTPS.";
     case 208:
     case 209:
       return "Flash pipeline failed on robot (status " + n + ")";
@@ -1406,8 +1444,8 @@ function otaStatusMessage(status) {
 }
 
 function doOta() {
-  // Seek: prefer robot HTTP → update-os (works). BLE update-engine often
-  // returns status 203 on Cloudflare URLs.
+  // Original vector-web-setup: robot fetches HTTP from this PC (no TLS).
+  // Hosted HTTPS Cloudflare URLs → Vector 203 (broken CA).
   if (!rtsHandler) {
     $("#otaErrorLabel").removeClass("vec-hidden");
     $("#otaErrorLabel").html("Not connected to Vector over BLE.");
@@ -1415,7 +1453,7 @@ function doOta() {
     return;
   }
 
-  var url = seekRewriteOtaUrl(getOtaUrl());
+  var url = seekPreferLanOta(seekRewriteOtaUrl(getOtaUrl()));
   _otaEndpoint = url;
 
   if (!url) {
@@ -1435,17 +1473,59 @@ function doOta() {
       "</div>"
   );
 
+  var startBle = function (otaUrl, reason) {
+    console.log("BLE OTA start", otaUrl, reason || "");
+    if (!rtsHandler || typeof rtsHandler.doOtaStart !== "function") {
+      $("#otaErrorLabel").removeClass("vec-hidden");
+      $("#otaErrorLabel").html(
+        "Could not start OTA over BLE (" +
+          (reason || "no handler") +
+          ").<br/>Run Seek Web Setup locally: <code>seek/websetup/serve.cmd</code> then open http://localhost:8000/"
+      );
+      $("#btnTryAgain").removeClass("vec-hidden");
+      return;
+    }
+    rtsHandler.doOtaStart(otaUrl).then(
+      function (msg) {
+        console.log("ota success", msg);
+        toggleIcon("iconOta", true);
+      },
+      function (msg) {
+        console.log(msg);
+        var status =
+          msg && msg.value && msg.value.status != null
+            ? msg.value.status
+            : msg && msg.status != null
+            ? msg.status
+            : "?";
+        $("#otaErrorLabel").removeClass("vec-hidden");
+        $("#otaErrorLabel").html(
+          "Error while updating Vector.<br/>" +
+            otaStatusMessage(status) +
+            "<br/><br/>Use local Seek Web Setup so Vector downloads HTTP from your PC:<br/>" +
+            "<code>seek\\websetup\\serve.cmd</code> then Chrome http://localhost:8000/"
+        );
+        $("#btnTryAgain").removeClass("vec-hidden");
+      }
+    );
+  };
+
+  // LAN HTTP from this PC — BLE update-engine can open it (no TLS).
+  if (/^http:\/\/\d+\.\d+\.\d+\.\d+/.test(url)) {
+    startBle(url, "lan-http");
+    return;
+  }
+
   if (/github\.com\//i.test(url) && !/\/g\/[^/]+\/[^/]+\.ota/i.test(url) && !/\/dl\//i.test(url) && !/\/ota\/latest/i.test(url)) {
     $("#otaErrorLabel").removeClass("vec-hidden");
     $("#otaErrorLabel").html(
       "Raw GitHub links fail on Vector (status 203).<br/>" +
-        "Use https://files.anki.org.uk/ota/latest or upload the .ota to R2."
+        "Run <code>seek/websetup/serve.cmd</code> and install from http://localhost:8000/"
     );
     $("#btnTryAgain").removeClass("vec-hidden");
     return;
   }
 
-  // Try install via Seek wired HTTP (update-os) using robot LAN IP from BLE.
   var tryHttpInstall = function (ip) {
     if (!ip) return Promise.reject(new Error("no ip"));
     var api =
@@ -1463,56 +1543,16 @@ function doOta() {
     );
   };
 
-  var bleFallback = function (reason) {
-    console.log("HTTP OTA unavailable, BLE fallback:", reason);
-    if (!rtsHandler || typeof rtsHandler.doOtaStart !== "function") {
-      $("#otaErrorLabel").removeClass("vec-hidden");
-      $("#otaErrorLabel").html(
-        "Could not reach Vector’s web API (" +
-          (reason || "no route") +
-          ").<br/>Run the one-time BLE OTA fix over SSH, then Try Again.<br/>" +
-          "<code>powershell -ExecutionPolicy Bypass -File fix-ble-ota.ps1</code> " +
-          "(from seek/scripts — pushes fix over scp; do not curl on the robot)."
-      );
-      $("#btnTryAgain").removeClass("vec-hidden");
-      return;
-    }
-    rtsHandler.doOtaStart(url).then(
-      function (msg) {
-        console.log("ota success", msg);
-        toggleIcon("iconOta", true);
-      },
-      function (msg) {
-        console.log(msg);
-        var status =
-          msg && msg.value && msg.value.status != null
-            ? msg.value.status
-            : msg && msg.status != null
-            ? msg.status
-            : "?";
-        $("#otaErrorLabel").removeClass("vec-hidden");
-        $("#otaErrorLabel").html(
-          "Error while updating Vector.<br/>" +
-            otaStatusMessage(status) +
-            "<br/><br/>If this keeps happening, run once on the robot:<br/>" +
-            "<code>powershell -ExecutionPolicy Bypass -File fix-ble-ota.ps1</code> " +
-          "(from seek/scripts — pushes fix over scp; do not curl on the robot)."
-        );
-        $("#btnTryAgain").removeClass("vec-hidden");
-      }
-    );
-  };
-
   var startWithIp = function (ip) {
     tryHttpInstall(ip).then(
       function () {
         toggleIcon("iconOta", true);
         $("#otaUpdate").append(
-          "<p>Install started on Vector via Seek (update-os). Eyes may go dark. Keep Wi‑Fi on.</p>"
+          "<p>Install started on Vector via Seek (update-os). Eyes may go dark. Keep Wi-Fi on.</p>"
         );
       },
       function (err) {
-        bleFallback(err && err.message ? err.message : err);
+        startBle(url, err && err.message ? err.message : err);
       }
     );
   };
@@ -1523,7 +1563,6 @@ function doOta() {
         var ip = null;
         try {
           var v = msg && msg.value ? msg.value : msg;
-          // RtsWifiIpResponse.ipV4 is a 4-byte array
           if (v && v.hasIpV4 && v.ipV4 && v.ipV4.length >= 4) {
             ip =
               (v.ipV4[0] & 255) +
@@ -1539,14 +1578,14 @@ function doOta() {
         }
         console.log("robot wifi ip", ip);
         if (ip && ip !== "0.0.0.0") startWithIp(ip);
-        else bleFallback("no wifi ip");
+        else startBle(url, "no wifi ip");
       },
       function () {
-        bleFallback("wifi-ip failed");
+        startBle(url, "wifi-ip failed");
       }
     );
   } else {
-    bleFallback("no wifi-ip API");
+    startBle(url, "no wifi-ip API");
   }
 }
 

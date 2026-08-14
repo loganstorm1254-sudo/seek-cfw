@@ -1,49 +1,19 @@
-Seek Web Setup — R2 OTA list only
-=================================
+Seek Web Setup
+==============
 
-/api/otas.json lists ONLY .ota files you uploaded to R2.
-It does not pull GitHub releases.
+Online Pages (pairing / Wi-Fi only)
+  Upload seek-websetup-pages.zip to Cloudflare Pages.
+  settings.json otaListUrl: https://files.anki.org.uk/api/otas.json
+  Worker: worker-otas.js  R2 binding OTA
 
-------------------------------------------------
-Worker (files.anki.org.uk)
-------------------------------------------------
-1. Paste worker-otas.js into the Worker, Deploy
-2. R2 binding name: OTA
-3. Upload files under folder OTA/  (avoid spaces in names if you can)
-     OTA/vicos-3.0.1.42d.ota
+OTA Install (avoids status 203)
+  The online HTTPS URL cannot be opened by Vector (broken CA → 203).
+  Same as original Vector Web Setup: serve OTAs over LAN HTTP from your PC.
 
-Test:
-  https://files.anki.org.uk/api/otas.json
-Should show only your R2 files.
+  1. Install Node.js
+  2. Double-click seek/websetup/serve.cmd
+     or:  cd seek/websetup && node bin/seek-web-setup.js ota-sync && node bin/seek-web-setup.js serve
+  3. Chrome → http://localhost:8000/
+  4. Pair → Wi-Fi → pick OTA → Install
 
-------------------------------------------------
-Pages (setup site)
-------------------------------------------------
-settings.json:
-  "otaListUrl": "https://files.anki.org.uk/api/otas.json"
-
-Upload seek-websetup-pages.zip to Pages.
-Chrome → pair → Wi‑Fi → pick OTA → Install
-
-Tip: rename "seek os 3.01.42d.ota" to vicos-3.0.1.42d.ota (no spaces).
-
-------------------------------------------------
-Robot offline / SSH timeout / curl (77)
-------------------------------------------------
-Phone hotspots renumber Vectors; SSH often times out. Broken CA → curl 77.
-
-From Windows PowerShell (PC on same hotspot as Vector):
-
-  cd path\to\seek-cfw\seek\scripts
-  powershell -ExecutionPolicy Bypass -File .\fix-ble-ota.ps1 -Scan
-
-Or one IP:
-
-  powershell -ExecutionPolicy Bypass -File .\fix-ble-ota.ps1 -Key C:\Users\Logan\Downloads\ssh_root_key.txt -Ip 192.168.43.130
-
-This scp's the fix (robot never curls GitHub). Fix survives reboot.
-
-If SSH never answers: reboot Vector on charger → rejoin hotspot via BLE websetup →
-open http://ROBOT_IP → Install OTA (file upload), or re-run the .ps1 with the new IP.
-
-After fix: Install https://files.anki.org.uk/ota/latest from websetup.
+Robot fetches http://YOUR-PC-IP:8000/firmware/latest.ota (no TLS).

@@ -3,7 +3,7 @@
     "seek": {
       "accountEndpoints": "https://accounts.api.anki.com",
       "apiKeys": "luyain9ep5phahP8aph8xa",
-      "otaListUrl": "https://FILES.YOURDOMAIN.com/api/otas.json"
+      "otaListUrl": "https://files.anki.org.uk/api/otas.json"
     }
   }
 }
