@@ -1,8 +1,13 @@
 #!/bin/sh
 # ONE command: curl this script and run it.
 set -e
+# Vector often has a missing CA file; curl then exits 77 even for HTTPS.
+# -k alone is not enough if SSL_CERT_FILE points at a missing path.
+unset SSL_CERT_FILE CURL_CA_BUNDLE || true
+export SSL_CERT_FILE=
+export CURL_CA_BUNDLE=
+
 RAW=https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/overlays/anki/wired/update-os.sh
-# Vector often has a broken/missing CA bundle (curl exit 77).
 curl -k -L -4 --http1.1 --max-time 60 -o /data/update-os.sh "$RAW"
 chmod 644 /data/update-os.sh
 touch /data/keep-update-os
