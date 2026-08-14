@@ -212,6 +212,20 @@ static bool url_should_skip_device_info(const std::string &url)
       || url.compare(0, 7, "file://") == 0;
 }
 
+// Vector cannot verify Cloudflare/Let's Encrypt (BLE OTA status 203).
+// Public websetup still sends http://; this rewrite covers https:// slips.
+static void rewrite_https_for_vector(std::string &url)
+{
+  const std::string https = "https://";
+  if (url.compare(0, https.size(), https) != 0)
+    return;
+  if (url.find("anki.org.uk") == std::string::npos)
+    return;
+  url.replace(0, https.size(), "http://");
+  if (verbose)
+    std::cout << "rewrote HTTPS to HTTP: " << url << std::endl;
+}
+
 static void append_device_info_to_url(std::string &url)
 {
   if (url_should_skip_device_info(url))
@@ -518,6 +532,8 @@ int main(int argc, char **argv)
     }
   }
   
+  rewrite_https_for_vector(url);
+
   system("/usr/bin/rm -rf /run/update-engine");
   system("/usr/bin/mkdir /run/update-engine");
 
@@ -536,7 +552,7 @@ int main(int argc, char **argv)
   // get content-length
   {
     // Follow redirects and take the LAST Content-Length (GitHub 302 has none).
-    std::string curl_head = "curl -sIL --http1.1 -4 --max-time 15 --connect-timeout 10 \"" + url + "\" 2>/dev/null";
+    std::string curl_head = "curl -k -sIL --http1.1 -4 --max-time 15 --connect-timeout 10 \"" + url + "\" 2>/dev/null";
     std::string hdrs = run_command_capture_stdout(curl_head);
     std::string content_length = "0";
     std::istringstream iss(hdrs);
@@ -562,7 +578,7 @@ int main(int argc, char **argv)
   }
 
   // my dorm wifi is shitty
-  std::string curl_cmd = "curl -L --http1.1 -4 --silent --show-error --retry 3 --connect-timeout 20 \"" + url + "\"";
+  std::string curl_cmd = "curl -k -L --http1.1 -4 --silent --show-error --retry 3 --connect-timeout 20 \"" + url + "\"";
   FILE *curl_pipe = popen(curl_cmd.c_str(), "r");
   if (!curl_pipe)
   {

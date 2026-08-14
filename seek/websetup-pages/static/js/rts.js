@@ -1505,10 +1505,10 @@ function seekOtaStartClock() {
     var msg;
     if (!( _seekOtaBytes && _seekOtaBytes.exp) && pct >= 0.9 && s > 420) {
       msg =
-        "This 92% is the old fake bar (Pages JS not updated). " +
-        "elapsed " +
-        clock +
-        ". Do not retry. SSH recover-ota.sh v9, or hard-refresh so rts.js?v=seek9 loads.";
+        "Progress bar is a guess until the robot reports bytes. " +
+        "Hard-refresh this page (rts.js?v=seek10) if it sits at 92% with no MB. " +
+        "Do not tap Try Again. Keep the hotspot on. elapsed " +
+        clock;
     } else if (pct >= 0.8 || stalled) {
       msg =
         "Download done / flashing on the robot. The bar often freezes here. " +
@@ -1560,11 +1560,12 @@ function otaStatusMessage(status) {
       return "OTA package invalid (missing boot/system)";
     case 203:
       return "Robot could not open the OTA URL (status 203).<br/>" +
-        "Vector cannot verify HTTPS. This site must send <code>http://files.anki.org.uk/...</code> " +
-        "(not https). Redeploy Pages + Worker, then retry Install.";
+        "Vector cannot verify HTTPS. Install must send <code>http://files.anki.org.uk/...</code> " +
+        "(not https). Hard-refresh this page, keep the phone hotspot on, then Install once.";
     case 204:
       return "Download failed / not a valid OTA (status 204).<br/>" +
-        "Use local Seek Web Setup so the robot pulls HTTP from your PC, not HTTPS.";
+        "Keep Vector on the hotspot and Install once. The robot fetches " +
+        "<code>http://files.anki.org.uk/ota/latest</code> (HTTP, not HTTPS).";
     case 208:
     case 209:
       return "Flash pipeline failed on robot (status " + n + ")";

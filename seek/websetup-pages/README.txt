@@ -1,10 +1,26 @@
 Seek Web Setup (Cloudflare Pages)
 =================================
 
-Vector cannot verify HTTPS (status 203). This site lists OTAs over HTTPS
-in Chrome, but Install tells the robot to fetch **http://** (no TLS).
+Everyone uses this site over BLE. Nobody needs SSH.
+
+Vector cannot verify HTTPS (status 203). Chrome talks to this site over
+HTTPS; Install tells the robot to fetch **http://** (no TLS).
 
 http://files.anki.org.uk/ota/latest  already returns HTTP 200 (no redirect).
+
+------------------------------------------------
+What other people do
+------------------------------------------------
+1. Open the Seek Web Setup Pages site in Chrome.
+2. Pair Vector over Bluetooth, join the phone hotspot.
+3. Choose **Seek OS (latest)** → Install.
+4. Leave the page open. The bar often freezes during flash — wait for
+   Vector to reboot (a few minutes). Do not tap Try Again.
+
+The robot downloads: http://files.anki.org.uk/ota/latest
+
+SeekOS 3.0.1.44d and later ship the BLE wrap + HTTP fallback inside the
+OTA, so the next update works the same way with no extra steps.
 
 ------------------------------------------------
 Worker (required for the robot to pull)
@@ -22,20 +38,13 @@ settings.json:
   "otaListUrl": "https://files.anki.org.uk/api/otas.json"
 
 Zip the websetup-pages folder (index.html at the zip root) and upload.
-Hard-refresh Chrome so rts.js?v=seek9 loads.
-
-Robot downloads: http://files.anki.org.uk/dl/... or
-http://files.anki.org.uk/ota/latest
+Hard-refresh Chrome so rts.js?v=seek10 loads.
 
 Do NOT enable a Cloudflare "Always Use HTTPS" rule on /ota* or /dl*
 or the robot will follow the redirect and 203 again.
 
 ------------------------------------------------
-Robot wrap v8 (SSH once)
+Maintainer recovery (optional, not for users)
 ------------------------------------------------
-Unstick the update face, then install the wrap that downloads over HTTP
-to /ota/v.ota and writes BLE progress files:
-
-ssh ... root@ROBOT "curl -k -L -4 -o /tmp/r.sh https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/scripts/recover-ota.sh && sh /tmp/r.sh"
-
-Want: FACE / OK - BLE OTA fix v8
+SSH wrap is only for a robot that already has a stuck local /ota/v.ota.
+Public installs never use it.

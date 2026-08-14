@@ -1,55 +1,4 @@
 #!/bin/sh
-# Fix BLE websetup OTA (status 203/204) on a live Seek robot.
-#
-# Stock update-engine uses TLS against Cloudflare → 203.
-# /data is often ~58MB, too small for a 171MB OTA — store payload on /ota.
-#
-# v9: resume stalled downloads, flash file:///ota/v.ota (no second HTTP pull).
-# The 92% freeze was wrap finishing the download then hanging while
-# update-engine.real re-downloaded the same file via Python httpd.
-set -e
-
-VERSION=9
-
-mount -o remount,rw / 2>/dev/null || true
-umount /usr/bin/curl 2>/dev/null || true
-umount /usr/sbin/update-os 2>/dev/null || true
-umount /anki/bin/update-engine 2>/dev/null || true
-
-mkdir -p /ota /anki /data /run /run/update-engine /etc/systemd/system
-
-pick_curl() {
-  for c in /usr/bin/curl.anki /bin/curl /usr/bin/curl; do
-    if [ -x "$c" ] && ! head -n 1 "$c" 2>/dev/null | grep -q '^#!'; then
-      echo "$c"
-      return 0
-    fi
-  done
-  echo /usr/bin/curl
-}
-REALCURL=$(pick_curl)
-if [ ! -x /usr/bin/curl.anki ]; then
-  cp -L "$REALCURL" /usr/bin/curl.anki 2>/dev/null || cp "$REALCURL" /usr/bin/curl.anki
-  chmod 755 /usr/bin/curl.anki
-fi
-
-cat > /usr/bin/curl << 'EOF'
-#!/bin/sh
-exec /usr/bin/curl.anki -k -L --http1.1 -4 --connect-timeout 30 "$@"
-EOF
-chmod 755 /usr/bin/curl
-
-if [ ! -e /anki/bin/update-engine.real ] || grep -q 'Seek BLE OTA wrap' /anki/bin/update-engine.real 2>/dev/null; then
-  if [ -e /anki/bin/update-engine ] && ! grep -q 'Seek BLE OTA wrap' /anki/bin/update-engine 2>/dev/null; then
-    cp -a /anki/bin/update-engine /anki/bin/update-engine.real
-    chmod 755 /anki/bin/update-engine.real
-  fi
-fi
-
-# Keep this body in sync with
-# seek/overlays/poky/victor/meta-anki/recipes/anki-robot/files/update-engine-wrap.sh
-cat > /anki/bin/update-engine << 'EOF'
-#!/bin/sh
 # Seek BLE OTA wrap v9 (shipped in the OTA — no SSH).
 # Public websetup only starts /anki/bin/update-engine <url>. This wrap:
 #   - rewrites https://*.anki.org.uk → http:// (Vector cannot verify TLS)
@@ -132,6 +81,7 @@ ota_usable() {
   rm -f /ota/.seek-write
   AVAIL=`df -P /ota 2>/dev/null | awk 'NR==2 { print $4 }'`
   [ -n "$AVAIL" ] || return 1
+  # df -P is KB. Need ~200MB free (or a large in-progress file).
   if [ "$SZ" -ge 8000000 ]; then
     return 0
   fi
@@ -215,46 +165,3 @@ cp -f "$LOG" /data/update-engine-wrapper.log 2>/dev/null || true
 echo "flashing file://$OTA via $REAL" >> "$LOG"
 echo "flashing file://$OTA via $REAL" >> /data/update-engine-wrapper.log
 exec "$REAL" -v "file://$OTA"
-EOF
-chmod 755 /anki/bin/update-engine
-
-cp -a /anki/bin/update-engine /data/update-engine-wrap 2>/dev/null || true
-cp -a /anki/bin/update-engine.real /data/update-engine.real 2>/dev/null || true
-chmod 755 /data/update-engine-wrap /data/update-engine.real 2>/dev/null || true
-
-cat > /data/seek-ble-ota-apply.sh << 'EOF'
-#!/bin/sh
-mount -o remount,rw / 2>/dev/null || true
-umount /anki/bin/update-engine 2>/dev/null || true
-if [ -x /data/update-engine-wrap ]; then
-  if grep -q 'Seek BLE OTA wrap v9' /anki/bin/update-engine 2>/dev/null; then
-    exit 0
-  fi
-  cp -a /data/update-engine-wrap /anki/bin/update-engine
-  chmod 755 /anki/bin/update-engine
-fi
-exit 0
-EOF
-chmod 755 /data/seek-ble-ota-apply.sh
-sh /data/seek-ble-ota-apply.sh
-
-cat > /etc/systemd/system/seek-ble-ota-fix.service << EOF
-[Unit]
-Description=Seek BLE OTA fix v${VERSION}
-DefaultDependencies=no
-After=local-fs.target
-
-[Service]
-Type=oneshot
-ExecStart=/data/seek-ble-ota-apply.sh
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl daemon-reload 2>/dev/null || true
-systemctl enable seek-ble-ota-fix.service 2>/dev/null || true
-
-echo "OK - BLE OTA fix v${VERSION}"
-ls -la /anki/bin/update-engine /anki/bin/update-engine.real /ota/v.ota 2>/dev/null || true
-grep 'Seek BLE OTA wrap' /anki/bin/update-engine
