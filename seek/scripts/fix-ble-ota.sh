@@ -1,23 +1,22 @@
 #!/bin/sh
 # Fix BLE websetup OTA (status 203) on a live Seek robot.
-# Strategy: download the OTA with a known-good curl to /data/ota/v.ota,
-# then run real update-engine against http://127.0.0.1:8766/v.ota
-# (Vector's updater often can't open Cloudflare URLs directly → 203).
 #
-# Also: many Seek robots have a broken CA store (curl exit 77). We use -k.
-# Bind-mounts die on reboot — this installs a oneshot that re-applies them.
+# Stock update-engine uses Python SSL against Cloudflare → 203
+# (broken CA bundle). /data is often ~58MB, too small for a 171MB OTA.
+#
+# This wraps /anki/bin/update-engine: curl -k the OTA onto /ota (rootfs),
+# serve it on 127.0.0.1, flash over HTTP (no TLS).
 set -e
 
-VERSION=3
+VERSION=4
 
 mount -o remount,rw / 2>/dev/null || true
 umount /usr/bin/curl 2>/dev/null || true
 umount /usr/sbin/update-os 2>/dev/null || true
 umount /anki/bin/update-engine 2>/dev/null || true
 
-mkdir -p /data /data/ota /run /run/update-engine /etc/systemd/system
+mkdir -p /ota /anki /run /run/update-engine /etc/systemd/system
 
-# Real curl binary on /data (never overwrite busy /usr/bin/curl)
 pick_curl() {
   for c in /usr/bin/curl.anki /bin/curl /usr/bin/curl; do
     if [ -x "$c" ] && ! head -1 "$c" 2>/dev/null | grep -q '^#!'; then
@@ -28,29 +27,30 @@ pick_curl() {
   echo /usr/bin/curl
 }
 REALCURL=$(pick_curl)
-cp -L "$REALCURL" /data/curl.anki 2>/dev/null || cp "$REALCURL" /data/curl.anki
-chmod 755 /data/curl.anki
-
-# -k: Vector CA bundle is often missing/broken (curl: 77)
-cat > /data/curl-shim << 'EOF'
-#!/bin/sh
-exec /data/curl.anki -k -L --http1.1 -4 --connect-timeout 30 "$@"
-EOF
-chmod 755 /data/curl-shim
-
-# Save real update-engine once (must be ELF, not a script)
-if [ ! -x /data/update-engine.real ] || head -1 /data/update-engine.real 2>/dev/null | grep -q '^#!'; then
-  umount /anki/bin/update-engine 2>/dev/null || true
-  SRC=/anki/bin/update-engine
-  [ -x /anki/bin/update-engine.real ] && SRC=/anki/bin/update-engine.real
-  cp -a "$SRC" /data/update-engine.real
-  chmod 755 /data/update-engine.real
+if [ ! -x /usr/bin/curl.anki ]; then
+  cp -L "$REALCURL" /usr/bin/curl.anki 2>/dev/null || cp "$REALCURL" /usr/bin/curl.anki
+  chmod 755 /usr/bin/curl.anki
 fi
 
-# Wrapper: BLE starts update-engine.service → we download then flash local
-cat > /data/update-engine-wrap << 'EOF'
+cat > /usr/bin/curl << 'EOF'
+#!/bin/sh
+exec /usr/bin/curl.anki -k -L --http1.1 -4 --connect-timeout 30 "$@"
+EOF
+chmod 755 /usr/bin/curl
+
+# Save original update-engine once (ELF or python — not our wrapper)
+if [ ! -e /anki/bin/update-engine.real ] || grep -q 'Seek BLE OTA wrap' /anki/bin/update-engine.real 2>/dev/null; then
+  if [ -e /anki/bin/update-engine ] && ! grep -q 'Seek BLE OTA wrap' /anki/bin/update-engine 2>/dev/null; then
+    cp -a /anki/bin/update-engine /anki/bin/update-engine.real
+    chmod 755 /anki/bin/update-engine.real
+  fi
+fi
+
+# Wrapper lives in-place so BLE / vic-switchboard always hit it (no systemd unit required).
+cat > /anki/bin/update-engine << 'EOF'
 #!/bin/bash
-mkdir -p /run/update-engine /data/ota
+# Seek BLE OTA wrap v4
+mkdir -p /run/update-engine /ota
 LOG=/run/update-engine/wrapper.log
 echo "wrapper start $(date)" >> "$LOG"
 echo "env URL=${UPDATE_ENGINE_URL-}" >> "$LOG"
@@ -71,10 +71,11 @@ if [ -z "$URL" ]; then
 fi
 echo "using URL=$URL" >> "$LOG"
 
-REAL=/data/update-engine.real
-CURL=/data/curl.anki
+REAL=/anki/bin/update-engine.real
+CURL=/usr/bin/curl.anki
+[ -x "$CURL" ] || CURL=/usr/bin/curl
+OTA=/ota/v.ota
 
-# Already a local flash URL — just run engine
 case "$URL" in
   http://127.0.0.1:*|http://localhost:*)
     exec "$REAL" -v "$URL"
@@ -87,73 +88,69 @@ if [ -z "$URL" ]; then
   exit 203
 fi
 
-echo "Downloading to /data/ota/v.ota ..." >> "$LOG"
-rm -f /data/ota/v.ota
-# -k: broken CA store on many Vectors (curl 77)
-if ! "$CURL" -k -L --http1.1 -4 --retry 3 --connect-timeout 30 --max-time 1800 -o /data/ota/v.ota "$URL" >> "$LOG" 2>&1; then
-  echo "download failed" > /run/update-engine/error
-  echo 204 > /run/update-engine/exit_code
-  echo "download failed" >> "$LOG"
-  exit 204
+NEED=1
+if [ -f "$OTA" ]; then
+  SZ=$(stat -c %s "$OTA" 2>/dev/null || echo 0)
+  if [ "$SZ" -ge 8000000 ]; then
+    echo "reusing existing $OTA ($SZ bytes)" >> "$LOG"
+    NEED=0
+  fi
 fi
-SZ=$(stat -c %s /data/ota/v.ota 2>/dev/null || echo 0)
-echo "downloaded $SZ bytes" >> "$LOG"
+
+if [ "$NEED" = 1 ]; then
+  echo "Downloading to $OTA ..." >> "$LOG"
+  rm -f "$OTA"
+  if ! "$CURL" -k -L --http1.1 -4 --retry 3 --connect-timeout 30 --max-time 1800 -o "$OTA" "$URL" >> "$LOG" 2>&1; then
+    echo "download failed" > /run/update-engine/error
+    echo 204 > /run/update-engine/exit_code
+    echo "download failed" >> "$LOG"
+    exit 204
+  fi
+fi
+SZ=$(stat -c %s "$OTA" 2>/dev/null || echo 0)
+echo "ota size $SZ bytes" >> "$LOG"
 if [ "$SZ" -lt 8000000 ]; then
   echo "download too small ($SZ)" > /run/update-engine/error
   echo 204 > /run/update-engine/exit_code
   exit 204
 fi
 
-# Local HTTP for update-engine (no Cloudflare)
 killall httpd 2>/dev/null || true
-busybox httpd -p 127.0.0.1:8766 -h /data/ota 2>/dev/null || httpd -p 127.0.0.1:8766 -h /data/ota 2>/dev/null || true
 sleep 1
-echo "flashing local http://127.0.0.1:8766/v.ota" >> "$LOG"
-exec "$REAL" -v "http://127.0.0.1:8766/v.ota"
+busybox httpd -p 127.0.0.1:8767 -h /ota 2>/dev/null || httpd -p 127.0.0.1:8767 -h /ota 2>/dev/null || true
+sleep 1
+echo "flashing local http://127.0.0.1:8767/v.ota" >> "$LOG"
+exec "$REAL" -v "http://127.0.0.1:8767/v.ota"
 EOF
-chmod 755 /data/update-engine-wrap
+chmod 755 /anki/bin/update-engine
 
-# update-os for SSH / otaFromUrl — fetch with -k; keep existing if fetch fails
-if [ ! -f /data/update-os.sh ] || ! grep -q 'http1.1\|-k' /data/update-os.sh 2>/dev/null; then
-  /data/curl.anki -k -L --http1.1 -4 --max-time 60 -o /data/update-os.sh \
-    https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/overlays/anki/wired/update-os.sh || true
-  chmod 644 /data/update-os.sh 2>/dev/null || true
-fi
-# Ensure -k is present even on older cached update-os.sh
-if [ -f /data/update-os.sh ] && ! grep -q -- ' -k ' /data/update-os.sh 2>/dev/null; then
-  sed -i 's|exec /usr/bin/curl.anki -L|exec /usr/bin/curl.anki -k -L|g' /data/update-os.sh 2>/dev/null || true
-fi
-touch /data/keep-update-os 2>/dev/null || true
-printf '%s\n' '#!/bin/bash' 'exec /bin/bash /data/update-os.sh "$@"' >/data/update-os-wrap
-chmod 755 /data/update-os-wrap
+# Persist tiny files on /data (survives reboot). OTA payload stays on /ota.
+mkdir -p /data
+cp -a /anki/bin/update-engine /data/update-engine-wrap 2>/dev/null || true
+cp -a /anki/bin/update-engine.real /data/update-engine.real 2>/dev/null || true
+chmod 755 /data/update-engine-wrap /data/update-engine.real 2>/dev/null || true
 
-# Boot-safe apply: rebind after every reboot
 cat > /data/seek-ble-ota-apply.sh << 'EOF'
 #!/bin/sh
-# Re-apply Seek BLE OTA fix after boot (bind-mounts do not persist).
 mount -o remount,rw / 2>/dev/null || true
-umount /usr/bin/curl 2>/dev/null || true
-umount /usr/sbin/update-os 2>/dev/null || true
 umount /anki/bin/update-engine 2>/dev/null || true
-[ -x /data/curl-shim ] && mount --bind /data/curl-shim /usr/bin/curl 2>/dev/null || true
-[ -x /data/update-engine-wrap ] && mount --bind /data/update-engine-wrap /anki/bin/update-engine 2>/dev/null || true
-if [ -f /data/update-os.sh ]; then
-  if printf '%s\n' '#!/bin/bash' 'exec /bin/bash /data/update-os.sh "$@"' >/usr/sbin/update-os 2>/dev/null; then
-    chmod 755 /usr/sbin/update-os
-  else
-    [ -x /data/update-os-wrap ] && mount --bind /data/update-os-wrap /usr/sbin/update-os 2>/dev/null || true
+if [ -x /data/update-engine-wrap ]; then
+  if grep -q 'Seek BLE OTA wrap' /anki/bin/update-engine 2>/dev/null; then
+    exit 0
   fi
+  mount --bind /data/update-engine-wrap /anki/bin/update-engine 2>/dev/null || \
+    cp -a /data/update-engine-wrap /anki/bin/update-engine
 fi
 exit 0
 EOF
 chmod 755 /data/seek-ble-ota-apply.sh
+cp -a /data/seek-ble-ota-apply.sh /anki/seek-ble-ota-apply.sh 2>/dev/null || true
 
 cat > /etc/systemd/system/seek-ble-ota-fix.service << EOF
 [Unit]
-Description=Seek BLE OTA fix (curl/update-engine bind mounts) v${VERSION}
+Description=Seek BLE OTA fix v${VERSION}
 DefaultDependencies=no
 After=local-fs.target
-Before=update-engine.service update-engine.timer
 
 [Service]
 Type=oneshot
@@ -163,13 +160,10 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 EOF
-
 systemctl daemon-reload 2>/dev/null || true
 systemctl enable seek-ble-ota-fix.service 2>/dev/null || true
-/data/seek-ble-ota-apply.sh
 
-echo "OK — BLE OTA fix v${VERSION} installed (download→local flash, -k TLS, survives reboot)."
-echo "Log: /run/update-engine/wrapper.log"
-mount | grep -E 'curl|update-engine' || true
-ls -la /data/curl.anki /data/update-engine.real /data/update-engine-wrap /data/seek-ble-ota-apply.sh
-systemctl is-enabled seek-ble-ota-fix.service 2>/dev/null || true
+echo "OK - BLE OTA fix v${VERSION} (curl -k, OTA stored in /ota, in-place wrap)."
+echo "Retry websetup Install. Log: /run/update-engine/wrapper.log"
+ls -la /anki/bin/update-engine /anki/bin/update-engine.real /ota/v.ota 2>/dev/null || true
+head -2 /anki/bin/update-engine

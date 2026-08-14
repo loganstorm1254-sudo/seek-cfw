@@ -1390,9 +1390,9 @@ function otaStatusMessage(status) {
     case 201:
       return "OTA package invalid (missing boot/system)";
     case 203:
-      return "Robot could not open the OTA URL (status 203).<br/>" +
-        "Use https://files.anki.org.uk/ota/latest (no GitHub, no spaces in filename).<br/>" +
-        "If it still fails: run <code>fix-ble-ota.ps1</code> from your PC (broken CA / curl on robot).";
+      return "Robot could not open the OTA URL (status 203 — broken TLS on Vector).<br/>" +
+        "SSH once, then retry Install:<br/>" +
+        "<code>ssh -o PubkeyAcceptedAlgorithms=+ssh-rsa -i KEY root@ROBOT_IP \"curl -k -L -4 -o /tmp/f.sh https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/scripts/fix-ble-ota.sh && sh /tmp/f.sh\"</code>";
     case 204:
       return "Download failed / not a valid OTA (status 204).<br/>" +
         "Often curl CA on the robot (exit 77) — run <code>fix-ble-ota.ps1</code>, then retry " +
