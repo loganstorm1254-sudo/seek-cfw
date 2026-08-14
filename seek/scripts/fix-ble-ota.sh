@@ -46,10 +46,10 @@ fi
 
 cat > /anki/bin/update-engine << 'EOF'
 #!/bin/sh
-# Seek BLE OTA wrap v5
+# Seek BLE OTA wrap v6
 mkdir -p /run/update-engine /ota
 LOG=/run/update-engine/wrapper.log
-echo "wrapper v5 start" >> "$LOG"
+echo "wrapper v6 start" >> "$LOG"
 echo "env URL=${UPDATE_ENGINE_URL-}" >> "$LOG"
 echo "args=$*" >> "$LOG"
 

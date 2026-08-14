@@ -169,11 +169,9 @@ export default {
         return new Response("Missing object", { status: 404, headers: cors });
       }
       if (request.method === "HEAD") {
-        const headers = new Headers(cors);
-        headers.set("content-type", "application/octet-stream");
-        headers.set("content-length", String(match.size || obj.size || 0));
-        headers.set("accept-ranges", "bytes");
-        return new Response(null, { headers });
+        return new Response(null, {
+          headers: otaHeadHeaders(cors, match.size || obj.size || 0),
+        });
       }
       return otaResponse(obj, cors, match.key.split("/").pop());
     }
@@ -196,11 +194,9 @@ export default {
         });
       }
       if (request.method === "HEAD") {
-        const headers = new Headers(cors);
-        headers.set("content-type", "application/octet-stream");
-        if (obj.size != null) headers.set("content-length", String(obj.size));
-        headers.set("accept-ranges", "bytes");
-        return new Response(null, { headers });
+        return new Response(null, {
+          headers: otaHeadHeaders(cors, obj.size),
+        });
       }
       return otaResponse(obj, cors, decoded.split("/").pop());
     }

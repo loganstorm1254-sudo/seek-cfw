@@ -895,6 +895,7 @@ let _cmdPending = false;
 let _seekOtaBusy = false;
 let _seekOtaTimer = null;
 let _seekOtaStartedAt = 0;
+let _seekOtaRealPct = -1;
 setView(_sessions.getViewMode(), false);
 
 window.sodium = {
@@ -1390,9 +1391,9 @@ function setPhase(phase) {
 }
 
 function setOtaProgress(percent) {
-  if (!(percent > 0) || percent !== percent) return;
+  if (percent !== percent || percent < 0) return;
   if (percent > 1) percent = 1;
-  $("#progressBarOta").removeClass("seek-wait");
+  if (percent > 0.01) $("#progressBarOta").removeClass("seek-wait");
   let maskWidth = (1 - percent) * 100;
   $("#progressBarOta")
     .children(".vec-progress-bar-mask")
@@ -1462,6 +1463,7 @@ function seekOtaNote(msg) {
 
 function seekOtaStartClock() {
   _seekOtaStartedAt = Date.now();
+  _seekOtaRealPct = -1;
   if (_seekOtaTimer) clearInterval(_seekOtaTimer);
   $("#progressBarOta").addClass("seek-wait");
   _seekOtaTimer = setInterval(function () {
@@ -1470,12 +1472,20 @@ function seekOtaStartClock() {
     var m = Math.floor(s / 60);
     var r = s % 60;
     var clock = m + ":" + (r < 10 ? "0" : "") + r;
+    var pct = _seekOtaRealPct;
+    if (!(pct >= 0)) {
+      // Hotspot download of ~171MB is often 4–12 min; fill to 92% while we wait.
+      pct = Math.min(0.92, s / 480);
+    }
+    setOtaProgress(pct);
     seekOtaNote(
-      "Vector is pulling ~171MB over your hotspot, then flashing. Typical 4–12 min. Elapsed " +
+      "Updating Vector… " +
+        Math.round(pct * 100) +
+        "%  elapsed " +
         clock +
-        ". Bar may stay empty — BLE often drops. Do not retry."
+        ". Keep the hotspot on. Do not retry."
     );
-  }, 1000);
+  }, 500);
 }
 
 function seekOtaDone() {
@@ -1589,15 +1599,8 @@ function doOta() {
         $("#btnTryAgain").removeClass("vec-hidden");
       }
     );
-    // BLE + Wi-Fi on Vector share the radio. Drop BLE so the download can run.
-    setTimeout(function () {
-      if (!_seekOtaBusy) return;
-      try {
-        if (vecBle && typeof vecBle.tryDisconnect === "function") {
-          vecBle.tryDisconnect();
-        }
-      } catch (e) {}
-    }, 2500);
+    // Keep BLE connected so progress packets can arrive. If they don't,
+    // seekOtaStartClock still advances the bar from elapsed time.
   };
 
   // Plain HTTP (LAN or Cloudflare http://files.anki.org.uk) — Vector has no TLS.
@@ -2119,7 +2122,10 @@ function HandleHandshake(version) {
     if (st == 2 || st == 1) {
       var exp = Number(value.expected);
       var cur = Number(value.current);
-      if (exp > 0) setOtaProgress(cur / exp);
+      if (exp > 0) {
+        _seekOtaRealPct = cur / exp;
+        setOtaProgress(_seekOtaRealPct);
+      }
     } else if (st == 3) {
       seekOtaDone();
       toggleIcon("iconOta", true);
