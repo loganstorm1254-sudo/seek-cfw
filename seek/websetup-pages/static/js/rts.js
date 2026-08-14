@@ -1019,7 +1019,8 @@ function setupOTAFiles() {
     // (R2 / Worker). Fall back to local firmware filenames for classic Node serve.
     entries.map((endpoint) => {
       if (typeof endpoint === "object" && endpoint.url) {
-        var cloud = parseURL(String(endpoint.url).trim());
+        var src = endpoint.robotUrl || endpoint.url;
+        var cloud = parseURL(String(src).trim());
         cloud.type = TYPE.CLOUD;
         if (endpoint.name) cloud.filename = endpoint.name;
         if (seekIsLocalServe()) {
@@ -1028,12 +1029,16 @@ function setupOTAFiles() {
           lan.filename = cloud.filename || lan.filename;
           otaUrls.push(lan);
         } else {
-          otaUrls.push(cloud);
+          var robotHref = seekRobotPlainHttp(cloud.href);
+          var row = parseURL(robotHref);
+          row.type = TYPE.CLOUD;
+          row.filename = cloud.filename || row.filename;
+          otaUrls.push(row);
         }
         return;
       }
       if (typeof endpoint === "string" && /^https?:\/\//i.test(endpoint)) {
-        var direct = parseURL(endpoint.trim());
+        var direct = parseURL(seekRobotPlainHttp(endpoint.trim()));
         direct.type = TYPE.CLOUD;
         if (seekIsLocalServe()) {
           var lanDirect = parseURL(seekPreferLanOta(direct.href));
@@ -1144,6 +1149,34 @@ function seekPreferLanOta(u) {
   var name = String(u).split("?")[0].split("/").pop();
   if (/ota\/latest/i.test(u) || /latest\.ota/i.test(u)) name = "latest.ota";
   return seekLanFirmwareUrl(name);
+}
+
+function seekRobotPlainHttp(u) {
+  if (!u) return u;
+  try {
+    var x = new URL(u);
+    if (x.protocol !== "https:") return u;
+    var host = (x.hostname || "").toLowerCase();
+    var filesHost = "";
+    try {
+      filesHost = new URL(seekOtaListUrl() || "https://files.anki.org.uk").hostname.toLowerCase();
+    } catch (e) {}
+    var originHost = "";
+    try {
+      var fo = seekFilesHostOrigin();
+      if (fo) originHost = new URL(fo).hostname.toLowerCase();
+    } catch (e2) {}
+    if (
+      host === "files.anki.org.uk" ||
+      host === filesHost ||
+      host === originHost ||
+      /\.anki\.org\.uk$/i.test(host)
+    ) {
+      x.protocol = "http:";
+      return x.href;
+    }
+  } catch (e) {}
+  return u;
 }
 function seekRewriteOtaUrl(u) {
   if (!u) return u;
@@ -1429,9 +1462,9 @@ function otaStatusMessage(status) {
     case 201:
       return "OTA package invalid (missing boot/system)";
     case 203:
-      return "Robot could not open the OTA URL (status 203 — Vector cannot do Cloudflare TLS).<br/>" +
-        "Do not use the online site for Install. Run <code>seek\\websetup\\serve.cmd</code> and open " +
-        "<code>http://localhost:8000/</code> in Chrome (robot downloads HTTP from your PC).";
+      return "Robot could not open the OTA URL (status 203).<br/>" +
+        "Vector cannot verify HTTPS. This site must send <code>http://files.anki.org.uk/...</code> " +
+        "(not https). Redeploy Pages + Worker, then retry Install.";
     case 204:
       return "Download failed / not a valid OTA (status 204).<br/>" +
         "Use local Seek Web Setup so the robot pulls HTTP from your PC, not HTTPS.";
@@ -1453,7 +1486,7 @@ function doOta() {
     return;
   }
 
-  var url = seekPreferLanOta(seekRewriteOtaUrl(getOtaUrl()));
+  var url = seekRobotPlainHttp(seekPreferLanOta(seekRewriteOtaUrl(getOtaUrl())));
   _otaEndpoint = url;
 
   if (!url) {
@@ -1510,9 +1543,9 @@ function doOta() {
     );
   };
 
-  // LAN HTTP from this PC — BLE update-engine can open it (no TLS).
-  if (/^http:\/\/\d+\.\d+\.\d+\.\d+/.test(url)) {
-    startBle(url, "lan-http");
+  // Plain HTTP (LAN or Cloudflare http://files.anki.org.uk) — Vector has no TLS.
+  if (/^http:\/\//i.test(url)) {
+    startBle(url, "plain-http");
     return;
   }
 

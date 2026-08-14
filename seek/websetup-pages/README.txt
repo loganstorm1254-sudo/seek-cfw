@@ -1,19 +1,28 @@
-Seek Web Setup
-==============
+Seek Web Setup (Cloudflare Pages)
+=================================
 
-Online Pages (pairing / Wi-Fi only)
-  Upload seek-websetup-pages.zip to Cloudflare Pages.
-  settings.json otaListUrl: https://files.anki.org.uk/api/otas.json
-  Worker: worker-otas.js  R2 binding OTA
+Vector cannot verify HTTPS (status 203). This site lists OTAs over HTTPS
+in Chrome, but Install tells the robot to fetch **http://** (no TLS).
 
-OTA Install (avoids status 203)
-  The online HTTPS URL cannot be opened by Vector (broken CA → 203).
-  Same as original Vector Web Setup: serve OTAs over LAN HTTP from your PC.
+http://files.anki.org.uk/ota/latest  already returns HTTP 200 (no redirect).
 
-  1. Install Node.js
-  2. Double-click seek/websetup/serve.cmd
-     or:  cd seek/websetup && node bin/seek-web-setup.js ota-sync && node bin/seek-web-setup.js serve
-  3. Chrome → http://localhost:8000/
-  4. Pair → Wi-Fi → pick OTA → Install
+------------------------------------------------
+Worker
+------------------------------------------------
+Paste worker-otas.js, bind R2 as OTA, Deploy.
+/api/otas.json includes url (https) and robotUrl (http).
 
-Robot fetches http://YOUR-PC-IP:8000/firmware/latest.ota (no TLS).
+------------------------------------------------
+Pages
+------------------------------------------------
+settings.json:
+  "otaListUrl": "https://files.anki.org.uk/api/otas.json"
+
+Upload seek-websetup-pages.zip
+Chrome → pair → Wi-Fi → Install
+
+Robot downloads: http://files.anki.org.uk/dl/seek-os-3.01.42d.ota
+(or http://files.anki.org.uk/ota/latest)
+
+Do NOT enable a Cloudflare "Always Use HTTPS" rule on /ota* or /dl*
+or the robot will follow the redirect and 203 again.

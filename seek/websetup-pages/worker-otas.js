@@ -1,6 +1,8 @@
 /**
  * Seek OTA file host Worker
- * - GET /api/otas.json  → R2 .ota files only (clean URLs, no spaces)
+ * - GET /api/otas.json  → R2 .ota files (url=https for Chrome, robotUrl=http for Vector)
+ * Vector cannot verify TLS (status 203). Keep HTTP working on /ota and /dl
+ * (do not Always-HTTPS-redirect those paths).
  * - GET /OTA/...        → raw R2 key
  * - GET /ota/latest     → newest .ota (safe for Vector BLE)
  * - GET /dl/<safe-name> → same file via ASCII-only path
@@ -82,9 +84,14 @@ export default {
       const otas = objs.map((obj) => {
         const name = obj.key.split("/").pop();
         const safe = safeName(name);
-        // Always give Vector a space-free URL (status 203 otherwise).
+        const origin = url.origin;
+        const httpsUrl = new URL("/dl/" + safe, origin);
+        httpsUrl.protocol = "https:";
+        const httpUrl = new URL(httpsUrl.href);
+        httpUrl.protocol = "http:";
         return {
-          url: new URL("/dl/" + safe, url.origin).href,
+          url: httpsUrl.href,
+          robotUrl: httpUrl.href,
           name: name,
           size: obj.size,
           uploaded: obj.uploaded,
@@ -92,7 +99,21 @@ export default {
           key: obj.key,
         };
       });
-      // Also expose /ota/latest as first item convenience is via same list order
+      if (otas.length) {
+        const latestHttps = new URL("/ota/latest", url.origin);
+        latestHttps.protocol = "https:";
+        const latestHttp = new URL(latestHttps.href);
+        latestHttp.protocol = "http:";
+        otas.unshift({
+          url: latestHttps.href,
+          robotUrl: latestHttp.href,
+          name: "Seek OS (latest)",
+          size: objs[0].size,
+          uploaded: objs[0].uploaded,
+          source: "r2",
+          key: "latest",
+        });
+      }
       return new Response(JSON.stringify({ seek: otas }, null, 2), {
         headers: {
           ...cors,
