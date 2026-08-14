@@ -7,7 +7,7 @@
 # BLE on new OS writes UPDATE_ENGINE_URL into an env file (no argv).
 set -e
 
-VERSION=5
+VERSION=7
 
 mount -o remount,rw / 2>/dev/null || true
 umount /usr/bin/curl 2>/dev/null || true
@@ -46,10 +46,10 @@ fi
 
 cat > /anki/bin/update-engine << 'EOF'
 #!/bin/sh
-# Seek BLE OTA wrap v6
+# Seek BLE OTA wrap v7
 mkdir -p /run/update-engine /ota
 LOG=/run/update-engine/wrapper.log
-echo "wrapper v6 start" >> "$LOG"
+echo "wrapper v7 start" >> "$LOG"
 echo "env URL=${UPDATE_ENGINE_URL-}" >> "$LOG"
 echo "args=$*" >> "$LOG"
 
@@ -97,6 +97,12 @@ echo "using URL=$URL" >> "$LOG"
 
 REAL=/anki/bin/update-engine.real
 [ -x /data/update-engine.real ] && REAL=/data/update-engine.real
+if [ ! -x "$REAL" ] || grep -q 'Seek BLE OTA wrap' "$REAL" 2>/dev/null; then
+  echo "missing update-engine.real" >> "$LOG"
+  echo "missing update-engine.real" > /run/update-engine/error
+  echo 203 > /run/update-engine/exit_code
+  exit 203
+fi
 CURL=/usr/bin/curl.anki
 [ -x "$CURL" ] || CURL=/usr/bin/curl
 
@@ -111,10 +117,24 @@ fi
 if [ "$NEED" = 1 ]; then
   echo "Downloading to $OTA ..." >> "$LOG"
   rm -f "$OTA"
-  if ! "$CURL" -k -L --http1.1 -4 --retry 3 --connect-timeout 30 --max-time 1800 -o "$OTA" "$URL" >> "$LOG" 2>&1; then
+  EXP=`"$CURL" -k -sI --http1.1 -4 --max-time 20 "$URL" 2>/dev/null | grep -i '^content-length:' | tail -n 1 | awk '{print $2}' | tr -d '\r'`
+  [ -z "$EXP" ] && EXP=179517440
+  echo "$EXP" > /run/update-engine/expected-size
+  echo 0 > /run/update-engine/progress
+  echo download > /run/update-engine/phase
+  "$CURL" -k -L --http1.1 -4 --retry 2 --connect-timeout 20 --max-time 600 -o "$OTA" "$URL" >> "$LOG" 2>&1 &
+  CPID=$!
+  while kill -0 "$CPID" 2>/dev/null; do
+    NOW=`stat -c %s "$OTA" 2>/dev/null || echo 0`
+    echo "$NOW" > /run/update-engine/progress
+    sleep 1
+  done
+  wait "$CPID"
+  CR=$?
+  if [ "$CR" != 0 ]; then
     echo "download failed" > /run/update-engine/error
     echo 204 > /run/update-engine/exit_code
-    echo "download failed" >> "$LOG"
+    echo "download failed rc=$CR" >> "$LOG"
     exit 204
   fi
 fi
@@ -127,11 +147,19 @@ if [ "$SZ" -lt 8000000 ]; then
   exit 204
 fi
 
-# BusyBox: -p PORT (IP:PORT is flaky on old httpd)
+# Serve /ota — busybox httpd is missing on some images.
 killall httpd 2>/dev/null || true
+killall python 2>/dev/null || true
 sleep 1
-busybox httpd -p 8767 -h /ota >> "$LOG" 2>&1 || httpd -p 8767 -h /ota >> "$LOG" 2>&1 || true
-sleep 1
+if busybox httpd -p 8767 -h /ota >> "$LOG" 2>&1; then
+  echo "httpd ok" >> "$LOG"
+elif httpd -p 8767 -h /ota >> "$LOG" 2>&1; then
+  echo "httpd ok" >> "$LOG"
+else
+  echo "starting python SimpleHTTPServer" >> "$LOG"
+  ( cd /ota && python -m SimpleHTTPServer 8767 >> "$LOG" 2>&1 ) &
+  sleep 2
+fi
 CODE=`"$CURL" -k -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8767/v.ota 2>/dev/null || echo 000`
 echo "local probe=$CODE" >> "$LOG"
 if [ "$CODE" != "200" ] && [ "$CODE" != "206" ]; then
@@ -140,7 +168,7 @@ if [ "$CODE" != "200" ] && [ "$CODE" != "206" ]; then
   exit 204
 fi
 
-echo "flashing local http://127.0.0.1:8767/v.ota" >> "$LOG"
+echo "flashing local http://127.0.0.1:8767/v.ota via $REAL" >> "$LOG"
 exec "$REAL" -v "http://127.0.0.1:8767/v.ota"
 EOF
 chmod 755 /anki/bin/update-engine
@@ -154,7 +182,7 @@ cat > /data/seek-ble-ota-apply.sh << 'EOF'
 mount -o remount,rw / 2>/dev/null || true
 umount /anki/bin/update-engine 2>/dev/null || true
 if [ -x /data/update-engine-wrap ]; then
-  if grep -q 'Seek BLE OTA wrap v5' /anki/bin/update-engine 2>/dev/null; then
+  if grep -q 'Seek BLE OTA wrap v7' /anki/bin/update-engine 2>/dev/null; then
     exit 0
   fi
   cp -a /data/update-engine-wrap /anki/bin/update-engine

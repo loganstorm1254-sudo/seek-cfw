@@ -1466,7 +1466,7 @@ function seekOtaStartClock() {
   _seekOtaRealPct = -1;
   if (_seekOtaTimer) clearInterval(_seekOtaTimer);
   $("#progressBarOta").addClass("seek-wait");
-  _seekOtaTimer = setInterval(function () {
+  var tick = function () {
     if (!_seekOtaBusy) return;
     var s = Math.floor((Date.now() - _seekOtaStartedAt) / 1000);
     var m = Math.floor(s / 60);
@@ -1474,8 +1474,7 @@ function seekOtaStartClock() {
     var clock = m + ":" + (r < 10 ? "0" : "") + r;
     var pct = _seekOtaRealPct;
     if (!(pct >= 0)) {
-      // Hotspot download of ~171MB is often 4–12 min; fill to 92% while we wait.
-      pct = Math.min(0.92, s / 480);
+      pct = Math.min(0.92, 0.06 + s / 480);
     }
     setOtaProgress(pct);
     seekOtaNote(
@@ -1485,7 +1484,9 @@ function seekOtaStartClock() {
         clock +
         ". Keep the hotspot on. Do not retry."
     );
-  }, 500);
+  };
+  tick();
+  _seekOtaTimer = setInterval(tick, 500);
 }
 
 function seekOtaDone() {
@@ -1572,7 +1573,8 @@ function doOta() {
     }
     _seekOtaBusy = true;
     seekOtaStartClock();
-    seekOtaNote("Told Vector to fetch " + otaUrl);
+    setOtaProgress(0.06);
+    seekOtaNote("Starting update…");
     rtsHandler.doOtaStart(otaUrl).then(
       function (msg) {
         console.log("ota success", msg);
