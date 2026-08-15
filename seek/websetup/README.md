@@ -2,17 +2,14 @@
 
 Open-source Vector setup without the phone app or an Anki account.
 Chrome talks to the robot over BLE; the robot pulls the OS image over
-**plain HTTP from this PC** (that is why stock Vector Web Setup works,
-and why the online HTTPS site returns status 203).
+**plain HTTP from this PC** (fast LAN). That avoids TLS status 203 and
+is much faster than the robot downloading from the internet itself.
 
-Requires Node.js. Tested on Windows, macOS, and Linux.
+Requires Node.js. Works on macOS, Windows, and Linux.
 
 ## One-time install
 
-1. Install [Node.js](https://nodejs.org/en/download/)
-2. From this folder:
-
-```
+```bash
 cd seek/websetup
 npm install
 node bin/seek-web-setup.js configure
@@ -20,11 +17,11 @@ node bin/seek-web-setup.js ota-sync
 ```
 
 `ota-sync` downloads Seek OTAs from https://files.anki.org.uk into
-`%USERPROFILE%\.seek-web-setup\firmware\seek\` (or `~/.seek-web-setup/...`).
+`~/.seek-web-setup/firmware/seek/` (or `%USERPROFILE%\.seek-web-setup\...`).
 
 ## Daily usage
 
-```
+```bash
 node bin/seek-web-setup.js serve
 ```
 
@@ -33,29 +30,22 @@ Chrome → **http://localhost:8000/**
 1. Place Vector on the charger
 2. Double-press the backpack button
 3. Pair with Vector
-4. Join Wi-Fi (same hotspot as this PC)
-5. Pick the OTA (served as `http://YOUR-PC-IP:8000/firmware/...`)
+4. Join Wi-Fi (**same hotspot/Wi-Fi as this PC**)
+5. Pick **Seek OS (latest)** → Install
 
-BLE only works on `http://localhost` or `https://` sites. Use Chrome.
+Robot URL looks like `http://192.168.x.x:8000/firmware/latest.ota`.
+
+If you skip `ota-sync`, Install still works: this PC proxies the files
+host while the robot only speaks LAN HTTP.
 
 ### Custom port
 
-```
+```bash
 node bin/seek-web-setup.js serve -p 7010
 ```
 
-### Windows
+## Hosted Pages
 
-Double-click `serve.cmd` in this folder (runs sync then serve).
-
-## Why not the online site?
-
-`https://files.anki.org.uk/...` is fine for the browser. Vector's
-update-engine cannot verify TLS (missing CA) and returns **203**.
-This local server gives the robot `http://192.168.x.x:8000/firmware/latest.ota`
-instead.
-
-## Hosted Pages (optional)
-
-`../websetup-pages/` can still be uploaded to Cloudflare Pages for pairing
-and Wi-Fi only. For Install OTA, use this local server.
+`../websetup-pages/` can be uploaded to Cloudflare Pages for the same
+BLE UI. Public Install uses `http://files.anki.org.uk/ota/latest`.
+For the fastest flash on stock Unlock, prefer this local server.

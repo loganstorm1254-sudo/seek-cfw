@@ -78,6 +78,37 @@ function ensureDirs() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
+function safeOtaName(item, url) {
+  let name = String(
+    (item && item.name) || path.basename(String(url || "").split("?")[0]) || "update.ota"
+  );
+  if (/^seek\s*os\s*\(latest\)$/i.test(name.trim()) || /^latest$/i.test(name.trim())) {
+    name = "latest.ota";
+  }
+  name = name.replace(/\s+/g, "-").replace(/[^a-zA-Z0-9._-]+/g, "");
+  if (!name) name = "update.ota";
+  if (!/\.ota$/i.test(name)) name += ".ota";
+  return name;
+}
+
+function listLocalOtas() {
+  if (!fs.existsSync(FW_DIR)) return [];
+  return fs
+    .readdirSync(FW_DIR)
+    .filter((f) => f.toLowerCase().endsWith(".ota"))
+    .map((f) => {
+      const full = path.join(FW_DIR, f);
+      const st = fs.statSync(full);
+      return { name: f, mtime: st.mtimeMs, size: st.size };
+    })
+    .sort((a, b) => b.mtime - a.mtime);
+}
+
+function newestLocalOta() {
+  const files = listLocalOtas();
+  return files.length ? files[0].name : null;
+}
+
 function cmdConfigure() {
   ensureDirs();
   const cfg = {
@@ -101,20 +132,32 @@ async function cmdOtaSync() {
     console.warn("otas.json failed (" + e.message + "), using /ota/latest only");
   }
   if (!list.length) {
-    list = [{ url: OTA_LATEST, name: "latest.ota" }];
+    list = [{ url: OTA_LATEST, robotUrl: OTA_LATEST.replace(/^https:/, "http:"), name: "latest.ota" }];
   }
+  const seen = new Set();
   for (const item of list) {
-    const url = item.url || item;
-    const name = String(item.name || path.basename(String(url).split("?")[0]) || "update.ota")
-      .replace(/\s+/g, "-")
-      .replace(/[^a-zA-Z0-9._-]+/g, "");
+    // Prefer HTTP robotUrl when present (same bytes, often fewer TLS issues).
+    const url = item.robotUrl || item.url || item;
+    const name = safeOtaName(item, url);
+    if (seen.has(name)) continue;
+    seen.add(name);
     const dest = path.join(FW_DIR, name);
     process.stdout.write("Downloading " + url + " -> " + dest + " ... ");
-    const buf = await fetchBuffer(url);
-    fs.writeFileSync(dest, buf);
-    console.log((buf.length / 1048576).toFixed(1) + " MiB");
+    try {
+      const buf = await fetchBuffer(String(url).replace(/^http:\/\/files\.anki\.org\.uk/i, "https://files.anki.org.uk"));
+      fs.writeFileSync(dest, buf);
+      console.log((buf.length / 1048576).toFixed(1) + " MiB");
+    } catch (e) {
+      console.log("FAILED: " + e.message);
+    }
   }
-  console.log("OTA sync done. Run: npx seek-web-setup serve");
+  // Always keep a latest.ota symlink/copy pointing at newest real build.
+  const newest = newestLocalOta();
+  if (newest && newest !== "latest.ota") {
+    fs.copyFileSync(path.join(FW_DIR, newest), path.join(FW_DIR, "latest.ota"));
+    console.log("latest.ota <- " + newest);
+  }
+  console.log("OTA sync done. Run: node bin/seek-web-setup.js serve");
 }
 
 function mime(p) {
@@ -147,6 +190,39 @@ function sendFile(res, filePath, extra) {
   });
 }
 
+function sendLocalOta(res, filePath, req) {
+  const st = fs.statSync(filePath);
+  const range = req.headers.range;
+  if (range) {
+    const m = String(range).match(/^bytes=(\d*)-(\d*)$/i);
+    if (m) {
+      const start = m[1] === "" ? 0 : Number(m[1]);
+      let end = m[2] === "" ? st.size - 1 : Number(m[2]);
+      if (Number.isFinite(start) && Number.isFinite(end) && start >= 0 && start < st.size && end >= start) {
+        end = Math.min(end, st.size - 1);
+        const stream = fs.createReadStream(filePath, { start, end });
+        res.writeHead(206, {
+          "content-type": "application/octet-stream",
+          "content-length": end - start + 1,
+          "content-range": "bytes " + start + "-" + end + "/" + st.size,
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+        });
+        stream.pipe(res);
+        return;
+      }
+    }
+  }
+  const stream = fs.createReadStream(filePath);
+  res.writeHead(200, {
+    "content-type": "application/octet-stream",
+    "content-length": st.size,
+    "accept-ranges": "bytes",
+    "access-control-allow-origin": "*",
+  });
+  stream.pipe(res);
+}
+
 function cmdServe(port) {
   ensureDirs();
   const ip = lanIp();
@@ -161,12 +237,13 @@ function cmdServe(port) {
     }
 
     if (p === "/firmware/latest" || p === "/firmware/latest.ota" || p === "/ota/latest") {
-      const files = fs.readdirSync(FW_DIR).filter((f) => f.toLowerCase().endsWith(".ota"));
-      if (files.length) {
-        sendFile(res, path.join(FW_DIR, files.sort().pop()));
+      const newest = newestLocalOta();
+      if (newest) {
+        sendLocalOta(res, path.join(FW_DIR, newest), req);
         return;
       }
-      pipeUrl(OTA_LATEST, req, res);
+      // Proxy cloud latest through this PC so the robot only speaks LAN HTTP.
+      pipeUrl(OTA_LATEST.replace(/^https:/, "http:"), req, res);
       return;
     }
 
@@ -174,18 +251,35 @@ function cmdServe(port) {
       const name = path.basename(p);
       const local = path.join(FW_DIR, name);
       if (fs.existsSync(local)) {
-        sendFile(res, local);
+        sendLocalOta(res, local, req);
         return;
       }
-      pipeUrl(FILES_HOST.replace(/\/$/, "") + "/dl/" + name, req, res);
+      const dl = FILES_HOST.replace(/\/$/, "").replace(/^https:/, "http:") + "/dl/" + name;
+      pipeUrl(dl, req, res);
       return;
     }
 
     if (p === "/static/data/inventory.json") {
-      const files = fs.existsSync(FW_DIR)
-        ? fs.readdirSync(FW_DIR).filter((f) => f.toLowerCase().endsWith(".ota"))
-        : [];
-      const body = JSON.stringify({ seek: files }, null, 2);
+      const base = "http://" + ip + ":" + port;
+      const files = listLocalOtas();
+      const seek = [
+        {
+          url: base + "/firmware/latest.ota",
+          robotUrl: base + "/firmware/latest.ota",
+          name: "Seek OS (latest)",
+          key: "latest",
+        },
+      ];
+      for (const f of files) {
+        if (f.name === "latest.ota") continue;
+        seek.push({
+          url: base + "/firmware/" + f.name,
+          robotUrl: base + "/firmware/" + f.name,
+          name: f.name,
+          size: f.size,
+        });
+      }
+      const body = JSON.stringify({ seek }, null, 2);
       res.writeHead(200, { "content-type": "application/json", "access-control-allow-origin": "*" });
       res.end(body);
       return;
@@ -219,6 +313,7 @@ function cmdServe(port) {
     console.log("  Chrome (required):  http://localhost:" + port + "/");
     console.log("  Robot OTA (HTTP):   http://" + ip + ":" + port + "/firmware/latest.ota");
     console.log("Same Wi-Fi / hotspot as Vector. BLE only works on localhost or HTTPS.");
+    console.log("Tip: ota-sync once so Install is fast on LAN; otherwise this PC proxies the files host.");
   });
 }
 

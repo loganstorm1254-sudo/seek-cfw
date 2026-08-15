@@ -1057,9 +1057,13 @@ function setupOTAFiles() {
         }
         return;
       }
-      var localUrlPrefix = `http://${_networkIp}:${_serverPort}/static/firmware/${_stack.name}/`;
-      var obj = parseURL(localUrlPrefix + endpoint);
+      // Local Node serve: /firmware/<file>.ota (not /static/firmware/...)
+      var localUrlPrefix =
+        "http://" + _networkIp + ":" + _serverPort + "/firmware/";
+      var fname = String(endpoint || "latest.ota").split("/").pop();
+      var obj = parseURL(localUrlPrefix + fname);
       obj.type = TYPE.LOCAL;
+      obj.filename = fname;
       otaUrls.push(obj);
     });
 
@@ -1257,17 +1261,34 @@ function getOtasPresent(env) {
 
     var finishWithList = function (list) {
       if (!Array.isArray(list)) list = [];
-      // Prefer proxied / direct non-GitHub URLs when duplicates exist
       list = list.map(function (item) {
         if (typeof item === "string") {
           return { url: seekRewriteOtaUrl(item), name: item.split("/").pop() };
         }
         if (item && item.url) {
-          return Object.assign({}, item, { url: seekRewriteOtaUrl(item.url) });
+          var next = Object.assign({}, item, {
+            url: seekRewriteOtaUrl(item.url),
+          });
+          if (item.robotUrl) {
+            next.robotUrl = seekRewriteOtaUrl(item.robotUrl);
+          }
+          return next;
         }
         return item;
       });
+      // Keep "Seek OS (latest)" first — do not bury it under vicos-*.ota names.
       list = list.slice().sort(function (a, b) {
+        var rank = function (item) {
+          var n = String((item && item.name) || "").toLowerCase();
+          var k = String((item && item.key) || "").toLowerCase();
+          if (k === "latest" || n === "latest.ota" || /seek\s*os\s*\(latest\)/.test(n)) {
+            return 0;
+          }
+          return 1;
+        };
+        var ra = rank(a);
+        var rb = rank(b);
+        if (ra !== rb) return ra - rb;
         var an = (a && a.name) || (a && a.url) || "";
         var bn = (b && b.name) || (b && b.url) || "";
         return String(bn).localeCompare(String(an), undefined, {
@@ -1497,17 +1518,18 @@ function seekOtaStartClock() {
       bytesNote = "  " + curMb + " / " + expMb + " MB";
     }
     if (!(pct >= 0)) {
-      pct = Math.min(0.18, 0.05 + s * 0.01);
+      // Fake ramp only while waiting for BLE byte reports (caps ~35%).
+      pct = Math.min(0.35, 0.04 + s * 0.002);
     }
     setOtaProgress(pct);
     var stalled =
       _seekOtaLastByteAt > 0 && Date.now() - _seekOtaLastByteAt > 120000;
+    var noBytes = !(_seekOtaBytes && _seekOtaBytes.exp > 0);
     var msg;
-    if (!( _seekOtaBytes && _seekOtaBytes.exp) && pct >= 0.9 && s > 420) {
+    if (noBytes && s > 90) {
       msg =
-        "Progress bar is a guess until the robot reports bytes. " +
-        "Hard-refresh this page (rts.js?v=seek10) if it sits at 92% with no MB. " +
-        "Do not tap Try Again. Keep the hotspot on. elapsed " +
+        "Robot is still working (no byte counter yet). Keep the hotspot on. " +
+        "Do not tap Try Again. Wait for reboot. elapsed " +
         clock;
     } else if (pct >= 0.8 || stalled) {
       msg =
@@ -1564,8 +1586,9 @@ function otaStatusMessage(status) {
         "(not https). Hard-refresh this page, keep the phone hotspot on, then Install once.";
     case 204:
       return "Download failed / not a valid OTA (status 204).<br/>" +
-        "Keep Vector on the hotspot and Install once. The robot fetches " +
-        "<code>http://files.anki.org.uk/ota/latest</code> (HTTP, not HTTPS).";
+        "On stock Unlock, /data is too small for a full OTA file. Use local Seek Web Setup " +
+        "(Mac/PC on the same hotspot) so the robot streams over LAN HTTP, or free space and retry " +
+        "<code>http://files.anki.org.uk/ota/latest</code>.";
     case 208:
     case 209:
       return "Flash pipeline failed on robot (status " + n + ")";

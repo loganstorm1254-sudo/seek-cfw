@@ -19,8 +19,12 @@ What other people do
 
 The robot downloads: http://files.anki.org.uk/ota/latest
 
+For a **faster** first flash (especially stock Unlock), run the local
+Mac/PC server instead so the robot pulls over LAN HTTP — see
+`../websetup/README.md`.
+
 SeekOS 3.0.1.44d and later ship the BLE wrap + HTTP fallback inside the
-OTA, so the next update works the same way with no extra steps.
+OTA, so later updates work the same with no extra steps.
 
 ------------------------------------------------
 Worker (required for the robot to pull)
@@ -37,8 +41,8 @@ Pages
 settings.json:
   "otaListUrl": "https://files.anki.org.uk/api/otas.json"
 
-Zip the websetup-pages folder (index.html at the zip root) and upload.
-Hard-refresh Chrome so rts.js?v=seek10 loads.
+Upload seek-websetup-pages.zip (index.html at the zip root).
+Hard-refresh Chrome so rts.js?v=seek11 loads.
 
 Do NOT enable a Cloudflare "Always Use HTTPS" rule on /ota* or /dl*
 or the robot will follow the redirect and 203 again.
