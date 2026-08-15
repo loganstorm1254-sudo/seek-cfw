@@ -1,5 +1,8 @@
 # Seek: ship BLE OTA wrap as /anki/bin/update-engine so public websetup
 # users never need SSH. Real C++ engine is update-engine.real.
+#
+# When CLOUDLESS=1, do not let victor's stock /anki/bin/vic-cloud overwrite
+# the vic-cloudless binary (that caused face-923 / wrong cloud stack).
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
 do_install:append() {
@@ -11,6 +14,11 @@ do_install:append() {
         mv ${D}/anki/bin/update-engine ${D}/anki/bin/update-engine.real
         install -m 0550 "$WRAP" ${D}/anki/bin/update-engine
         chmod 0550 ${D}/anki/bin/update-engine.real
+    fi
+
+    if [ "${CLOUDLESS}" = "1" ]; then
+        rm -f ${D}/anki/bin/vic-cloud
+        rm -f ${D}/anki/bin/vic-gateway
     fi
 }
 
