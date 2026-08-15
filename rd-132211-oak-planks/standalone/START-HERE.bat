@@ -3,7 +3,7 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 
 echo ============================================
-echo  Minecraft rd-132211 - oak planks standalone
+echo  Minecraft rd-132211 - oak planks + hotbar + fly
 echo ============================================
 echo.
 echo Folder: %CD%
