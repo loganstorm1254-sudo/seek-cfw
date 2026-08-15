@@ -1,19 +1,19 @@
 # rd-132211 oak planks — standalone (no Prism)
 
-## Download & run
+## Download
 
-1. Download: [Minecraft-rd-132211-OakPlanks-Standalone.zip](./standalone/Minecraft-rd-132211-OakPlanks-Standalone.zip)
-2. Unzip anywhere.
-3. Double-click **`Minecraft-rd-132211-OakPlanks.exe`**
+[Minecraft-rd-132211-OakPlanks-Standalone.zip](./standalone/Minecraft-rd-132211-OakPlanks-Standalone.zip)
 
-Uses Java 8 from Prism if you still have it (`jre-legacy`), or any Java on your PC. No Prism launch, no jar restore.
+## Run
+
+1. Unzip the **whole** folder (keep `exe` + `lib` + `natives` together).
+2. Double-click **`Run.bat`** (preferred — won’t flash-close).
+3. Or run `Minecraft-rd-132211-OakPlanks.exe`.
+
+Uses Prism’s Java 8 (`jre-legacy`) if present. Writes `launch.log` next to the exe if something fails — send that if it still won’t start.
 
 ## Mod
 
-- Place **on top of grass** → oak planks
-- No height-based grass/stone revert
-- World saves to `gamedata\level.dat` next to the exe
-
-## Controls
-
-- Left click place · Right click break · Enter save
+- Place on top of grass → oak planks
+- No height-based revert
+- Saves to `gamedata\level.dat`
