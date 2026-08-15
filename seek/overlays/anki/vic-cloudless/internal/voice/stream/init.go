@@ -14,7 +14,10 @@ import (
 
 	"github.com/digital-dream-labs/api-clients/chipper"
 	chippergrpc2 "github.com/digital-dream-labs/api/go/chipperpb"
+	"github.com/digital-dream-labs/vector-cloud/internal/clad/cloud"
+	"github.com/digital-dream-labs/vector-cloud/internal/log"
 	"github.com/digital-dream-labs/vector-cloud/internal/voice/vtr"
+	"github.com/google/uuid"
 )
 
 // it works well at 533MHz, but transcription is instant at 730
@@ -95,14 +98,37 @@ func seekSendAIAnswer(strm *Streamer, query, answer string) {
 	}, strm.receiver, true)
 }
 
-// WIRE: main entrypoint for a request!
-// we are keeping the OG code commented in case we want to make some sort of hybrid solution
-
+// Seek cloudless: Vector hosts his own voice NLU (Vosk + local intents).
+// Never dials remote Chipper — that is what caused the cloud-with-X face
+// when fistbump / social voice commands failed against vicapi.pvic.xyz.
 func (strm *Streamer) init(streamSize int) {
-	// set up error response if context times out/is canceled
 	go strm.cancelResponse()
-
 	go strm.bufferRoutine(streamSize)
+
+	sessionID := "seek-local-" + uuid.New().String()[:8]
+
+	// Face-info / CheckCloud: report Available without touching the internet.
+	if strm.opts.checkOpts != nil {
+		go func() {
+			strm.receiver.OnStreamOpen(sessionID)
+			exp := uint8(0)
+			if strm.opts.checkOpts.AudioPerRequestMs > 0 {
+				exp = uint8(strm.opts.checkOpts.TotalAudioMs / strm.opts.checkOpts.AudioPerRequestMs)
+			}
+			strm.receiver.OnConnectionResult(&cloud.ConnectionResult{
+				Code:            cloud.ConnectionCode_Available,
+				Status:          "Success",
+				NumPackets:      exp,
+				ExpectedPackets: exp,
+			})
+			log.Println("Seek cloudless: connection check → Available (local)")
+		}()
+		return
+	}
+
+	// Tell the engine the "cloud" stream opened so it does not treat silence as a server timeout.
+	strm.receiver.OnStreamOpen(sessionID)
+	log.Println("Seek cloudless: local voice stream", sessionID)
 
 	go func() {
 		var curFreq string
@@ -140,7 +166,6 @@ func (strm *Streamer) init(streamSize int) {
 
 			// Seek ChatGPT: free-form questions when an API key is saved.
 			if aiOn && (seekLooksLikeQuestion(text) || intent == "intent_system_noaudio") {
-				// Prefer Whisper over the buffered utterance for free-form accuracy.
 				if len(pcm) > 3200 {
 					if tr, ans, err := seekCallVoiceAsk(pcm); err == nil && ans != "" {
 						q := tr
@@ -151,7 +176,6 @@ func (strm *Streamer) init(streamSize int) {
 						return
 					}
 				}
-				// Fallback: ask ChatGPT using the (grammar-limited) transcript via HTTP text.
 				if ans := seekAskTextHTTP(text); ans != "" {
 					seekSendAIAnswer(strm, text, ans)
 					return
@@ -169,7 +193,6 @@ func (strm *Streamer) init(streamSize int) {
 			return
 		}
 
-		// Stream ended with no Vosk hit — try Whisper+ChatGPT on the buffer.
 		if aiOn && len(pcm) > 3200 {
 			if tr, ans, err := seekCallVoiceAsk(pcm); err == nil && ans != "" {
 				q := tr

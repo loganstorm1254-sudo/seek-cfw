@@ -80,6 +80,15 @@ Docker method (x86_64):
 ./build/build.sh -bt dev -v 1
 ```
 
+SeekOS **dev** builds ship **cloudless voice** (on-robot Vosk). Fistbump and
+other voice commands work without Anki/WirePod cloud — Vector hosts his own
+intent server. (`-bt dev` maps to cloudless; use `-bt prod` / `oskr` as needed.)
+
+```bash
+# explicit cloudless alias (same as -bt dev on Seek)
+./build/build.sh -bt devcloudless -v 1
+```
+
 - `-bt dev` — unlocked / “dev” robot type (typical for CFW)
 - `-v 1` — build increment → OTA version `3.0.1.1`
 

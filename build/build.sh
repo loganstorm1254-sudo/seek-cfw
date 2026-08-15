@@ -173,6 +173,13 @@ if [[ "$BOT_TYPE" != "oskr" && "$BOT_TYPE" != "dev" && "$BOT_TYPE" != "prod" && 
     usage "BOT_TYPE (-bt) should be 'oskr' or 'dev', got: $BOT_TYPE"
 fi
 
+# SeekOS: default "dev" builds ship vic-cloudless (on-robot Vosk) so voice
+# intents like fistbump work without a remote Chipper (no cloud-with-X).
+if [[ "$BOT_TYPE" == "dev" ]]; then
+    echo "SeekOS: using cloudless voice stack (local intents, no remote Chipper)"
+    BOT_TYPE=devcloudless
+fi
+
 if [[ "$DO_SIGN" == 1 && "$OTA_SIGNING_KEY_PASSWORD" == "" ]]; then
     usage "-s was given, but no OTA password was given"
 fi
