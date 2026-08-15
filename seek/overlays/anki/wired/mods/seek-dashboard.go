@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -565,8 +566,17 @@ func (m *SeekDashboard) handleClearEyeOverlay() error {
 	return nil
 }
 
+// softRestartLights reloads backpack light packs without tearing down
+// anki-robot.target (full RestartVic looks like a random reboot to users).
+func softRestartLights() {
+	go func() {
+		_ = exec.Command("systemctl", "restart", "vic-anim").Run()
+		_ = exec.Command("systemctl", "restart", "vic-engine").Run()
+	}()
+}
+
 // handleApplySeekLights removes LD/other custom backpack light packs under /data
-// so anim loads Seek WireOS orange/red from the OTA, then restarts anki-robot.
+// so anim loads Seek WireOS orange/red from the OTA.
 func (m *SeekDashboard) handleApplySeekLights() error {
 	_ = os.RemoveAll(seekCustomLightsDir)
 	_ = os.Remove(seekAnkiLightsFlag)
@@ -576,12 +586,12 @@ func (m *SeekDashboard) handleApplySeekLights() error {
 	if err := os.WriteFile(seekLightsClearedMark, []byte("1\n"), 0644); err != nil {
 		return err
 	}
-	go vars.RestartVic()
+	softRestartLights()
 	return nil
 }
 
 // handleApplyAnkiLights enables stock Vector/Anki backpack lights (blue-style pack)
-// via /data/data/enableankilights, clears custom overrides, then restarts.
+// via /data/data/enableankilights, clears custom overrides.
 func (m *SeekDashboard) handleApplyAnkiLights() error {
 	_ = os.RemoveAll(seekCustomLightsDir)
 	if err := os.MkdirAll(filepath.Dir(seekAnkiLightsFlag), 0755); err != nil {
@@ -590,7 +600,7 @@ func (m *SeekDashboard) handleApplyAnkiLights() error {
 	if err := os.WriteFile(seekAnkiLightsFlag, []byte("1\n"), 0644); err != nil {
 		return err
 	}
-	go vars.RestartVic()
+	softRestartLights()
 	return nil
 }
 

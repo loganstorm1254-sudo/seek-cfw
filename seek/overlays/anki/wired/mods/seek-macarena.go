@@ -119,7 +119,7 @@ func (m *SeekDashboard) armMacarena(volume uint32) error {
 	m.stopDriveLoop()
 	m.controlEnd()
 	time.Sleep(150 * time.Millisecond)
-	if err := m.controlStartPriority(vectorpb.ControlRequest_OVERRIDE_BEHAVIORS); err != nil {
+	if err := m.controlStartPriority(vectorpb.ControlRequest_DEFAULT); err != nil {
 		return fmt.Errorf("could not take control: %w", err)
 	}
 	m.mu.Lock()
@@ -242,7 +242,7 @@ func (m *SeekDashboard) startMacarenaSolo(volume uint32) error {
 	m.stopDriveLoop()
 	m.controlEnd()
 	time.Sleep(150 * time.Millisecond)
-	if err := m.controlStartPriority(vectorpb.ControlRequest_OVERRIDE_BEHAVIORS); err != nil {
+	if err := m.controlStartPriority(vectorpb.ControlRequest_DEFAULT); err != nil {
 		return fmt.Errorf("could not take control: %w", err)
 	}
 

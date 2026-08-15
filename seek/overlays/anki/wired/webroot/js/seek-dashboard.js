@@ -384,7 +384,7 @@ async function seekRefreshLightsStatus() {
 }
 
 async function seekApplySeekLights() {
-    setSeekStatus('Applying Seek lights and restarting Vector…');
+    setSeekStatus('Applying Seek lights…');
     try {
         const res = await api('applySeekLights');
         if (!res.ok) {
@@ -392,15 +392,15 @@ async function seekApplySeekLights() {
             setSeekStatus(e.message || 'apply failed', true);
             return;
         }
-        setSeekStatus('Seek lights applied — Vector is restarting (~10s). Idle should go orange/red.');
-        setTimeout(seekRefreshLightsStatus, 12000);
+        setSeekStatus('Seek lights applied — anim/engine reloading (~5s). Idle should go orange/red.');
+        setTimeout(seekRefreshLightsStatus, 6000);
     } catch (e) {
         setSeekStatus('lights error: ' + e.message, true);
     }
 }
 
 async function seekApplyAnkiLights() {
-    setSeekStatus('Applying standard Vector lights and restarting…');
+    setSeekStatus('Applying standard Vector lights…');
     try {
         const res = await api('applyAnkiLights');
         if (!res.ok) {
@@ -408,8 +408,8 @@ async function seekApplyAnkiLights() {
             setSeekStatus(e.message || 'apply failed', true);
             return;
         }
-        setSeekStatus('Standard Vector lights applied — restarting (~10s).');
-        setTimeout(seekRefreshLightsStatus, 12000);
+        setSeekStatus('Standard Vector lights applied — anim/engine reloading (~5s).');
+        setTimeout(seekRefreshLightsStatus, 6000);
     } catch (e) {
         setSeekStatus('lights error: ' + e.message, true);
     }

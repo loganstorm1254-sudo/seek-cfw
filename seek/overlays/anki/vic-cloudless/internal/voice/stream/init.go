@@ -20,8 +20,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// it works well at 533MHz, but transcription is instant at 730
-var doFreqStuff bool = true
+// CPU freq thrash around every voice turn was correlating with random
+// anki-robot restarts on some units. Leave the governor alone.
+var doFreqStuff bool = false
 
 const (
 	seekOpenAIKeyPath   = "/data/data/com.anki.victor/persistent/seek/openai_api_key"
