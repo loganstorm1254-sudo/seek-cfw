@@ -155,7 +155,14 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 	case "getSeekLights":
 		_, errOff := os.Stat(filepath.Join(seekCustomLightsDir, "off.json"))
 		_, errAnki := os.Stat(seekAnkiLightsFlag)
+		mode := "seek"
+		if errAnki == nil {
+			mode = "anki"
+		} else if errOff == nil {
+			mode = "custom"
+		}
 		out, _ := json.Marshal(map[string]any{
+			"mode":         mode,
 			"customActive": errOff == nil,
 			"ankiLights":   errAnki == nil,
 			"path":         seekCustomLightsDir,
@@ -165,6 +172,13 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case "applySeekLights":
 		if err := m.handleApplySeekLights(); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+		vars.HTTPSuccess(w, r)
+		return
+	case "applyAnkiLights":
+		if err := m.handleApplyAnkiLights(); err != nil {
 			vars.HTTPError(w, r, err.Error())
 			return
 		}
@@ -560,6 +574,20 @@ func (m *SeekDashboard) handleApplySeekLights() error {
 		return err
 	}
 	if err := os.WriteFile(seekLightsClearedMark, []byte("1\n"), 0644); err != nil {
+		return err
+	}
+	go vars.RestartVic()
+	return nil
+}
+
+// handleApplyAnkiLights enables stock Vector/Anki backpack lights (blue-style pack)
+// via /data/data/enableankilights, clears custom overrides, then restarts.
+func (m *SeekDashboard) handleApplyAnkiLights() error {
+	_ = os.RemoveAll(seekCustomLightsDir)
+	if err := os.MkdirAll(filepath.Dir(seekAnkiLightsFlag), 0755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(seekAnkiLightsFlag, []byte("1\n"), 0644); err != nil {
 		return err
 	}
 	go vars.RestartVic()

@@ -373,18 +373,18 @@ async function seekRefreshLightsStatus() {
         const res = await api('getSeekLights');
         if (!res.ok) return;
         const info = await res.json();
-        if (info.ankiLights) {
-            el.textContent = 'Anki stock lights flag is set — Seek WireOS pack is not active.';
-        } else if (info.customActive) {
-            el.textContent = 'Custom /data lights are active (often leftover LD green). Tap Apply Seek lights.';
+        if (info.mode === 'anki' || info.ankiLights) {
+            el.textContent = 'Using standard Vector / Anki backpack lights.';
+        } else if (info.mode === 'custom' || info.customActive) {
+            el.textContent = 'Custom /data lights are active (often leftover LD green). Pick Standard or Seek below.';
         } else {
-            el.textContent = 'Using Seek OTA backpack lights (orange / red).';
+            el.textContent = 'Using Seek backpack lights (orange / red).';
         }
     } catch (_) {}
 }
 
 async function seekApplySeekLights() {
-    setSeekStatus('Clearing LD custom lights and restarting Vector…');
+    setSeekStatus('Applying Seek lights and restarting Vector…');
     try {
         const res = await api('applySeekLights');
         if (!res.ok) {
@@ -393,6 +393,22 @@ async function seekApplySeekLights() {
             return;
         }
         setSeekStatus('Seek lights applied — Vector is restarting (~10s). Idle should go orange/red.');
+        setTimeout(seekRefreshLightsStatus, 12000);
+    } catch (e) {
+        setSeekStatus('lights error: ' + e.message, true);
+    }
+}
+
+async function seekApplyAnkiLights() {
+    setSeekStatus('Applying standard Vector lights and restarting…');
+    try {
+        const res = await api('applyAnkiLights');
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'apply failed' }; });
+            setSeekStatus(e.message || 'apply failed', true);
+            return;
+        }
+        setSeekStatus('Standard Vector lights applied — restarting (~10s).');
         setTimeout(seekRefreshLightsStatus, 12000);
     } catch (e) {
         setSeekStatus('lights error: ' + e.message, true);
@@ -1883,6 +1899,7 @@ function bindUI() {
     on('btnEyeOverlayApply', 'click', seekApplyEyeOverlay);
     on('btnEyeOverlayClear', 'click', seekClearEyeOverlay);
     on('btnApplySeekLights', 'click', seekApplySeekLights);
+    on('btnApplyAnkiLights', 'click', seekApplyAnkiLights);
     seekRefreshLightsStatus();
     on('eyeOverlayFile', 'change', function () {
         const f = $('eyeOverlayFile');

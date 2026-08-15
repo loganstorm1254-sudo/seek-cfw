@@ -107,9 +107,12 @@
             </div>
 
             <h2 class="spaced">Backpack lights</h2>
-            <p class="hint">Seek idle/charging are orange·orange·red. Older LD OS green lights live under <code>/data</code> and override the OTA until cleared.</p>
+            <p class="hint"><b>Standard Vector</b> uses the classic Anki pack. <b>Seek</b> uses orange·orange·red. Custom LD lights under <code>/data</code> override both until cleared.</p>
             <p id="seekLightsStatus" class="hint"></p>
-            <button type="button" class="primary" id="btnApplySeekLights">Apply Seek lights</button>
+            <div class="actions">
+                <button type="button" class="primary" id="btnApplyAnkiLights">Standard Vector lights</button>
+                <button type="button" class="primary" id="btnApplySeekLights">Seek lights</button>
+            </div>
 
             <h2 class="spaced">Volume</h2>
             <label class="field">
