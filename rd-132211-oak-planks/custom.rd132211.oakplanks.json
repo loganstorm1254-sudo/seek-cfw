@@ -1,0 +1,17 @@
+{
+  "formatVersion": 1,
+  "name": "rd-132211 oak planks mod",
+  "uid": "custom.rd132211.oakplanks",
+  "+traits": [],
+  "mainJar": {
+    "name": "com.mojang:minecraft:rd-132211:client",
+    "downloads": {
+      "artifact": {
+        "sha1": "e3524029afa856c4a5a17006ee6b23da0703b9f8",
+        "size": 24997
+      }
+    }
+  },
+  "version": "1",
+  "order": 10
+}

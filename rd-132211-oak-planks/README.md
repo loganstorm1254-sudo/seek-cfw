@@ -1,59 +1,52 @@
 # rd-132211 oak planks mod
 
-Personal patch for Minecraft pre-Classic **rd-132211**.
-
-## Changes
-
-1. **Removed height-based revert** — blocks no longer look like grass/stone based on Y.
-2. **Oak planks** — left-click place at **one block above the grass layer** (`Y = 43`) places oak planks.
-3. Other placements are rock. Legacy saves migrate once on load.
-
 ## Download
 
 - [minecraft-rd-132211-client-oakplanks.jar](./minecraft-rd-132211-client-oakplanks.jar)
 - SHA1: `e3524029afa856c4a5a17006ee6b23da0703b9f8`
+- Size: `24997` bytes
 
-## Install so Prism does NOT revert it
+## Fix the “not writable” error
 
-Prism re-downloads libraries when the SHA1 does not match. If you only replace the jar, the next launch restores vanilla — and blocks above grass look like **stone/cobble** again.
+That happened because the jar was marked **read-only**. Undo that first:
 
-1. **Quit Prism completely** (check the tray; it must not be running).
-2. Replace this file with the modded jar, **keeping the exact name**:
+```powershell
+attrib -R "$env:APPDATA\Roaming\PrismLauncher\libraries\com\mojang\minecraft\rd-132211\minecraft-rd-132211-client.jar"
+```
+
+Do **not** use read-only. Pin the checksum instead (below).
+
+## Install (Prism 11) — keeps the modded jar
+
+1. Quit Prism completely.
+2. Copy the modded jar over:
    ```
    %AppData%\Roaming\PrismLauncher\libraries\com\mojang\minecraft\rd-132211\minecraft-rd-132211-client.jar
    ```
-3. In that same folder, create/overwrite `minecraft-rd-132211-client.jar.sha1` with one line:
+   Keep that exact filename.
+3. Edit this file in Notepad:
    ```
-   e3524029afa856c4a5a17006ee6b23da0703b9f8
+   %AppData%\Roaming\PrismLauncher\meta\net.minecraft\rd-132211.json
    ```
-4. Search under `%AppData%\Roaming\PrismLauncher\meta\` for `rd-132211` / `minecraft-rd-132211-client` and update any `sha1` for that jar to the value above.
-5. Mark the jar **read-only** so Prism cannot overwrite it:
-   - Right-click jar → Properties → Read-only → OK  
-   - Or in PowerShell:
-     ```powershell
-     attrib +R "$env:APPDATA\Roaming\PrismLauncher\libraries\com\mojang\minecraft\rd-132211\minecraft-rd-132211-client.jar"
-     ```
-6. Launch the instance (offline is safest the first time).
+   Find `mainJar` → `downloads` → `artifact` and set:
+   ```json
+   "sha1": "e3524029afa856c4a5a17006ee6b23da0703b9f8",
+   "size": 24997
+   ```
+   Remove the `"url"` line under that artifact (so Prism cannot re-fetch Mojang’s jar).
+4. Start Prism and launch **offline** once to confirm.
 
-### Confirm the mod is actually loaded
-
-Before/after launch, the jar SHA1 must stay:
+### Confirm
 
 ```powershell
 Get-FileHash "$env:APPDATA\Roaming\PrismLauncher\libraries\com\mojang\minecraft\rd-132211\minecraft-rd-132211-client.jar" -Algorithm SHA1
 ```
 
-Expected: `E3524029AFA856C4A5A17006EE6B23DA0703B9F8`
+Must be `E3524029AFA856C4A5A17006EE6B23DA0703B9F8`.
 
-If it changed back, Prism restored vanilla — repeat steps 1–5.
+If Prism refreshes meta and restores vanilla hashes, re-do step 3, or customize the instance version (Edit Instance → Version → Minecraft → Customize) and apply the same sha1/size/no-url edit there.
 
-### In-game check
+## In-game
 
-- Place on the **top of grass** (one block up): should be **oak planks** (brown wood), not gray stone.
-- Place elsewhere: rock/stone, and it should **stay** that look (no height revert).
-
-## Controls (unchanged)
-
-- Left click: place
-- Right click: break
-- Enter: save `level.dat`
+- Place on **top of grass** → oak planks (brown).
+- Place elsewhere → rock, and it should not “revert” by height.
