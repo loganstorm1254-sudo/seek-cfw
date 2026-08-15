@@ -1,17 +1,22 @@
 # rd-132211 oak planks — standalone (no Prism)
 
-## Download the ZIP (not the exe)
+## Download
 
 https://github.com/loganstorm1254-sudo/seek-cfw/raw/cursor/rd-oak-planks-above-grass-96c0/rd-132211-oak-planks/standalone/Minecraft-rd-132211-OakPlanks-Standalone.zip
 
-1. Download that **.zip**
-2. Right-click → **Extract All…** into a folder
-3. Open the extracted folder — you must see:
-   - `START-HERE.bat`
-   - `lib\`
-   - `natives\`
-4. Double-click **`START-HERE.bat`**
+Extract the **whole** zip → run **`START-HERE.bat`**
 
-Ignore the `.exe` if Windows complains about it. The `.bat` starts the game directly.
+## Controls
 
-Needs Java 8 — Prism’s `jre-legacy` is enough (Prism does not need to launch the game).
+| Key | Action |
+|-----|--------|
+| **1 / 2 / 3** | Select Rock / Grass / Oak Planks (hotbar) |
+| **F** | Toggle fly mode |
+| **Space** | Jump, or fly up |
+| **Shift** | Fly down |
+| **WASD** | Move |
+| **LMB / RMB** | Place / break |
+| **Enter** | Save |
+| **Esc** | Quit |
+
+Hotbar is at the bottom; yellow **F** badge appears when flying.
