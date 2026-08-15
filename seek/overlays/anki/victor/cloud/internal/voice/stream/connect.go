@@ -27,13 +27,13 @@ const (
 
 func (strm *Streamer) newChipperConn(ctx context.Context) (Conn, *CloudError) {
 	// Seek: after "Hey Vector → question / I have a question", the engine opens a
-	// wake-wordless KnowledgeGraph stream. Answer that turn with Whisper+ChatGPT
-	// when a Houndify or OpenAI key is saved. IntentGraph stays on Chipper.
+	// wake-wordless KnowledgeGraph stream. Answer that turn via voiceAsk
+	// (Oval / Houndify / Whisper+OpenAI) when any Seek AI key is saved.
 	if strm.opts.kgOpts != nil && seekAIKeyPresent() {
 		sessionID := uuid.New().String()[:16]
 		strm.receiver.OnStreamOpen(sessionID)
 		seekShowChatGPTLogo()
-		log.Println("Seek ChatGPT: Knowledge Graph stream → Whisper + ChatGPT")
+		log.Println("Seek AI: Knowledge Graph stream → Oval / Houndify / ChatGPT")
 		return newSeekKGConn(strm), nil
 	}
 

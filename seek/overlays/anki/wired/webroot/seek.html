@@ -149,8 +149,24 @@
             </label>
             <button type="button" class="primary" id="btnSay">Say it</button>
 
-            <h2 class="spaced">ChatGPT</h2>
-            <p class="hint"><b>On Vector:</b> say <b>Hey Vector, question</b> (or <b>I have a question</b>). He shows the ChatGPT mark, says <b>I'm ready</b>, then listen and ask. Save a <b>Houndify</b> Client ID + Key below (preferred for questions) and/or an OpenAI key. Dashboard Ask still runs on your phone/PC when OpenAI is saved.</p>
+            <h2 class="spaced">ChatGPT / Oval</h2>
+            <p class="hint"><b>On Vector:</b> say <b>Hey Vector, I have a question</b> (or ask a question directly). Prefer <b>Oval</b> (<code>vector-engine</code> at oval.drpug.shop). Houndify or OpenAI are fallbacks. Dashboard text Ask uses your phone/PC when a key is saved here. Voice STT on classic KG turns needs OpenAI Whisper or Houndify if Oval alone cannot hear the follow-up.</p>
+
+            <h2 class="spaced">Oval AI</h2>
+            <p class="hint">OpenAI-compatible API at <code>https://oval.drpug.shop/v1</code>, model <code>vector-engine</code>. Paste your Oval API key.</p>
+            <label class="field">
+                <span>Oval API key</span>
+                <input type="password" id="ovalKey" placeholder="Your Oval API key" autocomplete="off">
+            </label>
+            <p id="ovalKeyStatus" class="hint"></p>
+            <div class="actions">
+                <button type="button" class="primary" id="btnSaveOval">Save Oval key</button>
+                <button type="button" class="ghost danger" id="btnClearOval">Clear Oval</button>
+                <button type="button" class="ghost" id="btnTestOval">Test Oval</button>
+            </div>
+
+            <h2 class="spaced">OpenAI (optional)</h2>
+            <p class="hint">Needed for Whisper voice transcription and OpenAI TTS voices. Text Ask can use Oval alone.</p>
             <label class="field">
                 <span>OpenAI API key</span>
                 <input type="password" id="openaiKey" placeholder="sk-… or sk-proj-…" autocomplete="off">
@@ -163,7 +179,7 @@
             </div>
 
             <h2 class="spaced">Houndify (questions)</h2>
-            <p class="hint">SoundHound Houndify answers <b>Hey Vector, question</b> on the robot (no OpenAI needed). Create a free client at <a href="https://www.houndify.com/" target="_blank" rel="noopener">houndify.com</a> and paste Client ID + Client Key.</p>
+            <p class="hint">SoundHound Houndify can answer <b>Hey Vector, question</b> on the robot (no OpenAI). Create a free client at <a href="https://www.houndify.com/" target="_blank" rel="noopener">houndify.com</a>.</p>
             <label class="field">
                 <span>Houndify Client ID</span>
                 <input type="text" id="houndifyClientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off">
@@ -179,7 +195,7 @@
                 <button type="button" class="ghost" id="btnTestHoundify">Test Houndify</button>
             </div>
             <label class="field spaced">
-                <span>Ask ChatGPT</span>
+                <span>Ask AI</span>
                 <input type="text" id="askAIText" placeholder="What is the capital of France?" autocomplete="off">
             </label>
             <div class="actions">

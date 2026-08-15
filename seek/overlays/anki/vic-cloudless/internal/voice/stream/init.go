@@ -26,6 +26,7 @@ var doFreqStuff bool = false
 
 const (
 	seekOpenAIKeyPath   = "/data/data/com.anki.victor/persistent/seek/openai_api_key"
+	seekOvalKeyPath     = "/data/data/com.anki.victor/persistent/seek/oval_api_key"
 	seekHoundifyIDPath  = "/data/data/com.anki.victor/persistent/seek/houndify_client_id"
 	seekHoundifyKeyPath = "/data/data/com.anki.victor/persistent/seek/houndify_client_key"
 	seekVoiceAskURL     = "http://127.0.0.1:8080/api/mods/SeekDashboard/voiceAsk"
@@ -34,6 +35,9 @@ const (
 )
 
 func seekAIKeyPresent() bool {
+	if b, err := os.ReadFile(seekOvalKeyPath); err == nil && len(strings.TrimSpace(string(b))) > 8 {
+		return true
+	}
 	if b, err := os.ReadFile(seekOpenAIKeyPath); err == nil && len(strings.TrimSpace(string(b))) > 20 {
 		return true
 	}
@@ -47,6 +51,11 @@ func seekAIKeyPresent() bool {
 func seekLooksLikeQuestion(text string) bool {
 	t := strings.ToLower(strings.TrimSpace(text))
 	if t == "" {
+		return false
+	}
+	// Bare "question" / "I have a question" should pass through as the stock
+	// knowledge-prompt intent so the engine opens a follow-up KG listen.
+	if seekIsQuestionPrompt(t) {
 		return false
 	}
 	if strings.HasSuffix(t, "?") {
@@ -63,6 +72,20 @@ func seekLooksLikeQuestion(text string) bool {
 		}
 	}
 	return false
+}
+
+func seekIsQuestionPrompt(text string) bool {
+	t := strings.ToLower(strings.TrimSpace(text))
+	t = strings.Trim(t, " .,!?")
+	t = strings.TrimPrefix(t, "hey vector")
+	t = strings.Trim(t, " .,!?")
+	switch t {
+	case "question", "a question", "i have a question", "i've a question",
+		"look up a question", "look up a question for me":
+		return true
+	default:
+		return false
+	}
 }
 
 func seekCallVoiceAsk(pcm []byte) (transcript, answer string, err error) {
@@ -165,8 +188,13 @@ func (strm *Streamer) init(streamSize int) {
 
 			intent, iParam, _ := vtr.ProcessTextAll(text, vtr.IntentList)
 
-			// Seek ChatGPT: free-form questions when an API key is saved.
+			// Seek AI: free-form questions when Oval / Houndify / OpenAI is saved.
+			// Prefer robot askAI (Oval) using the Vosk transcript when Whisper is unavailable.
 			if aiOn && (seekLooksLikeQuestion(text) || intent == "intent_system_noaudio") {
+				if ans := seekAskTextHTTP(text); ans != "" {
+					seekSendAIAnswer(strm, text, ans)
+					return
+				}
 				if len(pcm) > 3200 {
 					if tr, ans, err := seekCallVoiceAsk(pcm); err == nil && ans != "" {
 						q := tr
@@ -176,10 +204,6 @@ func (strm *Streamer) init(streamSize int) {
 						seekSendAIAnswer(strm, q, ans)
 						return
 					}
-				}
-				if ans := seekAskTextHTTP(text); ans != "" {
-					seekSendAIAnswer(strm, text, ans)
-					return
 				}
 			}
 

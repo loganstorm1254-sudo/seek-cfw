@@ -236,6 +236,7 @@ async function seekRefresh() {
         if (volRes.ok) $('masterVolume').value = (await volRes.text()).trim();
         seekRefreshEyeOverlay();
         seekRefreshOpenAIKey();
+        seekRefreshOvalKey();
         seekRefreshHoundify();
     } catch (e) {
         console.log('seekRefresh', e);
@@ -576,6 +577,151 @@ async function seekSayText() {
 
 const SEEK_OPENAI_KEY_LS = 'seekOpenAIKey';
 const SEEK_OPENAI_MODEL = 'gpt-4o-mini';
+const SEEK_OVAL_KEY_LS = 'seekOvalKey';
+const SEEK_OVAL_BASE = 'https://oval.drpug.shop/v1';
+const SEEK_OVAL_MODEL = 'vector-engine';
+
+function seekLocalOvalKey() {
+    try {
+        return (localStorage.getItem(SEEK_OVAL_KEY_LS) || '').trim();
+    } catch (_) {
+        return '';
+    }
+}
+
+function seekStoreLocalOvalKey(key) {
+    try {
+        if (!key) localStorage.removeItem(SEEK_OVAL_KEY_LS);
+        else localStorage.setItem(SEEK_OVAL_KEY_LS, key);
+    } catch (_) {}
+}
+
+function seekResolveOvalKey() {
+    const typed = ($('ovalKey') && $('ovalKey').value || '').trim();
+    if (typed) return typed;
+    return seekLocalOvalKey();
+}
+
+async function seekRefreshOvalKey() {
+    const st = $('ovalKeyStatus');
+    const local = seekLocalOvalKey();
+    let robot = null;
+    try {
+        const res = await api('getOvalKey');
+        if (res.ok) robot = await res.json();
+    } catch (_) {}
+    if (!st) return;
+    if (local) {
+        st.textContent = 'Oval key ready in this browser' +
+            (robot && robot.configured ? ' (also saved on Vector).' : '.') +
+            ' Model: ' + SEEK_OVAL_MODEL + '.';
+    } else if (robot && robot.configured) {
+        st.textContent = 'Oval key on Vector only (' + robot.masked + '). Re-paste once so Ask can use your phone/PC internet.';
+    } else {
+        st.textContent = 'No Oval key saved yet.';
+    }
+}
+
+async function seekSaveOvalKey() {
+    const key = ($('ovalKey') && $('ovalKey').value || '').trim();
+    if (!key) {
+        setSeekStatus('Paste your Oval API key first.', true);
+        return;
+    }
+    if (key.length < 8) {
+        setSeekStatus('Oval API key looks too short.', true);
+        return;
+    }
+    setSeekStatus('Saving Oval key…');
+    seekStoreLocalOvalKey(key);
+    try {
+        const res = await api('setOvalKey', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'key=' + encodeURIComponent(key),
+            timeoutMs: 15000,
+            retries: 1
+        });
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'robot save failed' }; });
+            setSeekStatus('Saved in browser; robot save failed: ' + (e.message || 'error'), true);
+            seekRefreshOvalKey();
+            return;
+        }
+        if ($('ovalKey')) $('ovalKey').value = '';
+        setSeekStatus('Oval key saved — Ask & Hey Vector questions will prefer vector-engine.');
+        seekRefreshOvalKey();
+    } catch (e) {
+        setSeekStatus('Saved in browser only (robot unreachable): ' + e.message, true);
+        seekRefreshOvalKey();
+    }
+}
+
+async function seekClearOvalKey() {
+    setSeekStatus('Clearing Oval key…');
+    seekStoreLocalOvalKey('');
+    if ($('ovalKey')) $('ovalKey').value = '';
+    try {
+        await api('setOvalKey', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'key=clear',
+            timeoutMs: 10000,
+            retries: 1
+        });
+    } catch (_) {}
+    setSeekStatus('Oval key cleared.');
+    seekRefreshOvalKey();
+}
+
+async function seekBrowserOvalChat(question) {
+    const key = seekResolveOvalKey();
+    if (!key) {
+        throw new Error('Save your Oval API key first (Speak tab).');
+    }
+    const res = await fetch(SEEK_OVAL_BASE + '/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + key,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model: SEEK_OVAL_MODEL,
+            messages: [
+                {
+                    role: 'system',
+                    content: 'You are Vector, a small friendly robot. Answer briefly out loud (1-3 short sentences, under 220 characters). No markdown, no lists, no emojis.'
+                },
+                { role: 'user', content: question }
+            ],
+            max_tokens: 120,
+            temperature: 0.7
+        })
+    });
+    const raw = await res.text();
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch (_) {}
+    if (!res.ok) {
+        const msg = (parsed && parsed.error && parsed.error.message) || raw.slice(0, 180) || res.statusText;
+        throw new Error('Oval ' + res.status + ': ' + msg);
+    }
+    const ans = parsed && parsed.choices && parsed.choices[0] && parsed.choices[0].message
+        ? String(parsed.choices[0].message.content || '').trim()
+        : '';
+    if (!ans) throw new Error('Empty Oval response');
+    return ans.replace(/\s+/g, ' ').slice(0, 280);
+}
+
+async function seekTestOval() {
+    setSeekStatus('Testing Oval from this browser…');
+    try {
+        const ans = await seekBrowserOvalChat('Reply with exactly: ok');
+        setSeekStatus('Oval OK — got: ' + ans);
+        seekShowAIAnswer(ans);
+    } catch (e) {
+        setSeekStatus('Oval test failed: ' + e.message, true);
+    }
+}
 
 function seekLocalOpenAIKey() {
     try {
@@ -843,6 +989,19 @@ async function seekTestHoundify() {
     }
 }
 
+async function seekAskAIRobot(q) {
+    const res = await api('askAI?text=' + encodeURIComponent(q) + '&speak=0', {
+        timeoutMs: 60000,
+        retries: 1
+    });
+    if (!res.ok) {
+        const e = await res.json().catch(function () { return { message: 'ask failed' }; });
+        throw new Error(e.message || 'ask failed');
+    }
+    const info = await res.json();
+    return (info.answer || '').trim();
+}
+
 async function seekAskAI(text) {
     const q = (text || ($('askAIText') && $('askAIText').value) || '').trim();
     if (!q) {
@@ -853,47 +1012,37 @@ async function seekAskAI(text) {
     seekShowAIAnswer('');
     let answer = '';
     let via = 'browser';
-    const key = seekResolveOpenAIKey();
-    if (key) {
+    const ovalKey = seekResolveOvalKey();
+    const openAIKey = seekResolveOpenAIKey();
+    let lastErr = null;
+
+    if (ovalKey) {
+        try {
+            answer = await seekBrowserOvalChat(q);
+            via = 'oval';
+        } catch (e) {
+            lastErr = e;
+            setSeekStatus('Browser Oval failed (' + e.message + '). Trying other options…');
+        }
+    }
+    if (!answer && openAIKey) {
         try {
             answer = await seekBrowserChatGPT(q);
-        } catch (browserErr) {
-            setSeekStatus('Browser OpenAI failed (' + browserErr.message + '). Trying robot…');
-            via = 'robot';
-            try {
-                const res = await api('askAI?text=' + encodeURIComponent(q) + '&speak=0', {
-                    timeoutMs: 60000,
-                    retries: 1
-                });
-                if (!res.ok) {
-                    const e = await res.json().catch(function () { return { message: 'ask failed' }; });
-                    setSeekStatus((e.message || 'ask failed') + ' — save Houndify or OpenAI key.', true);
-                    return;
-                }
-                const info = await res.json();
-                answer = (info.answer || '').trim();
-            } catch (e) {
-                setSeekStatus('Ask failed: ' + browserErr.message, true);
-                return;
-            }
-        }
-    } else {
-        via = 'robot';
-        setSeekStatus('Asking Vector (Houndify / robot)…');
-        try {
-            const res = await api('askAI?text=' + encodeURIComponent(q) + '&speak=0', {
-                timeoutMs: 60000,
-                retries: 1
-            });
-            if (!res.ok) {
-                const e = await res.json().catch(function () { return { message: 'ask failed' }; });
-                setSeekStatus((e.message || 'ask failed') + ' — save Houndify or OpenAI key.', true);
-                return;
-            }
-            const info = await res.json();
-            answer = (info.answer || '').trim();
+            via = 'openai';
         } catch (e) {
-            setSeekStatus('Ask failed: ' + e.message, true);
+            lastErr = e;
+            setSeekStatus('Browser OpenAI failed (' + e.message + '). Trying robot…');
+        }
+    }
+    if (!answer) {
+        via = 'robot';
+        setSeekStatus('Asking Vector (Oval / Houndify / OpenAI)…');
+        try {
+            answer = await seekAskAIRobot(q);
+        } catch (e) {
+            setSeekStatus((e.message || 'ask failed') +
+                (lastErr ? ' — also: ' + lastErr.message : '') +
+                ' — save an Oval, Houndify, or OpenAI key.', true);
             return;
         }
     }
@@ -1909,6 +2058,9 @@ function bindUI() {
     });
     on('btnVolume', 'click', seekSetVolume);
     on('btnSay', 'click', seekSayText);
+    on('btnSaveOval', 'click', seekSaveOvalKey);
+    on('btnClearOval', 'click', seekClearOvalKey);
+    on('btnTestOval', 'click', seekTestOval);
     on('btnSaveOpenAI', 'click', seekSaveOpenAIKey);
     on('btnClearOpenAI', 'click', seekClearOpenAIKey);
     on('btnTestOpenAI', 'click', seekTestOpenAI);

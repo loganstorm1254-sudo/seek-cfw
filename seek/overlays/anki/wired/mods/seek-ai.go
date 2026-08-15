@@ -193,7 +193,11 @@ func (m *SeekDashboard) handleVoiceAsk(w http.ResponseWriter, r *http.Request) {
 			vars.HTTPError(w, r, "houndify: "+houndErr.Error())
 			return
 		}
-		vars.HTTPError(w, r, "save a Houndify or OpenAI key in Speak")
+		if seekOvalConfigured() {
+			vars.HTTPError(w, r, "Oval answers text Ask; for voice questions also save OpenAI (Whisper) or Houndify")
+			return
+		}
+		vars.HTTPError(w, r, "save an Oval, Houndify, or OpenAI key in Speak")
 		return
 	}
 
@@ -213,7 +217,9 @@ func (m *SeekDashboard) handleVoiceAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	via := "chatgpt"
-	if seekHoundifyConfigured() {
+	if seekOvalConfigured() {
+		via = "oval"
+	} else if seekHoundifyConfigured() {
 		via = "houndify"
 	}
 	out, _ := json.Marshal(map[string]string{

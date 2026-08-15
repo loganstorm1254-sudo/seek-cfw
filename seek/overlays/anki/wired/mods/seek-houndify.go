@@ -50,7 +50,7 @@ func seekReadHoundifyCreds() (id, key string, err error) {
 }
 
 func seekQuestionBackendReady() bool {
-	return seekHoundifyConfigured() || seekOpenAIKeyConfigured()
+	return seekAnyAIConfigured()
 }
 
 func (m *SeekDashboard) handleGetHoundify(w http.ResponseWriter, r *http.Request) {
@@ -277,20 +277,33 @@ func seekHoundifyVoice(wav []byte) (transcript, answer string, err error) {
 	return seekParseHoundify(raw)
 }
 
+func seekAnyAIConfigured() bool {
+	return seekOvalConfigured() || seekHoundifyConfigured() || seekOpenAIKeyConfigured()
+}
+
 func seekAnswerQuestion(question string) (string, error) {
-	var houndErr error
+	var lastErr error
+	if seekOvalConfigured() {
+		ans, err := seekOvalChat(question)
+		if err == nil && strings.TrimSpace(ans) != "" {
+			return ans, nil
+		}
+		lastErr = err
+	}
 	if seekHoundifyConfigured() {
 		ans, err := seekHoundifyText(question)
 		if err == nil && strings.TrimSpace(ans) != "" {
 			return ans, nil
 		}
-		houndErr = err
+		if lastErr == nil {
+			lastErr = err
+		}
 	}
 	if seekOpenAIKeyConfigured() {
 		return seekChatGPT(question)
 	}
-	if houndErr != nil {
-		return "", houndErr
+	if lastErr != nil {
+		return "", lastErr
 	}
-	return "", errors.New("save a Houndify or OpenAI key in Speak")
+	return "", errors.New("save an Oval, Houndify, or OpenAI key in Speak")
 }

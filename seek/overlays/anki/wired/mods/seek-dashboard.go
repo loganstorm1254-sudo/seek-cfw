@@ -147,7 +147,7 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	action := strings.TrimPrefix(r.URL.Path, "/api/mods/"+m.Name()+"/")
 	switch action {
-	case "status", "moves", "getEyeColor", "getVolume", "cameraFrame", "cameraMjpeg", "getEyeOverlay", "getOpenAIKey", "getHoundify", "getSeekLights", "otaStatus":
+	case "status", "moves", "getEyeColor", "getVolume", "cameraFrame", "cameraMjpeg", "getEyeOverlay", "getOpenAIKey", "getHoundify", "getOvalKey", "getSeekLights", "otaStatus":
 		// read-only / streaming — don't count as "user activity" for idle release
 	default:
 		m.touchActivity()
@@ -208,6 +208,18 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 			vars.HTTPError(w, r, err.Error())
 			return
 		}
+		vars.HTTPSuccess(w, r)
+		return
+	case "getOvalKey":
+		m.handleGetOvalKey(w, r)
+		return
+	case "setOvalKey":
+		if err := m.handleSetOvalKey(r); err != nil {
+			vars.HTTPError(w, r, err.Error())
+			return
+		}
+		vars.HTTPSuccess(w, r)
+		return
 	case "getHoundify":
 		m.handleGetHoundify(w, r)
 		return
@@ -216,6 +228,8 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 			vars.HTTPError(w, r, err.Error())
 			return
 		}
+		vars.HTTPSuccess(w, r)
+		return
 	case "askAI":
 		answer, err := m.handleAskAI(r)
 		if err != nil {

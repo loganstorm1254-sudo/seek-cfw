@@ -23,6 +23,7 @@ var seekChatGPTLogoJPEG []byte
 
 const (
 	seekOpenAIKeyPath    = "/data/data/com.anki.victor/persistent/seek/openai_api_key"
+	seekOvalKeyPath      = "/data/data/com.anki.victor/persistent/seek/oval_api_key"
 	seekHoundifyIDPath   = "/data/data/com.anki.victor/persistent/seek/houndify_client_id"
 	seekHoundifyKeyPath  = "/data/data/com.anki.victor/persistent/seek/houndify_client_key"
 	seekVoiceAskURL      = "http://127.0.0.1:8080/api/mods/SeekDashboard/voiceAsk"
@@ -39,6 +40,9 @@ var (
 )
 
 func seekAIKeyPresent() bool {
+	if b, err := os.ReadFile(seekOvalKeyPath); err == nil && len(strings.TrimSpace(string(b))) > 8 {
+		return true
+	}
 	if b, err := os.ReadFile(seekOpenAIKeyPath); err == nil && len(strings.TrimSpace(string(b))) > 20 {
 		return true
 	}
