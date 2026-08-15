@@ -548,6 +548,10 @@ int main(int argc, char **argv)
     die(220, "Unable to ensure status dir");
   }
   write_status(PHASE_FILE, "download");
+  // Publish a placeholder immediately so BLE websetup is not stuck at the
+  // fake 35% bar while HEAD/download starts (switchboard reads expected-size).
+  write_status(EXPECTED_WRITE_SIZE_FILE, "230000000");
+  write_status(PROGRESS_FILE, "0");
 
   // get content-length
   {
@@ -574,7 +578,17 @@ int main(int argc, char **argv)
         content_length = val;
       }
     }
+    if (content_length.empty() || content_length == "0")
+    {
+      // file:// and some proxies omit Content-Length; keep BLE moving.
+      content_length = "230000000";
+    }
     write_status(EXPECTED_DOWNLOAD_SIZE_FILE, content_length);
+    // Switchboard / BLE only watches expected-size (not expected-download-size).
+    // Until the manifest flash size is known, report download size so the UI
+    // leaves the fake 35% ramp and shows a real byte counter.
+    write_status(EXPECTED_WRITE_SIZE_FILE, content_length);
+    write_status(PROGRESS_FILE, "0");
   }
 
   // my dorm wifi is shitty

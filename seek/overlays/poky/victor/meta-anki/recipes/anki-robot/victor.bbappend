@@ -6,9 +6,10 @@
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
 do_install:append() {
-    WRAP="${WORKSPACE}/poky/victor/meta-anki/recipes/anki-robot/files/update-engine-wrap.sh"
+    # Prefer Seek overlay wrap (source of truth) over a stale poky copy.
+    WRAP="${WORKSPACE}/seek/overlays/poky/victor/meta-anki/recipes/anki-robot/files/update-engine-wrap.sh"
     if [ ! -f "$WRAP" ]; then
-        WRAP="${WORKSPACE}/seek/overlays/poky/victor/meta-anki/recipes/anki-robot/files/update-engine-wrap.sh"
+        WRAP="${WORKSPACE}/poky/victor/meta-anki/recipes/anki-robot/files/update-engine-wrap.sh"
     fi
     if [ -f ${D}/anki/bin/update-engine ] && [ -f "$WRAP" ]; then
         mv ${D}/anki/bin/update-engine ${D}/anki/bin/update-engine.real

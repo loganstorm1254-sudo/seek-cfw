@@ -1518,20 +1518,35 @@ function seekOtaStartClock() {
       bytesNote = "  " + curMb + " / " + expMb + " MB";
     }
     if (!(pct >= 0)) {
-      // Fake ramp only while waiting for BLE byte reports (caps ~35%).
-      pct = Math.min(0.35, 0.04 + s * 0.002);
+      // Time-based estimate until BLE reports bytes (~217MB / hotspot often 8–15 min).
+      // Do NOT cap at 35% — that looked like a freeze.
+      pct = Math.min(0.88, 0.03 + s / 900);
     }
     setOtaProgress(pct);
     var stalled =
-      _seekOtaLastByteAt > 0 && Date.now() - _seekOtaLastByteAt > 120000;
+      _seekOtaLastByteAt > 0 && Date.now() - _seekOtaLastByteAt > 180000;
     var noBytes = !(_seekOtaBytes && _seekOtaBytes.exp > 0);
     var msg;
+    if (noBytes && s > 900) {
+      // ~15 min with zero BLE byte reports → almost certainly stuck.
+      seekOtaDone();
+      $("#otaErrorLabel").removeClass("vec-hidden");
+      $("#otaErrorLabel").html(
+        "OTA did not report download progress (stuck UI / no bytes).<br/>" +
+          "Keep Vector on the phone hotspot, hard-refresh this page, and Install once more.<br/>" +
+          "If it still stalls: run local Seek Web Setup on a Mac/PC on the same hotspot " +
+          "so Vector pulls over LAN HTTP (<code>seek/websetup</code>)."
+      );
+      $("#btnTryAgain").removeClass("vec-hidden");
+      seekOtaNote("Timed out waiting for robot byte reports. elapsed " + clock);
+      return;
+    }
     if (noBytes && s > 90) {
       msg =
-        "Robot is still working (no byte counter yet). Keep the hotspot on. " +
-        "Do not tap Try Again. Wait for reboot. elapsed " +
+        "Downloading over hotspot (byte counter starts when Vector reports). " +
+        "Keep the hotspot on. Do not tap Try Again. elapsed " +
         clock;
-    } else if (pct >= 0.8 || stalled) {
+    } else if (pct >= 0.9 || stalled) {
       msg =
         "Download done / flashing on the robot. The bar often freezes here. " +
         "Wait for Vector to reboot (2–5 min). Do not retry. elapsed " +

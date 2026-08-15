@@ -1,13 +1,15 @@
 #!/bin/sh
-# Seek BLE OTA wrap v9 (shipped in the OTA — no SSH).
+# Seek BLE OTA wrap v10 (shipped in the OTA — no SSH).
 # Public websetup only starts /anki/bin/update-engine <url>. This wrap:
+#   - remounts root rw and prefers /ota or /cache for the payload
 #   - rewrites https://*.anki.org.uk → http:// (Vector cannot verify TLS)
-#   - if /ota is large enough, downloads with resume then flashes file://
+#   - downloads with resume + live BLE progress files, then flashes file://
 #   - otherwise execs the streaming C++ engine (no second HTTP pull)
 # Periodic auto-update (no URL) is passed through. Do not default to /ota/latest.
-mkdir -p /run/update-engine /data
+mount -o remount,rw / 2>/dev/null || true
+mkdir -p /run/update-engine /data /ota /cache
 LOG=/run/update-engine/wrapper.log
-echo "wrapper v9 start $(date 2>/dev/null || true)" >> "$LOG"
+echo "wrapper v10 start $(date 2>/dev/null || true)" >> "$LOG"
 echo "env URL=${UPDATE_ENGINE_URL-}" >> "$LOG"
 echo "args=$*" >> "$LOG"
 
@@ -52,16 +54,67 @@ if [ ! -x "$REAL" ] || grep -q 'Seek BLE OTA wrap' "$REAL" 2>/dev/null; then
   exit 203
 fi
 
-OTA=/ota/v.ota
+# Default ~Seek cloudless OTA size; HEAD may replace this.
+EXPECT=230000000
+probe_expect() {
+  HURL="$1"
+  case "$HURL" in
+    http://*|https://*) ;;
+    *) return 0 ;;
+  esac
+  CL=`curl -k -sIL --http1.1 -4 --max-time 12 --connect-timeout 8 "$HURL" 2>/dev/null \
+    | tr -d '\r' | awk 'tolower($0) ~ /^content-length:/ { v=$2 } END { print v }'`
+  case "$CL" in
+    ''|*[!0-9]*) ;;
+    *)
+      if [ "$CL" -ge 8000000 ]; then
+        EXPECT="$CL"
+      fi
+      ;;
+  esac
+}
+
+# Pick a writable dir with enough free space for the OTA (+ margin).
+# /data is often ~58MB on Unlock — too small. Prefer /ota (root) or /cache.
+OTA=
+ota_pick() {
+  NEED_KB=`expr "$EXPECT" / 1024 + 20480`
+  for d in /ota /cache /data/ota; do
+    mkdir -p "$d" 2>/dev/null || continue
+    touch "$d/.seek-write" 2>/dev/null || continue
+    rm -f "$d/.seek-write"
+    AVAIL=`df -P "$d" 2>/dev/null | awk 'NR==2 { print $4 }'`
+    [ -n "$AVAIL" ] || continue
+    EXIST=0
+    [ -f "$d/v.ota" ] && EXIST=`stat -c %s "$d/v.ota" 2>/dev/null || echo 0`
+    if [ "$EXIST" -ge 8000000 ] || [ "$AVAIL" -ge "$NEED_KB" ]; then
+      OTA="$d/v.ota"
+      echo "ota path $OTA avail_kb=$AVAIL need_kb=$NEED_KB exist=$EXIST" >> "$LOG"
+      return 0
+    fi
+    echo "skip $d avail_kb=$AVAIL need_kb=$NEED_KB" >> "$LOG"
+  done
+  return 1
+}
+
 SZ=0
-[ -f "$OTA" ] && SZ=`stat -c %s "$OTA" 2>/dev/null || echo 0`
+[ -n "$OTA" ] && [ -f "$OTA" ] && SZ=`stat -c %s "$OTA" 2>/dev/null || echo 0`
 
 # BLE sometimes starts the engine with no URL. Flash a complete local payload.
 if [ -z "$URL" ] || [ "$URL" = "auto" ]; then
-  if [ "$SZ" -ge 8000000 ]; then
-    URL="file://$OTA"
-    echo "no BLE URL; flashing existing $OTA ($SZ)" >> "$LOG"
-  else
+  for d in /ota /cache /data/ota; do
+    if [ -f "$d/v.ota" ]; then
+      TSZ=`stat -c %s "$d/v.ota" 2>/dev/null || echo 0`
+      if [ "$TSZ" -ge 8000000 ]; then
+        OTA="$d/v.ota"
+        SZ="$TSZ"
+        URL="file://$OTA"
+        echo "no BLE URL; flashing existing $OTA ($SZ)" >> "$LOG"
+        break
+      fi
+    fi
+  done
+  if [ -z "$URL" ] || [ "$URL" = "auto" ]; then
     echo "no URL; passing through to real engine" >> "$LOG"
     cp -f "$LOG" /data/update-engine-wrapper.log 2>/dev/null || true
     exec "$REAL" "$@"
@@ -69,41 +122,42 @@ if [ -z "$URL" ] || [ "$URL" = "auto" ]; then
 fi
 
 echo "using URL=$URL" >> "$LOG"
+probe_expect "$URL"
+echo "expect $EXPECT" >> "$LOG"
 
 NEED=1
 case "$URL" in
   http://127.0.0.1:*|http://localhost:*|file://*) NEED=0 ;;
 esac
 
-ota_usable() {
-  mkdir -p /ota 2>/dev/null || return 1
-  touch /ota/.seek-write 2>/dev/null || return 1
-  rm -f /ota/.seek-write
-  AVAIL=`df -P /ota 2>/dev/null | awk 'NR==2 { print $4 }'`
-  [ -n "$AVAIL" ] || return 1
-  # df -P is KB. Need ~200MB free (or a large in-progress file).
-  if [ "$SZ" -ge 8000000 ]; then
-    return 0
-  fi
-  [ "$AVAIL" -ge 200000 ]
-}
-
-if [ "$NEED" = 1 ] && ! ota_usable; then
-  echo "/ota not usable; streaming $URL" >> "$LOG"
-  echo 180000000 > /run/update-engine/expected-size
-  echo 0 > /run/update-engine/progress
+ble_progress_init() {
+  echo "$EXPECT" > /run/update-engine/expected-size
+  echo "${1:-0}" > /run/update-engine/progress
   echo download > /run/update-engine/phase
   rm -f /run/update-engine/error /run/update-engine/done /run/update-engine/exit_code
+}
+
+if [ "$NEED" = 1 ] && ! ota_pick; then
+  echo "/ota|/cache not usable; streaming $URL" >> "$LOG"
+  ble_progress_init 0
   cp -f "$LOG" /data/update-engine-wrapper.log 2>/dev/null || true
   exec "$REAL" -v "$URL"
 fi
 
+# Local file:// flash path (already downloaded).
+case "$URL" in
+  file://*)
+    OTA=`echo "$URL" | sed 's|^file://||'`
+    ;;
+esac
+
 CURL=/usr/bin/curl.anki
 [ -x "$CURL" ] || CURL=/usr/bin/curl
 
-echo 180000000 > /run/update-engine/expected-size
-echo "$SZ" > /run/update-engine/progress
-rm -f /run/update-engine/error /run/update-engine/done /run/update-engine/exit_code
+[ -z "$OTA" ] && OTA=/ota/v.ota
+SZ=0
+[ -f "$OTA" ] && SZ=`stat -c %s "$OTA" 2>/dev/null || echo 0`
+ble_progress_init "$SZ"
 
 if [ "$NEED" = 1 ]; then
   echo download > /run/update-engine/phase
@@ -115,17 +169,18 @@ if [ "$NEED" = 1 ]; then
   CR=1
   while [ "$TRIES" -lt 8 ]; do
     TRIES=`expr "$TRIES" + 1`
-    echo "curl try $TRIES size=$SZ" >> "$LOG"
+    echo "curl try $TRIES size=$SZ expect=$EXPECT" >> "$LOG"
     "$CURL" -k -L --http1.1 -4 --fail --connect-timeout 20 --retry 0 \
-      --speed-limit 2048 --speed-time 45 -C - -o "$OTA" "$URL" >> "$LOG" 2>&1 &
+      --speed-limit 1024 --speed-time 90 -C - -o "$OTA" "$URL" >> "$LOG" 2>&1 &
     CPID=$!
     TICK=0
     while kill -0 "$CPID" 2>/dev/null; do
       NOW=`stat -c %s "$OTA" 2>/dev/null || echo 0`
       echo "$NOW" > /run/update-engine/progress
+      echo "$EXPECT" > /run/update-engine/expected-size
       TICK=`expr "$TICK" + 1`
       if [ `expr "$TICK" % 5` -eq 0 ]; then
-        echo "progress $NOW bytes" >> "$LOG"
+        echo "progress $NOW / $EXPECT bytes" >> "$LOG"
       fi
       sleep 1
     done
@@ -141,7 +196,7 @@ if [ "$NEED" = 1 ]; then
   done
   if [ "$CR" != 0 ] || [ "$SZ" -lt 8000000 ]; then
     echo "download failed; streaming $URL" >> "$LOG"
-    echo download > /run/update-engine/phase
+    ble_progress_init 0
     cp -f "$LOG" /data/update-engine-wrapper.log 2>/dev/null || true
     exec "$REAL" -v "$URL"
   fi
