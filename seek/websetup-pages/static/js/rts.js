@@ -1460,7 +1460,7 @@ function setPhase(phase) {
   }
 }
 
-var SEEK_UI_VERSION = "seek22";
+var SEEK_UI_VERSION = "seek23";
 
 function setOtaProgress(percent, opts) {
   if (percent !== percent || percent < 0) return;
@@ -1556,10 +1556,38 @@ function seekOtaNote(msg) {
 
 // Current Seek OS latest is ~217MB. Older wrap guessed 180MB (~171 MiB).
 var SEEK_OTA_SIZE_HINT = 227276800;
+// Streaming update-engine switches expected-size to uncompressed boot+system
+// write size (~800MB). That is NOT the Cloudflare download size.
+var SEEK_OTA_WRITE_SIZE_FLOOR = 350 * 1048576;
 
 function seekIsLocalWebsetup() {
   var h = (window.location && window.location.hostname) || "";
   return h === "localhost" || h === "127.0.0.1" || /^192\.168\./.test(h) || /^10\./.test(h);
+}
+
+/** Normalize robot BLE byte counters for display / ETA. */
+function seekNormalizeOtaBytes(cur, exp) {
+  cur = Number(cur) || 0;
+  exp = Number(exp) || 0;
+  if (cur < 0) cur = 0;
+  if (exp < 0) exp = 0;
+  if (cur > exp && exp > 0) exp = cur;
+  var writeMode = exp >= SEEK_OTA_WRITE_SIZE_FLOOR;
+  // Map uncompressed write progress onto the real ~217MB file size for MB UI.
+  var fileExp = SEEK_OTA_SIZE_HINT;
+  var fileCur = writeMode && exp > 0 ? (cur / exp) * fileExp : cur;
+  if (!writeMode) {
+    fileExp = Math.max(exp, SEEK_OTA_SIZE_HINT, cur);
+    fileCur = cur;
+  }
+  return {
+    cur: cur,
+    exp: exp,
+    writeMode: writeMode,
+    fileCur: fileCur,
+    fileExp: fileExp,
+    pct: exp > 0 ? Math.min(0.99, cur / exp) : 0,
+  };
 }
 
 function seekFormatRateEta(cur, exp, elapsedSec) {
@@ -1595,13 +1623,15 @@ function seekOtaStartClock() {
     var exp = 0;
     var bytesMoving =
       _seekOtaLastByteAt > 0 && Date.now() - _seekOtaLastByteAt < 60000;
+    var norm = null;
     if (_seekOtaBytes && _seekOtaBytes.exp > 0) {
       cur = Number(_seekOtaBytes.cur) || 0;
-      // Floor expected at real OTA size so 171MB guesses cannot hit "100% done".
-      // Always include `cur` so displayed ratio never exceeds 100%.
-      exp = Math.max(Number(_seekOtaBytes.exp) || 0, SEEK_OTA_SIZE_HINT, cur);
-      if (cur > 0) {
-        pct = Math.min(0.99, cur / exp);
+      exp = Number(_seekOtaBytes.exp) || 0;
+      norm = seekNormalizeOtaBytes(cur, exp);
+      cur = norm.fileCur;
+      exp = norm.fileExp;
+      if (norm.fileCur > 0) {
+        pct = Math.min(0.99, norm.pct > 0 ? norm.pct : norm.fileCur / norm.fileExp);
       }
     }
     if (!(pct >= 0)) {
@@ -1615,9 +1645,11 @@ function seekOtaStartClock() {
     var noBytes = !(_seekOtaBytes && _seekOtaBytes.exp > 0);
     var underRealSize = cur > 0 && cur < SEEK_OTA_SIZE_HINT * 0.98;
     var curMb = (cur / 1048576).toFixed(1);
-    var expMb = (Math.max(exp, SEEK_OTA_SIZE_HINT) / 1048576).toFixed(0);
+    var expMb = (exp / 1048576).toFixed(0);
     var mbLine = cur > 0 ? curMb + " / " + expMb + " MB" : "";
-    var rateEta = seekFormatRateEta(cur, Math.max(exp, SEEK_OTA_SIZE_HINT), s);
+    var rateEta = seekFormatRateEta(cur, exp, s);
+    var bps = s > 5 && cur > 0 ? cur / s : 0;
+    var slowHotspot = bps > 0 && bps < 200 * 1024;
     var tag = " · " + SEEK_UI_VERSION;
     var msg;
     if (noBytes && s > 900) {
@@ -1625,23 +1657,33 @@ function seekOtaStartClock() {
       $("#otaErrorLabel").removeClass("vec-hidden");
       $("#otaErrorLabel").html(
         "OTA did not report download progress (stuck UI / no bytes).<br/>" +
-          "Keep Vector on the phone hotspot, hard-refresh this page, and Install once more.<br/>" +
-          "For a fast flash: run local Seek Web Setup on a Mac/PC on the same hotspot " +
-          "(<code>seek/websetup</code>) so Vector pulls LAN HTTP in a few minutes."
+          "Put Vector on <b>home Wi‑Fi</b>, hard-refresh this page, and Install once more."
       );
       $("#btnTryAgain").removeClass("vec-hidden");
       seekOtaNote("Timed out waiting for robot byte reports. elapsed " + clock + tag);
       return;
     }
-    if (noBytes && s > 90) {
+    if (slowHotspot && mbLine) {
+      msg =
+        "TOO SLOW on phone hotspot (" +
+        Math.round(bps / 1024) +
+        " KB/s). Stop — put Vector on HOME Wi‑Fi, then Install again (usually under 15 min). " +
+        mbLine +
+        " (" +
+        showPct +
+        "%)" +
+        rateEta +
+        " · elapsed " +
+        clock +
+        tag;
+    } else if (noBytes && s > 90) {
       msg = seekIsLocalWebsetup()
         ? "Waiting for Vector byte reports… elapsed " + clock + tag
-        : "Downloading from Cloudflare… For speed, Vector should be on home Wi‑Fi (not phone hotspot). " +
-          "Keep going — do not retry. elapsed " +
+        : "Downloading from Cloudflare… Vector must be on home Wi‑Fi (not phone hotspot) or this takes hours. " +
+          "elapsed " +
           clock +
           tag;
     } else if (bytesMoving || underRealSize) {
-      // MB-first — never claim done; never show >99%.
       msg =
         "Still downloading " +
         mbLine +
@@ -1651,7 +1693,7 @@ function seekOtaStartClock() {
         rateEta +
         " · elapsed " +
         clock +
-        ". Not done — keep hotspot on, do not retry" +
+        ". Keep Wi‑Fi on — do not retry" +
         tag;
     } else if (stalled && cur >= SEEK_OTA_SIZE_HINT * 0.98) {
       msg =
@@ -1672,7 +1714,7 @@ function seekOtaStartClock() {
         rateEta +
         " · elapsed " +
         clock +
-        ". Keep hotspot on — do not retry" +
+        ". Keep Wi‑Fi on — do not retry" +
         tag;
     }
     seekOtaNote(msg);
@@ -1793,7 +1835,7 @@ function doOta() {
       '<div class="seek-ota-speed" style="margin:0 0 10px;padding:8px 10px;background:#102418;color:#d7e2f0;font-size:12px;line-height:1.35;">' +
       (isLanUrl || seekIsLocalWebsetup()
         ? "Downloading on your network. Keep this tab open until Vector reboots."
-        : "Downloading ~217 MB from Cloudflare. Home Wi‑Fi is much faster than a phone hotspot. Keep this tab open — do not tap Try Again.") +
+        : "OTA is ~217 MB. At phone-hotspot speeds this takes hours — put Vector on HOME Wi‑Fi first, then Install. Keep this tab open.") +
       "</div>";
     $("#otaUpdate").prepend(
       speedTip +
@@ -2284,17 +2326,19 @@ function HandleHandshake(version) {
       var cur = Number(value.current);
       if (exp > 0 && cur >= 0) {
         // Grow expected when robot's estimate is low (old wrap used 180MB).
+        // Cap absurd values: streaming engine reports ~800MB uncompressed write size.
         if (cur > exp) exp = cur;
         if (exp < SEEK_OTA_SIZE_HINT && cur + 5 * 1048576 > exp) {
           exp = SEEK_OTA_SIZE_HINT;
         }
+        var norm = seekNormalizeOtaBytes(cur, exp);
         _seekOtaBytes = { cur: cur, exp: exp };
         if (cur !== _seekOtaLastCur) {
           _seekOtaLastCur = cur;
           _seekOtaLastByteAt = Date.now();
         }
         if (cur > 0) {
-          _seekOtaRealPct = Math.min(0.99, cur / Math.max(exp, SEEK_OTA_SIZE_HINT, cur, 1));
+          _seekOtaRealPct = Math.min(0.99, norm.pct || cur / Math.max(norm.fileExp, 1));
           setOtaProgress(_seekOtaRealPct);
         }
       }

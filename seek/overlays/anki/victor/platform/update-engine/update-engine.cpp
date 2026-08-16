@@ -397,7 +397,8 @@ static bool stream_and_process_entry(struct archive *a,
                                      const std::string &dest_path,
                                      uint64_t expected_bytes,
                                      uint64_t &written_so_far,
-                                     uint64_t expected_total_for_write)
+                                     uint64_t expected_total_for_write,
+                                     uint64_t ble_expected_download)
 {
   Pipeline p(pipeline_cmd);
   if (!p.is_valid())
@@ -415,6 +416,8 @@ static bool stream_and_process_entry(struct archive *a,
 
   bool success = true;
   uint64_t total_uncompressed_out = 0;
+  const uint64_t write_total = expected_total_for_write > 0 ? expected_total_for_write : 1;
+  const uint64_t ble_total = ble_expected_download > 0 ? ble_expected_download : write_total;
 
   std::thread writer([&]
                      {
@@ -457,10 +460,15 @@ static bool stream_and_process_entry(struct archive *a,
     }
     total_uncompressed_out += r;
     written_so_far += r;
-    write_status(PROGRESS_FILE, std::to_string(written_so_far));
+    // Scale uncompressed write progress to download size for BLE websetup.
+    uint64_t ble_prog = (written_so_far * ble_total) / write_total;
+    if (ble_prog > ble_total)
+      ble_prog = ble_total;
+    write_status(PROGRESS_FILE, std::to_string(ble_prog));
     if (verbose)
     {
-      std::cout << "\rprogress: " << written_so_far << "/" << expected_total_for_write << " bytes" << std::flush;
+      std::cout << "\rprogress: " << written_so_far << "/" << expected_total_for_write
+                << " bytes (ble " << ble_prog << "/" << ble_total << ")" << std::flush;
     }
   }
   free(buf);
@@ -698,8 +706,30 @@ int main(int argc, char **argv)
     die(201, "SYSTEM section missing");
 
   uint64_t total_expected_write = boot_bytes + system_bytes;
-  write_status(EXPECTED_WRITE_SIZE_FILE, std::to_string(total_expected_write));
+  // Keep BLE expected-size as the OTA download Content-Length (~217MB), not
+  // uncompressed boot+system write size (~800MB). Switchboard only exposes
+  // expected-size over BLE; reporting write size makes websetup show "823 MB"
+  // and multi-hour ETAs for a ~217MB file.
+  uint64_t ble_expected = 230000000ULL;
+  try
+  {
+    std::ifstream ed(EXPECTED_DOWNLOAD_SIZE_FILE);
+    std::string s;
+    if (ed && std::getline(ed, s) && !s.empty())
+    {
+      ble_expected = std::stoull(s);
+    }
+  }
+  catch (...)
+  {
+  }
+  if (ble_expected < 8000000ULL)
+  {
+    ble_expected = 230000000ULL;
+  }
+  write_status(EXPECTED_WRITE_SIZE_FILE, std::to_string(ble_expected));
   write_status(PROGRESS_FILE, "0");
+  const uint64_t ble_expected_fixed = ble_expected;
 
   bool got_boot = false, got_system = false;
   auto slots = get_slot_from_cmdline();
@@ -732,7 +762,7 @@ int main(int argc, char **argv)
         else
           pipeline = "cat";
       }
-      if (!stream_and_process_entry(a, pipeline, BOOT_STAGING, boot_bytes, written_so_far, total_expected_write))
+      if (!stream_and_process_entry(a, pipeline, BOOT_STAGING, boot_bytes, written_so_far, total_expected_write, ble_expected_fixed))
         die(209, "Boot image pipeline failed");
 
       int fdst = open(get_slot_name("boot", target_slot).c_str(), O_WRONLY | O_CREAT, 0600);
@@ -781,7 +811,7 @@ int main(int argc, char **argv)
         else
           pipeline = "cat";
       }
-      if (!stream_and_process_entry(a, pipeline, system_slot, system_bytes, written_so_far, total_expected_write))
+      if (!stream_and_process_entry(a, pipeline, system_slot, system_bytes, written_so_far, total_expected_write, ble_expected_fixed))
         die(209, "System image pipeline failed");
       got_system = true;
     }
