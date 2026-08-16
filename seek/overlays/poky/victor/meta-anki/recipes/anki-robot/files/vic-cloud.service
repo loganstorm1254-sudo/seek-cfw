@@ -1,0 +1,37 @@
+[Unit]
+Description=Victor cloud services daemon
+SourcePath=/anki/bin/vic-cloud
+PartOf=anki-robot.target
+
+Wants=vic-engine.service
+After=vic-engine.service
+
+ConditionFileIsExecutable=/usr/bin/logwrapper
+ConditionFileIsExecutable=/anki/bin/vic-cloud
+
+[Service]
+PermissionsStartOnly=true
+EnvironmentFile=/anki/etc/vic-cloud.env
+ExecStartPre=/bin/mkdir -p /run/vic-cloud
+ExecStartPre=/bin/chown -R anki:anki /run/vic-cloud
+ExecStart=/usr/bin/logwrapper /anki/bin/vic-cloud $VIC_CLOUD_OPTS
+ExecStopPost=/anki/bin/vic-on-exit
+# Seek: recover from transient cloudless crashes instead of fault-923 + full reboot
+Restart=on-failure
+RestartSec=3
+StartLimitIntervalSec=60
+StartLimitBurst=10
+User=cloud
+Group=anki
+UMask=0002
+
+# VIC-1951
+# /factory/cloud has mode 440, which prevents us from reading it as the net user.
+# Rather than attempting to remount /factory as rw to add the execute permission,
+# we instead just allow vic-cloud to bypass the read-search restriction on dirs.
+# We need to fix the permissions in the next Factory OS and can alse re-visit this
+# decision post 1.0
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_DAC_READ_SEARCH CAP_SYS_BOOT
+
+[Install]
+WantedBy=anki-robot.target

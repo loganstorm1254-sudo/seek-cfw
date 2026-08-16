@@ -1,0 +1,14 @@
+{
+  "seek": [
+    {
+      "url": "http://files.anki.org.uk/ota/latest",
+      "name": "Seek OS (latest)",
+      "checksum": ""
+    },
+    {
+      "url": "http://files.anki.org.uk/ota/latest",
+      "name": "vicos-3.0.1.65d.ota (full)",
+      "checksum": ""
+    }
+  ]
+}

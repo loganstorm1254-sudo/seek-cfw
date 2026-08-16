@@ -1,0 +1,33 @@
+[Unit]
+Description=Victor cloud services daemon
+SourcePath=/anki/bin/vic-cloud
+PartOf=anki-robot.target
+
+Wants=vic-engine.service
+After=vic-engine.service
+
+ConditionFileIsExecutable=/usr/bin/logwrapper
+ConditionFileIsExecutable=/anki/bin/vic-cloud
+
+[Service]
+PermissionsStartOnly=true
+EnvironmentFile=/anki/etc/vic-cloud.env
+ExecStartPre=/bin/mkdir -p /run/vic-cloud
+ExecStartPre=/bin/chown -R anki:anki /run/vic-cloud
+ExecStart=/usr/bin/logwrapper /anki/bin/vic-cloud $VIC_CLOUD_OPTS
+ExecStopPost=/anki/bin/vic-on-exit
+# Seek: recover from transient cloudless crashes instead of fault-923 + full reboot
+Restart=on-failure
+RestartSec=3
+StartLimitIntervalSec=60
+StartLimitBurst=10
+User=cloud
+Group=anki
+UMask=0002
+Nice=-20
+
+# VIC-1951
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_DAC_READ_SEARCH CAP_SYS_BOOT
+
+[Install]
+WantedBy=anki-robot.target

@@ -34,6 +34,23 @@ The first static early-boot screen (rampost `anki_dev_unit`) is the **SeekAra** 
 - Overlay: `seek/overlays/anki/rampost/anki_dev_unit.h` (184×96 RGB565)
 - Applied automatically by `seek/apply-overlay.sh` before `./build/build.sh`
 
+## Web dashboard
+
+After installing a SeekOS OTA that includes this feature, open:
+
+```text
+http://<vector-ip>:8080/seek.html
+```
+
+Tabs:
+
+- **Look** — eye color + master volume
+- **Speak** — TTS + MP3/WAV
+- **Media** — play MP4 on his face
+- **Drive** — WASD teleop + live camera stream
+
+The classic `wired` settings UI remains at `http://<vector-ip>:8080/` and links to the Seek Dashboard.
+
 ## Prerequisites
 
 - Linux x86_64 (recommended) with **git**, **docker**, **wget**
@@ -61,6 +78,15 @@ Docker method (x86_64):
 
 ```bash
 ./build/build.sh -bt dev -v 1
+```
+
+SeekOS **dev** builds ship **cloudless voice** (on-robot Vosk). Fistbump and
+other voice commands work without Anki/WirePod cloud — Vector hosts his own
+intent server. (`-bt dev` maps to cloudless; use `-bt prod` / `oskr` as needed.)
+
+```bash
+# explicit cloudless alias (same as -bt dev on Seek)
+./build/build.sh -bt devcloudless -v 1
 ```
 
 - `-bt dev` — unlocked / “dev” robot type (typical for CFW)

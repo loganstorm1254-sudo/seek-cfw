@@ -1,0 +1,2419 @@
+const SEEK_FACE_W = 184;
+const SEEK_FACE_H = 96;
+function seekApiRoot() {
+    if (typeof window !== 'undefined' && window.SEEK_API_ROOT) {
+        return String(window.SEEK_API_ROOT).replace(/\/$/, '');
+    }
+    return '';
+}
+const SEEK_ROOT = seekApiRoot();
+const API = SEEK_ROOT + '/api/mods/SeekDashboard';
+function seekHealthUrl() { return SEEK_ROOT + '/api/health'; }
+function seekNetInfoUrl() { return SEEK_ROOT + '/api/netinfo'; }
+
+let seekVideoAbort = null;
+let seekAudioCtrl = null; // AbortController for in-flight playPcm
+let keysDown = new Set();
+let padHeld = null; // {f,t} while touch pad pressed
+let cameraOn = false;
+let driveArmed = false;
+let lastDriveSent = '';
+let driveHeartbeat = null;
+
+function $(id) { return document.getElementById(id); }
+
+// One tap on phones: click + pointerup without firing twice.
+function bindTap(el, fn) {
+    if (!el || el.__seekTap) return;
+    el.__seekTap = true;
+    let lock = 0;
+    const run = function (e) {
+        const now = Date.now();
+        if (now - lock < 400) {
+            if (e && e.cancelable) e.preventDefault();
+            return;
+        }
+        lock = now;
+        fn(e);
+    };
+    el.addEventListener('click', run);
+    el.addEventListener('pointerup', function (e) {
+        if (e.pointerType === 'mouse') return;
+        if (e.cancelable) e.preventDefault();
+        run(e);
+    });
+}
+
+function setSeekStatus(msg, isError) {
+    const el = $('seekStatus');
+    if (!el) return;
+    if (!msg) {
+        el.hidden = true;
+        el.textContent = '';
+        el.classList.remove('err');
+        return;
+    }
+    el.hidden = false;
+    el.classList.toggle('err', !!isError);
+    el.textContent = msg;
+}
+
+function isMobile() {
+    return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ||
+        (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+}
+
+async function api(path, opts) {
+    opts = opts || {};
+    const timeoutMs = opts.timeoutMs != null ? opts.timeoutMs : (opts.body ? 180000 : 10000);
+    const maxAttempts = opts.retries != null ? opts.retries : (opts.body ? 1 : 3);
+    const body = opts.body;
+    const externalSignal = opts.signal;
+    // Only retry bodies we can safely resend.
+    const canRetryBody = body == null || typeof body === 'string' || body instanceof ArrayBuffer ||
+        ArrayBuffer.isView(body) || (typeof Blob !== 'undefined' && body instanceof Blob);
+
+    let lastErr = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (externalSignal && externalSignal.aborted) {
+            throw new DOMException('Aborted', 'AbortError');
+        }
+        const ctrl = new AbortController();
+        const onExternal = function () { ctrl.abort(); };
+        if (externalSignal) externalSignal.addEventListener('abort', onExternal);
+        const timer = setTimeout(function () { ctrl.abort(); }, timeoutMs);
+        try {
+            const o = {};
+            for (const k in opts) {
+                if (k === 'timeoutMs' || k === 'retries' || k === 'signal') continue;
+                o[k] = opts[k];
+            }
+            o.cache = 'no-store';
+            o.signal = ctrl.signal;
+            if (body != null && attempt > 1 && canRetryBody) o.body = body;
+            const res = await fetch(API + '/' + path, o);
+            clearTimeout(timer);
+            if (externalSignal) externalSignal.removeEventListener('abort', onExternal);
+            return res;
+        } catch (e) {
+            clearTimeout(timer);
+            if (externalSignal) externalSignal.removeEventListener('abort', onExternal);
+            lastErr = e;
+            if (externalSignal && externalSignal.aborted) throw e;
+            if (attempt >= maxAttempts) break;
+            if (opts.body && !canRetryBody) break;
+            await new Promise(function (r) { setTimeout(r, 250 * attempt); });
+        }
+    }
+    throw lastErr || new Error('network error');
+}
+
+function fire(path) {
+    return api(path, { method: 'GET', timeoutMs: 4000, retries: 2 }).catch(function () {});
+}
+
+function startKeepalive() {
+    // Phone Wi‑Fi power-save drops idle TCP; a light ping keeps the path warm.
+    setInterval(function () {
+        if (document.hidden) return;
+        fetch(seekHealthUrl(), { cache: 'no-store', method: 'GET' }).catch(function () {});
+    }, 10000);
+
+    function recover(reason) {
+        setSeekStatus('Reconnected (' + reason + '). Try again if a button failed.');
+        fetch(seekHealthUrl(), { cache: 'no-store' }).catch(function () {});
+        loadNetInfo();
+    }
+    window.addEventListener('online', function () { recover('online'); });
+    window.addEventListener('pageshow', function (e) {
+        if (e.persisted) recover('pageshow');
+    });
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) {
+            recover('visible');
+            return;
+        }
+        // Backgrounding the tab mid-drive used to leave wheels latched.
+        hardStopDrive('tab hidden');
+    });
+    window.addEventListener('pagehide', function () {
+        hardStopDrive('leaving page');
+    });
+}
+
+function hardStopDrive(reason) {
+    keysDown.clear();
+    padHeld = null;
+    lastDriveSent = '';
+    if (driveArmed) {
+        fire('stopMotors');
+        updateWasdKeys();
+        if (reason) setSeekStatus('Stopped (' + reason + ').');
+    }
+}
+
+function startDriveHeartbeat() {
+    if (driveHeartbeat) return;
+    // Holding W only used to send once; robot motors latch that speed.
+    // Re-poke every 200ms so a dead phone path trips the server watchdog.
+    driveHeartbeat = setInterval(function () {
+        if (!driveArmed || document.hidden) return;
+        if (keysDown.size === 0 && !padHeld) return;
+        lastDriveSent = '';
+        if (padHeld) {
+            sendDrive(padHeld.f, padHeld.t);
+        } else {
+            syncKeysToDrive();
+        }
+    }, 200);
+}
+
+
+/* ---------------- Tabs ---------------- */
+
+function switchTab(name) {
+    document.querySelectorAll('.tab').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.tab === name);
+    });
+    document.querySelectorAll('.panel').forEach((panel) => {
+        const on = panel.id === 'tab-' + name;
+        panel.hidden = !on;
+        panel.classList.toggle('active', on);
+    });
+    if (name === 'doom') {
+        setSeekStatus('Doom: start/stop/control only from this tab (WASD).');
+    } else if (name === 'drive') {
+        setSeekStatus('Drive ready. Tap Take control, then hold the pad (or WASD).');
+    } else if (name === 'moves') {
+        setSeekStatus('Moves: Activate voice, or tap a behavior.');
+    } else if (name === 'media') {
+        if (cameraOn) stopCamera();
+        setSeekStatus(isMobile() ? 'Tip: use 5 fps on phone for less lag.' : 'Media ready.');
+    } else if (driveArmed) {
+        keysDown.clear();
+        lastDriveSent = '';
+        sendDrive(0, 0);
+        updateWasdKeys();
+    }
+    if (name !== 'drive' && cameraOn) stopCamera();
+    if (name === 'look') seekRefresh();
+}
+
+function initTabs() {
+    document.querySelectorAll('.tab').forEach((btn) => {
+        bindTap(btn, function () { switchTab(btn.dataset.tab); });
+    });
+}
+
+/* ---------------- Look / Speak / Media ---------------- */
+
+function seekEyeModeChanged() {
+    const modeEl = $('eyeMode');
+    if (!modeEl) return;
+    const mode = modeEl.value;
+    if ($('eyeCustomControls')) $('eyeCustomControls').hidden = mode !== 'custom';
+    if ($('eyePresetControls')) $('eyePresetControls').hidden = mode !== 'preset';
+}
+
+async function seekRefresh() {
+    try {
+        const eyeRes = await api('getEyeColor');
+        if (eyeRes.ok) {
+            const eye = await eyeRes.json();
+            if (eye.iscustom) {
+                $('eyeMode').value = 'custom';
+                $('eyeHue').value = eye.hue;
+                $('eyeSat').value = eye.saturation;
+                $('eyeHueVal').textContent = Number(eye.hue).toFixed(2);
+                $('eyeSatVal').textContent = Number(eye.saturation).toFixed(2);
+            } else {
+                $('eyeMode').value = 'preset';
+                $('eyePreset').value = String(eye.preset);
+            }
+            seekEyeModeChanged();
+        }
+        const volRes = await api('getVolume');
+        if (volRes.ok) $('masterVolume').value = (await volRes.text()).trim();
+        seekRefreshEyeOverlay();
+        seekRefreshOpenAIKey();
+        seekRefreshOvalKey();
+        seekRefreshHoundify();
+    } catch (e) {
+        console.log('seekRefresh', e);
+    }
+}
+
+async function seekSetEyeColor() {
+    setSeekStatus('Setting eye color...');
+    try {
+        const mode = $('eyeMode').value;
+        let url = 'setEyeColor?mode=' + encodeURIComponent(mode);
+        if (mode === 'preset') url += '&preset=' + encodeURIComponent($('eyePreset').value);
+        else {
+            url += '&hue=' + encodeURIComponent($('eyeHue').value);
+            url += '&saturation=' + encodeURIComponent($('eyeSat').value);
+        }
+        const res = await api(url);
+        if (!res.ok) {
+            const e = await res.json();
+            setSeekStatus(`${e.status}: ${e.message}`, true);
+            return;
+        }
+        setSeekStatus('Eye color applied.');
+    } catch (e) {
+        setSeekStatus('eye color error: ' + e.message, true);
+    }
+}
+
+function resizeImageToFaceJPEG(file) {
+    return new Promise(function (resolve, reject) {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = function () {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = 184;
+                canvas.height = 96;
+                const ctx = canvas.getContext('2d');
+                // Cover-fit: fill the face, crop overflow (better for eye textures).
+                const scale = Math.max(184 / img.width, 96 / img.height);
+                const w = img.width * scale;
+                const h = img.height * scale;
+                const x = (184 - w) / 2;
+                const y = (96 - h) / 2;
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, 184, 96);
+                ctx.drawImage(img, x, y, w, h);
+                const preview = $('eyeOverlayPreview');
+                if (preview) {
+                    preview.hidden = false;
+                    preview.getContext('2d').drawImage(canvas, 0, 0);
+                }
+                canvas.toBlob(function (blob) {
+                    URL.revokeObjectURL(url);
+                    if (!blob) reject(new Error('could not encode JPEG'));
+                    else resolve(blob);
+                }, 'image/jpeg', 0.92);
+            } catch (e) {
+                URL.revokeObjectURL(url);
+                reject(e);
+            }
+        };
+        img.onerror = function () {
+            URL.revokeObjectURL(url);
+            reject(new Error('could not load image'));
+        };
+        img.src = url;
+    });
+}
+
+async function seekRefreshEyeOverlay() {
+    const status = $('eyeOverlayStatus');
+    try {
+        const res = await api('getEyeOverlay');
+        if (!res.ok) return;
+        const info = await res.json();
+        if (status) {
+            status.textContent = info.active
+                ? 'Texture active on his eyes (' + Math.round(info.bytes / 1024) + ' KB).'
+                : 'No custom eye texture.';
+        }
+    } catch (_) {}
+}
+
+async function seekApplyEyeOverlay() {
+    const input = $('eyeOverlayFile');
+    if (!input || !input.files || !input.files[0]) {
+        setSeekStatus('Choose an image first.', true);
+        return;
+    }
+    setSeekStatus('Resizing & applying eye texture…');
+    try {
+        const blob = await resizeImageToFaceJPEG(input.files[0]);
+        const res = await fetch(SEEK_ROOT + '/api/mods/SeekDashboard/setEyeOverlay', {
+            method: 'POST',
+            headers: { 'Content-Type': 'image/jpeg' },
+            body: blob,
+            cache: 'no-store'
+        });
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'upload failed' }; });
+            setSeekStatus(e.message || 'eye texture failed', true);
+            return;
+        }
+        setSeekStatus('Eye texture applied — watch his face (blinks keep working).');
+        seekRefreshEyeOverlay();
+    } catch (e) {
+        setSeekStatus('eye texture error: ' + e.message, true);
+    }
+}
+
+async function seekClearEyeOverlay() {
+    setSeekStatus('Clearing eye texture…');
+    try {
+        const res = await api('clearEyeOverlay');
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'clear failed' }; });
+            setSeekStatus(e.message || 'clear failed', true);
+            return;
+        }
+        const preview = $('eyeOverlayPreview');
+        if (preview) preview.hidden = true;
+        if ($('eyeOverlayFile')) $('eyeOverlayFile').value = '';
+        setSeekStatus('Eye texture cleared — back to normal eye color.');
+        seekRefreshEyeOverlay();
+    } catch (e) {
+        setSeekStatus('clear texture error: ' + e.message, true);
+    }
+}
+
+async function seekRefreshLightsStatus() {
+    const el = $('seekLightsStatus');
+    if (!el) return;
+    try {
+        const res = await api('getSeekLights');
+        if (!res.ok) return;
+        const info = await res.json();
+        if (info.mode === 'anki' || info.ankiLights) {
+            el.textContent = 'Using standard Vector / Anki backpack lights.';
+        } else if (info.mode === 'custom' || info.customActive) {
+            el.textContent = 'Custom /data lights are active (often leftover LD green). Pick Standard or Seek below.';
+        } else {
+            el.textContent = 'Using Seek backpack lights (orange / red).';
+        }
+    } catch (_) {}
+}
+
+async function seekApplySeekLights() {
+    setSeekStatus('Applying Seek lights…');
+    try {
+        const res = await api('applySeekLights');
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'apply failed' }; });
+            setSeekStatus(e.message || 'apply failed', true);
+            return;
+        }
+        setSeekStatus('Seek lights applied — anim/engine reloading (~5s). Idle should go orange/red.');
+        setTimeout(seekRefreshLightsStatus, 6000);
+    } catch (e) {
+        setSeekStatus('lights error: ' + e.message, true);
+    }
+}
+
+async function seekApplyAnkiLights() {
+    setSeekStatus('Applying standard Vector lights…');
+    try {
+        const res = await api('applyAnkiLights');
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'apply failed' }; });
+            setSeekStatus(e.message || 'apply failed', true);
+            return;
+        }
+        setSeekStatus('Standard Vector lights applied — anim/engine reloading (~5s).');
+        setTimeout(seekRefreshLightsStatus, 6000);
+    } catch (e) {
+        setSeekStatus('lights error: ' + e.message, true);
+    }
+}
+
+async function seekSetVolume() {
+    setSeekStatus('Setting volume...');
+    try {
+        const res = await api('setVolume?volume=' + encodeURIComponent($('masterVolume').value));
+        if (!res.ok) {
+            const e = await res.json();
+            setSeekStatus(`${e.status}: ${e.message}`, true);
+            return;
+        }
+        setSeekStatus('Volume updated.');
+    } catch (e) {
+        setSeekStatus('network error: ' + e.message, true);
+    }
+}
+
+const SEEK_VOICE_LS = 'seekSpeakVoice';
+const SEEK_OPENAI_TTS = {
+    male: 'onyx',
+    female: 'nova',
+    chatgpt: 'alloy'
+};
+
+function seekSelectedVoice() {
+    const el = $('seekVoice');
+    const v = el ? el.value : 'robot';
+    if (v === 'male' || v === 'female' || v === 'chatgpt' || v === 'robot') return v;
+    return 'robot';
+}
+
+function seekLoadVoiceChoice() {
+    try {
+        const saved = localStorage.getItem(SEEK_VOICE_LS);
+        if (saved && $('seekVoice')) $('seekVoice').value = saved;
+    } catch (_) {}
+    if ($('seekVoice')) {
+        $('seekVoice').addEventListener('change', function () {
+            try { localStorage.setItem(SEEK_VOICE_LS, seekSelectedVoice()); } catch (_) {}
+        });
+    }
+}
+
+function seekShowAIAnswer(text) {
+    const el = $('askAIAnswer');
+    if (!el) return;
+    el.value = text || '';
+    if (text) {
+        try {
+            el.focus();
+            el.select();
+        } catch (_) {}
+    }
+}
+
+async function seekCopyAIAnswer() {
+    const el = $('askAIAnswer');
+    const text = el ? String(el.value || '').trim() : '';
+    if (!text) {
+        setSeekStatus('No answer to copy yet.', true);
+        return;
+    }
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+        } else {
+            el.focus();
+            el.select();
+            document.execCommand('copy');
+        }
+        setSeekStatus('Answer copied.');
+    } catch (e) {
+        setSeekStatus('Copy failed — select the text manually.', true);
+    }
+}
+
+async function seekOpenAITTSToPcm(text, openaiVoice) {
+    const key = seekResolveOpenAIKey();
+    if (!key) throw new Error('Save your OpenAI key first (needed for this voice).');
+    const res = await fetch('https://api.openai.com/v1/audio/speech', {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + key,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model: 'tts-1',
+            voice: openaiVoice,
+            input: text.slice(0, 1000),
+            response_format: 'wav'
+        })
+    });
+    if (!res.ok) {
+        const raw = await res.text();
+        let msg = raw.slice(0, 180);
+        try {
+            const j = JSON.parse(raw);
+            if (j.error && j.error.message) msg = j.error.message;
+        } catch (_) {}
+        throw new Error('OpenAI TTS ' + res.status + ': ' + msg);
+    }
+    const blob = await res.blob();
+    return decodeFileToPcm16k(blob);
+}
+
+async function seekPlayPcmOnVector(pcm) {
+    const vol = ($('audioPlayVolume') && $('audioPlayVolume').value) || '100';
+    if (seekAudioCtrl) seekAudioCtrl.abort();
+    seekAudioCtrl = new AbortController();
+    const res = await api('playPcm?rate=16000&volume=' + encodeURIComponent(vol), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: pcm,
+        timeoutMs: 180000,
+        retries: 0,
+        signal: seekAudioCtrl.signal
+    });
+    if (!res.ok) {
+        const e = await res.json().catch(function () { return { message: 'play failed' }; });
+        throw new Error(e.message || 'play failed');
+    }
+}
+
+async function seekSpeakWithSelectedVoice(text) {
+    const mode = seekSelectedVoice();
+    // robot = processed Vector voice; male = stock Acapela (unprocessed) male TTS
+    if (mode === 'robot' || mode === 'male') {
+        const vectorVoice = mode === 'robot' ? '1' : '0';
+        const res = await api(
+            'sayText?text=' + encodeURIComponent(text) + '&vectorVoice=' + vectorVoice,
+            { timeoutMs: 60000, retries: 1 }
+        );
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'speak failed' }; });
+            throw new Error(e.message || 'Vector could not speak');
+        }
+        return mode === 'robot' ? 'Vector robot' : 'Male TTS';
+    }
+    const openaiVoice = SEEK_OPENAI_TTS[mode] || 'alloy';
+    setSeekStatus('Generating ' + mode + ' voice…');
+    const pcm = await seekOpenAITTSToPcm(text, openaiVoice);
+    setSeekStatus('Playing on Vector…');
+    await seekPlayPcmOnVector(pcm);
+    return mode;
+}
+
+async function seekSayText() {
+    const text = $('sayText').value.trim();
+    if (!text) {
+        setSeekStatus('Enter something for Vector to say.', true);
+        return;
+    }
+    setSeekStatus('Saying…');
+    try {
+        const used = await seekSpeakWithSelectedVoice(text);
+        setSeekStatus('Done speaking (' + used + ').');
+    } catch (e) {
+        setSeekStatus('speak error: ' + e.message, true);
+    }
+}
+
+const SEEK_OPENAI_KEY_LS = 'seekOpenAIKey';
+const SEEK_OPENAI_MODEL = 'gpt-4o-mini';
+const SEEK_OVAL_KEY_LS = 'seekOvalKey';
+const SEEK_OVAL_BASE = 'https://oval.drpug.shop/v1';
+const SEEK_OVAL_MODEL = 'vector-engine';
+
+function seekLocalOvalKey() {
+    try {
+        return (localStorage.getItem(SEEK_OVAL_KEY_LS) || '').trim();
+    } catch (_) {
+        return '';
+    }
+}
+
+function seekStoreLocalOvalKey(key) {
+    try {
+        if (!key) localStorage.removeItem(SEEK_OVAL_KEY_LS);
+        else localStorage.setItem(SEEK_OVAL_KEY_LS, key);
+    } catch (_) {}
+}
+
+function seekResolveOvalKey() {
+    const typed = ($('ovalKey') && $('ovalKey').value || '').trim();
+    if (typed) return typed;
+    return seekLocalOvalKey();
+}
+
+async function seekRefreshOvalKey() {
+    const st = $('ovalKeyStatus');
+    const local = seekLocalOvalKey();
+    let robot = null;
+    try {
+        const res = await api('getOvalKey');
+        if (res.ok) robot = await res.json();
+    } catch (_) {}
+    if (!st) return;
+    if (local) {
+        st.textContent = 'Oval key ready in this browser' +
+            (robot && robot.configured ? ' (also saved on Vector).' : '.') +
+            ' Model: ' + SEEK_OVAL_MODEL + '.';
+    } else if (robot && robot.configured) {
+        st.textContent = 'Oval key on Vector only (' + robot.masked + '). Re-paste once so Ask can use your phone/PC internet.';
+    } else {
+        st.textContent = 'No Oval key saved yet.';
+    }
+}
+
+async function seekSaveOvalKey() {
+    const key = ($('ovalKey') && $('ovalKey').value || '').trim();
+    if (!key) {
+        setSeekStatus('Paste your Oval API key first.', true);
+        return;
+    }
+    if (key.length < 8) {
+        setSeekStatus('Oval API key looks too short.', true);
+        return;
+    }
+    setSeekStatus('Saving Oval key…');
+    seekStoreLocalOvalKey(key);
+    try {
+        const res = await api('setOvalKey', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'key=' + encodeURIComponent(key),
+            timeoutMs: 15000,
+            retries: 1
+        });
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'robot save failed' }; });
+            setSeekStatus('Saved in browser; robot save failed: ' + (e.message || 'error'), true);
+            seekRefreshOvalKey();
+            return;
+        }
+        if ($('ovalKey')) $('ovalKey').value = '';
+        setSeekStatus('Oval key saved — Ask & Hey Vector questions will prefer vector-engine.');
+        seekRefreshOvalKey();
+    } catch (e) {
+        setSeekStatus('Saved in browser only (robot unreachable): ' + e.message, true);
+        seekRefreshOvalKey();
+    }
+}
+
+async function seekClearOvalKey() {
+    setSeekStatus('Clearing Oval key…');
+    seekStoreLocalOvalKey('');
+    if ($('ovalKey')) $('ovalKey').value = '';
+    try {
+        await api('setOvalKey', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'key=clear',
+            timeoutMs: 10000,
+            retries: 1
+        });
+    } catch (_) {}
+    setSeekStatus('Oval key cleared.');
+    seekRefreshOvalKey();
+}
+
+async function seekBrowserOvalChat(question) {
+    const key = seekResolveOvalKey();
+    if (!key) {
+        throw new Error('Save your Oval API key first (Speak tab).');
+    }
+    const res = await fetch(SEEK_OVAL_BASE + '/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + key,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model: SEEK_OVAL_MODEL,
+            messages: [
+                {
+                    role: 'system',
+                    content: 'You are Vector, a small friendly robot. Answer briefly out loud (1-3 short sentences, under 220 characters). No markdown, no lists, no emojis.'
+                },
+                { role: 'user', content: question }
+            ],
+            max_tokens: 120,
+            temperature: 0.7
+        })
+    });
+    const raw = await res.text();
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch (_) {}
+    if (!res.ok) {
+        const msg = (parsed && parsed.error && parsed.error.message) || raw.slice(0, 180) || res.statusText;
+        throw new Error('Oval ' + res.status + ': ' + msg);
+    }
+    const ans = parsed && parsed.choices && parsed.choices[0] && parsed.choices[0].message
+        ? String(parsed.choices[0].message.content || '').trim()
+        : '';
+    if (!ans) throw new Error('Empty Oval response');
+    return ans.replace(/\s+/g, ' ').slice(0, 280);
+}
+
+async function seekTestOval() {
+    setSeekStatus('Testing Oval from this browser…');
+    try {
+        const ans = await seekBrowserOvalChat('Reply with exactly: ok');
+        setSeekStatus('Oval OK — got: ' + ans);
+        seekShowAIAnswer(ans);
+    } catch (e) {
+        setSeekStatus('Oval test failed: ' + e.message, true);
+    }
+}
+
+function seekLocalOpenAIKey() {
+    try {
+        return (localStorage.getItem(SEEK_OPENAI_KEY_LS) || '').trim();
+    } catch (_) {
+        return '';
+    }
+}
+
+function seekStoreLocalOpenAIKey(key) {
+    try {
+        if (!key) localStorage.removeItem(SEEK_OPENAI_KEY_LS);
+        else localStorage.setItem(SEEK_OPENAI_KEY_LS, key);
+    } catch (_) {}
+}
+
+function seekResolveOpenAIKey() {
+    const typed = ($('openaiKey') && $('openaiKey').value || '').trim();
+    if (typed) return typed;
+    return seekLocalOpenAIKey();
+}
+
+async function seekRefreshOpenAIKey() {
+    const st = $('openaiKeyStatus');
+    const local = seekLocalOpenAIKey();
+    let robot = null;
+    try {
+        const res = await api('getOpenAIKey');
+        if (res.ok) robot = await res.json();
+    } catch (_) {}
+    if (!st) return;
+    if (local) {
+        st.textContent = 'Key ready in this browser' +
+            (robot && robot.configured ? ' (also saved on Vector).' : '.');
+    } else if (robot && robot.configured) {
+        st.textContent = 'Key on Vector only (' + robot.masked + '). Re-paste once so Ask can use your phone/PC internet.';
+    } else {
+        st.textContent = 'No key saved yet.';
+    }
+}
+
+async function seekSaveOpenAIKey() {
+    const key = ($('openaiKey') && $('openaiKey').value || '').trim();
+    if (!key) {
+        setSeekStatus('Paste your OpenAI API key first.', true);
+        return;
+    }
+    if (!key.startsWith('sk-') || key.length < 20) {
+        setSeekStatus('Key should start with sk- (or sk-proj-).', true);
+        return;
+    }
+    setSeekStatus('Saving OpenAI key…');
+    seekStoreLocalOpenAIKey(key);
+    try {
+        const res = await api('setOpenAIKey', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'key=' + encodeURIComponent(key),
+            timeoutMs: 15000,
+            retries: 1
+        });
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'robot save failed' }; });
+            setSeekStatus('Saved in browser; robot save failed: ' + (e.message || 'error'), true);
+            seekRefreshOpenAIKey();
+            return;
+        }
+        if ($('openaiKey')) $('openaiKey').value = '';
+        setSeekStatus('OpenAI key saved — Ask will use your phone/PC internet.');
+        seekRefreshOpenAIKey();
+    } catch (e) {
+        setSeekStatus('Saved in browser only (robot unreachable): ' + e.message, true);
+        seekRefreshOpenAIKey();
+    }
+}
+
+async function seekClearOpenAIKey() {
+    setSeekStatus('Clearing OpenAI key…');
+    seekStoreLocalOpenAIKey('');
+    if ($('openaiKey')) $('openaiKey').value = '';
+    try {
+        await api('setOpenAIKey', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'key=clear',
+            timeoutMs: 10000,
+            retries: 1
+        });
+    } catch (_) {}
+    setSeekStatus('OpenAI key cleared.');
+    seekRefreshOpenAIKey();
+}
+
+async function seekBrowserChatGPT(question) {
+    const key = seekResolveOpenAIKey();
+    if (!key) {
+        throw new Error('Save your OpenAI key first (Speak tab).');
+    }
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + key,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model: SEEK_OPENAI_MODEL,
+            messages: [
+                {
+                    role: 'system',
+                    content: 'You are Vector, a small friendly robot. Answer briefly out loud (1-3 short sentences, under 220 characters). No markdown, no lists, no emojis.'
+                },
+                { role: 'user', content: question }
+            ],
+            max_tokens: 120,
+            temperature: 0.7
+        })
+    });
+    const raw = await res.text();
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch (_) {}
+    if (!res.ok) {
+        const msg = (parsed && parsed.error && parsed.error.message) || raw.slice(0, 180) || res.statusText;
+        throw new Error('OpenAI ' + res.status + ': ' + msg);
+    }
+    const ans = parsed && parsed.choices && parsed.choices[0] && parsed.choices[0].message
+        ? String(parsed.choices[0].message.content || '').trim()
+        : '';
+    if (!ans) throw new Error('Empty ChatGPT response');
+    return ans.replace(/\s+/g, ' ').slice(0, 280);
+}
+
+async function seekBrowserWhisper(blob) {
+    const key = seekResolveOpenAIKey();
+    if (!key) throw new Error('Save your OpenAI key first.');
+    const fd = new FormData();
+    fd.append('model', 'whisper-1');
+    fd.append('language', 'en');
+    fd.append('response_format', 'json');
+    fd.append('file', blob, 'vector.webm');
+    const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + key },
+        body: fd
+    });
+    const raw = await res.text();
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch (_) {}
+    if (!res.ok) {
+        const msg = (parsed && parsed.error && parsed.error.message) || raw.slice(0, 180) || res.statusText;
+        throw new Error('Whisper ' + res.status + ': ' + msg);
+    }
+    return String((parsed && parsed.text) || '').trim();
+}
+
+async function seekSpeakAnswer(answer) {
+    return seekSpeakWithSelectedVoice(answer);
+}
+
+async function seekTestOpenAI() {
+    setSeekStatus('Testing OpenAI from this browser…');
+    try {
+        const ans = await seekBrowserChatGPT('Reply with exactly: ok');
+        setSeekStatus('OpenAI OK — got: ' + ans);
+        seekShowAIAnswer(ans);
+    } catch (e) {
+        setSeekStatus('OpenAI test failed: ' + e.message, true);
+    }
+}
+
+async function seekRefreshHoundify() {
+    const st = $('houndifyStatus');
+    if (!st) return;
+    try {
+        const res = await api('getHoundify');
+        if (!res.ok) {
+            st.textContent = 'Could not read Houndify status from Vector.';
+            return;
+        }
+        const info = await res.json();
+        if (info && info.configured) {
+            st.textContent = 'Houndify saved on Vector (' + (info.masked || 'client') + '). Hey Vector, question will use it.';
+        } else {
+            st.textContent = 'No Houndify client saved yet.';
+        }
+    } catch (e) {
+        st.textContent = 'Vector unreachable for Houndify status.';
+    }
+}
+
+async function seekSaveHoundify() {
+    const id = ($('houndifyClientId') && $('houndifyClientId').value || '').trim();
+    const key = ($('houndifyClientKey') && $('houndifyClientKey').value || '').trim();
+    if (!id || !key) {
+        setSeekStatus('Paste both Houndify Client ID and Client Key.', true);
+        return;
+    }
+    if (id.length < 8 || key.length < 20) {
+        setSeekStatus('Houndify Client ID/Key look too short.', true);
+        return;
+    }
+    setSeekStatus('Saving Houndify on Vector…');
+    try {
+        const res = await api('setHoundify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'clientId=' + encodeURIComponent(id) + '&clientKey=' + encodeURIComponent(key),
+            timeoutMs: 15000,
+            retries: 1
+        });
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'save failed' }; });
+            setSeekStatus('Houndify save failed: ' + (e.message || 'error'), true);
+            seekRefreshHoundify();
+            return;
+        }
+        if ($('houndifyClientId')) $('houndifyClientId').value = '';
+        if ($('houndifyClientKey')) $('houndifyClientKey').value = '';
+        setSeekStatus('Houndify saved — Hey Vector, question will use it.');
+        seekRefreshHoundify();
+    } catch (e) {
+        setSeekStatus('Houndify save failed: ' + e.message, true);
+        seekRefreshHoundify();
+    }
+}
+
+async function seekClearHoundify() {
+    setSeekStatus('Clearing Houndify…');
+    if ($('houndifyClientId')) $('houndifyClientId').value = '';
+    if ($('houndifyClientKey')) $('houndifyClientKey').value = '';
+    try {
+        await api('setHoundify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'clientId=clear&clientKey=clear',
+            timeoutMs: 10000,
+            retries: 1
+        });
+    } catch (_) {}
+    setSeekStatus('Houndify cleared.');
+    seekRefreshHoundify();
+}
+
+async function seekTestHoundify() {
+    setSeekStatus('Testing Houndify from Vector…');
+    try {
+        const res = await api('askAI?text=' + encodeURIComponent('what is two plus two') + '&speak=0', {
+            timeoutMs: 45000,
+            retries: 1
+        });
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return { message: 'test failed' }; });
+            setSeekStatus('Houndify test failed: ' + (e.message || 'error'), true);
+            return;
+        }
+        const info = await res.json();
+        const ans = (info.answer || '').trim();
+        if (!ans) {
+            setSeekStatus('Houndify returned an empty answer.', true);
+            return;
+        }
+        seekShowAIAnswer(ans);
+        setSeekStatus('Houndify OK — got: ' + ans);
+    } catch (e) {
+        setSeekStatus('Houndify test failed: ' + e.message, true);
+    }
+}
+
+async function seekAskAIRobot(q) {
+    const res = await api('askAI?text=' + encodeURIComponent(q) + '&speak=0', {
+        timeoutMs: 60000,
+        retries: 1
+    });
+    if (!res.ok) {
+        const e = await res.json().catch(function () { return { message: 'ask failed' }; });
+        throw new Error(e.message || 'ask failed');
+    }
+    const info = await res.json();
+    return (info.answer || '').trim();
+}
+
+async function seekAskAI(text) {
+    const q = (text || ($('askAIText') && $('askAIText').value) || '').trim();
+    if (!q) {
+        setSeekStatus('Type a question (or use Hold to talk).', true);
+        return;
+    }
+    setSeekStatus('Asking from your phone/PC…');
+    seekShowAIAnswer('');
+    let answer = '';
+    let via = 'browser';
+    const ovalKey = seekResolveOvalKey();
+    const openAIKey = seekResolveOpenAIKey();
+    let lastErr = null;
+
+    if (ovalKey) {
+        try {
+            answer = await seekBrowserOvalChat(q);
+            via = 'oval';
+        } catch (e) {
+            lastErr = e;
+            setSeekStatus('Browser Oval failed (' + e.message + '). Trying other options…');
+        }
+    }
+    if (!answer && openAIKey) {
+        try {
+            answer = await seekBrowserChatGPT(q);
+            via = 'openai';
+        } catch (e) {
+            lastErr = e;
+            setSeekStatus('Browser OpenAI failed (' + e.message + '). Trying robot…');
+        }
+    }
+    if (!answer) {
+        via = 'robot';
+        setSeekStatus('Asking Vector (Oval / Houndify / OpenAI)…');
+        try {
+            answer = await seekAskAIRobot(q);
+        } catch (e) {
+            setSeekStatus((e.message || 'ask failed') +
+                (lastErr ? ' — also: ' + lastErr.message : '') +
+                ' — save an Oval, Houndify, or OpenAI key.', true);
+            return;
+        }
+    }
+    if (!answer) {
+        setSeekStatus('Empty answer.', true);
+        return;
+    }
+    seekShowAIAnswer(answer);
+    setSeekStatus('Answer ready (via ' + via + ') — speaking…');
+    try {
+        const used = await seekSpeakAnswer(answer);
+        setSeekStatus('Answer spoken (' + used + ').');
+    } catch (e) {
+        setSeekStatus('Answer is in the box above — speak failed: ' + e.message, true);
+    }
+}
+
+function bindAskAIMic() {
+    const btn = $('btnAskAIMic');
+    if (!btn) return;
+
+    // Prefer MediaRecorder + Whisper (works when SpeechRecognition is blocked on http://).
+    let mediaStream = null;
+    let recorder = null;
+    let chunks = [];
+    let usingSR = false;
+    let recSR = null;
+
+    async function start(e) {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        chunks = [];
+        btn.classList.add('held');
+        setSeekStatus('Listening… ask your question, then release.');
+
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder) {
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                recorder = new MediaRecorder(mediaStream);
+                recorder.ondataavailable = function (ev) {
+                    if (ev.data && ev.data.size) chunks.push(ev.data);
+                };
+                recorder.start();
+                usingSR = false;
+                return;
+            } catch (err) {
+                // fall through to SpeechRecognition
+            }
+        }
+
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) {
+            btn.classList.remove('held');
+            setSeekStatus('Mic blocked on http:// — type the question, or use HTTPS/localhost.', true);
+            return;
+        }
+        try {
+            usingSR = true;
+            if (recSR) { try { recSR.abort(); } catch (_) {} }
+            recSR = new SR();
+            recSR.lang = 'en-US';
+            recSR.interimResults = false;
+            recSR.maxAlternatives = 1;
+            recSR.onresult = function (ev) {
+                const t = ev.results[0][0].transcript;
+                if ($('askAIText')) $('askAIText').value = t;
+                seekAskAI(t);
+            };
+            recSR.onerror = function () {
+                setSeekStatus('Mic/speech error — type the question instead.', true);
+            };
+            recSR.start();
+        } catch (err) {
+            btn.classList.remove('held');
+            setSeekStatus('mic error: ' + err.message, true);
+        }
+    }
+
+    async function stop(e) {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        btn.classList.remove('held');
+        if (usingSR) {
+            if (recSR) {
+                try { recSR.stop(); } catch (_) {}
+                recSR = null;
+            }
+            return;
+        }
+        if (!recorder) return;
+        const rec = recorder;
+        recorder = null;
+        await new Promise(function (resolve) {
+            rec.onstop = resolve;
+            try { rec.stop(); } catch (_) { resolve(); }
+        });
+        if (mediaStream) {
+            mediaStream.getTracks().forEach(function (t) { t.stop(); });
+            mediaStream = null;
+        }
+        if (!chunks.length) {
+            setSeekStatus('No audio captured — type the question instead.', true);
+            return;
+        }
+        const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+        chunks = [];
+        setSeekStatus('Transcribing with Whisper…');
+        try {
+            const t = await seekBrowserWhisper(blob);
+            if (!t) {
+                setSeekStatus('Could not hear a question — try again or type it.', true);
+                return;
+            }
+            if ($('askAIText')) $('askAIText').value = t;
+            await seekAskAI(t);
+        } catch (err) {
+            setSeekStatus('Whisper failed: ' + err.message + ' — type the question.', true);
+        }
+    }
+
+    btn.addEventListener('pointerdown', start, { passive: false });
+    btn.addEventListener('pointerup', stop, { passive: false });
+    btn.addEventListener('pointercancel', stop, { passive: false });
+    btn.addEventListener('touchstart', start, { passive: false });
+    btn.addEventListener('touchend', stop, { passive: false });
+}
+
+async function seekPlayAudio() {
+    const input = $('audioFile');
+    if (!input.files || !input.files[0]) {
+        setSeekStatus('Choose an MP3 or WAV file first.', true);
+        return;
+    }
+    const file = input.files[0];
+    const vol = $('audioPlayVolume').value;
+    setSeekStatus('Decoding on phone (faster)...');
+    if (seekAudioCtrl) seekAudioCtrl.abort();
+    seekAudioCtrl = new AbortController();
+    const ac = seekAudioCtrl;
+    try {
+        // Decode in the browser so the robot doesn't burn CPU on MP3.
+        const pcm = await decodeFileToPcm16k(file);
+        setSeekStatus('Streaming audio...');
+        const res = await api('playPcm?rate=16000&volume=' + encodeURIComponent(vol), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: pcm,
+            timeoutMs: 300000,
+            retries: 1,
+            signal: ac.signal
+        });
+        if (!res.ok) {
+            const e = await res.json().catch(() => ({ message: 'audio failed' }));
+            setSeekStatus((e.status ? e.status + ': ' : '') + (e.message || 'audio failed'), true);
+            return;
+        }
+        setSeekStatus('Audio finished.');
+    } catch (e) {
+        if (e.name === 'AbortError' && ac.signal.aborted) {
+            setSeekStatus('Stopped.');
+            return;
+        }
+        setSeekStatus('audio error: ' + (e.name === 'AbortError' ? 'timed out — toggle Wi‑Fi and retry' : e.message), true);
+    } finally {
+        if (seekAudioCtrl === ac) seekAudioCtrl = null;
+    }
+}
+
+function rgbaToRgb565Fast(rgba) {
+    const out = new Uint8Array((rgba.length / 4) * 2);
+    let o = 0;
+    for (let i = 0; i < rgba.length; i += 4) {
+        const r5 = rgba[i] >> 3;
+        const g6 = rgba[i + 1] >> 2;
+        const b5 = rgba[i + 2] >> 3;
+        out[o++] = (r5 << 3) | (g6 >> 3);
+        out[o++] = ((g6 & 7) << 5) | b5;
+    }
+    return out;
+}
+
+function rgbaToRgb565Dithered(rgba) {
+    const w = SEEK_FACE_W;
+    const h = SEEK_FACE_H;
+    const buf = new Float32Array(w * h * 3);
+    for (let i = 0, p = 0; i < rgba.length; i += 4, p += 3) {
+        buf[p] = rgba[i];
+        buf[p + 1] = rgba[i + 1];
+        buf[p + 2] = rgba[i + 2];
+    }
+    const out = new Uint8Array(w * h * 2);
+    let o = 0;
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const idx = (y * w + x) * 3;
+            let r = buf[idx], g = buf[idx + 1], b = buf[idx + 2];
+            const r5 = Math.max(0, Math.min(31, Math.round(r / 8.225806)));
+            const g6 = Math.max(0, Math.min(63, Math.round(g / 4.047619)));
+            const b5 = Math.max(0, Math.min(31, Math.round(b / 8.225806)));
+            const er = r - r5 * 8.225806;
+            const eg = g - g6 * 4.047619;
+            const eb = b - b5 * 8.225806;
+            const distribute = (nx, ny, fr) => {
+                if (nx < 0 || nx >= w || ny < 0 || ny >= h) return;
+                const j = (ny * w + nx) * 3;
+                buf[j] += er * fr;
+                buf[j + 1] += eg * fr;
+                buf[j + 2] += eb * fr;
+            };
+            distribute(x + 1, y, 7 / 16);
+            distribute(x - 1, y + 1, 3 / 16);
+            distribute(x, y + 1, 5 / 16);
+            distribute(x + 1, y + 1, 1 / 16);
+            out[o++] = (r5 << 3) | (g6 >> 3);
+            out[o++] = ((g6 & 0x07) << 5) | b5;
+        }
+    }
+    return out;
+}
+
+function drawVideoFrame(ctx, video, fit) {
+    const vw = video.videoWidth || SEEK_FACE_W;
+    const vh = video.videoHeight || SEEK_FACE_H;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, SEEK_FACE_W, SEEK_FACE_H);
+    const scale = fit === 'contain'
+        ? Math.min(SEEK_FACE_W / vw, SEEK_FACE_H / vh)
+        : Math.max(SEEK_FACE_W / vw, SEEK_FACE_H / vh);
+    const dw = Math.max(1, Math.round(vw * scale));
+    const dh = Math.max(1, Math.round(vh * scale));
+    ctx.drawImage(video, Math.floor((SEEK_FACE_W - dw) / 2), Math.floor((SEEK_FACE_H - dh) / 2), dw, dh);
+}
+
+async function decodeFileToPcm16k(file) {
+    const arr = await file.arrayBuffer();
+    const probe = new (window.AudioContext || window.webkitAudioContext)();
+    const decoded = await probe.decodeAudioData(arr.slice(0));
+    await probe.close();
+    const srcFrames = decoded.length;
+    const left = decoded.getChannelData(0);
+    const right = decoded.numberOfChannels > 1 ? decoded.getChannelData(1) : null;
+    const monoBuf = new AudioBuffer({ length: srcFrames, numberOfChannels: 1, sampleRate: decoded.sampleRate });
+    const monoData = monoBuf.getChannelData(0);
+    let peak = 0;
+    for (let i = 0; i < srcFrames; i++) {
+        const s = right ? (left[i] + right[i]) * 0.5 : left[i];
+        monoData[i] = s;
+        const a = Math.abs(s);
+        if (a > peak) peak = a;
+    }
+    if (peak > 0.001 && peak < 0.95) {
+        const gain = 0.92 / peak;
+        for (let i = 0; i < srcFrames; i++) monoData[i] *= gain;
+    }
+    const outFrames = Math.max(1, Math.ceil(decoded.duration * 16000));
+    const offline = new OfflineAudioContext(1, outFrames, 16000);
+    const src = offline.createBufferSource();
+    src.buffer = monoBuf;
+    src.connect(offline.destination);
+    src.start(0);
+    const rendered = await offline.startRendering();
+    const f32 = rendered.getChannelData(0);
+    const pcm = new ArrayBuffer(f32.length * 2);
+    const view = new DataView(pcm);
+    for (let i = 0; i < f32.length; i++) {
+        const s = Math.max(-1, Math.min(1, f32[i]));
+        view.setInt16(i * 2, (s * 32767) | 0, true);
+    }
+    return new Uint8Array(pcm);
+}
+
+async function seekStopMedia() {
+    if (seekVideoAbort) seekVideoAbort.abort = true;
+    if (seekAudioCtrl) {
+        seekAudioCtrl.abort();
+        seekAudioCtrl = null;
+    }
+    setSeekStatus('Stopping…');
+    // Hammer every stop path — Stop must work even mid-Macarena.
+    try {
+        await Promise.all([
+            api('stopMedia', { timeoutMs: 4000, retries: 2 }).catch(function () {}),
+            api('stopMotors', { timeoutMs: 3000, retries: 1 }).catch(function () {}),
+            api('stopAudio', { timeoutMs: 3000, retries: 1 }).catch(function () {}),
+            api('controlEnd', { timeoutMs: 4000, retries: 1 }).catch(function () {})
+        ]);
+    } catch (_) {}
+    setArmedUI(false);
+    setSeekStatus('Stopped.');
+}
+
+/* ---------------- Vector Link (multi-bot Macarena sync) ---------------- */
+
+let seekLinkPollTimer = null;
+
+function seekEsc(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+async function seekLinkRefresh() {
+    const statusEl = $('linkStatus');
+    const listEl = $('linkPeerList');
+    const masterEl = $('linkMasterToggle');
+    const syncHint = $('macarenaSyncHint');
+    try {
+        const res = await api('linkGet', { timeoutMs: 5000, retries: 1 });
+        if (!res.ok) throw new Error('linkGet failed');
+        const j = await res.json();
+        if (masterEl) masterEl.checked = !!j.isMaster;
+        const peers = Array.isArray(j.peers) ? j.peers : [];
+        const linkedN = j.linkedCount || 0;
+        if (statusEl) {
+            if (j.isMaster && linkedN >= 1) {
+                statusEl.textContent = 'Master · ' + linkedN + ' linked — Macarena will sync.';
+            } else if (j.isMaster) {
+                statusEl.textContent = 'Master · link at least one other Vector to sync Macarena.';
+            } else if (linkedN >= 1) {
+                statusEl.textContent = 'Linked as follower · master starts the dance.';
+            } else if (peers.length) {
+                statusEl.textContent = 'Found ' + peers.length + ' Vector(s). Link them, then choose a master.';
+            } else {
+                statusEl.textContent = 'No other Vectors seen yet — open Seek on each bot (same Wi‑Fi).';
+            }
+        }
+        if (syncHint) {
+            if (j.canSyncDance) {
+                syncHint.textContent = 'Synced mode: this master + ' + linkedN + ' linked bot(s) will start together. Stop ends all.';
+            } else {
+                syncHint.textContent = 'Give him clear floor space. ~4 minutes. Hit Stop anytime.';
+            }
+        }
+        if (listEl) {
+            if (!peers.length) {
+                listEl.innerHTML = '';
+            } else {
+                listEl.innerHTML = peers.map(function (p) {
+                    const linked = !!p.linked;
+                    const title = seekEsc(p.name || 'Vector');
+                    const meta = seekEsc((p.ip || '') + (p.isMaster ? ' · master' : '') + (p.esn ? ' · ' + p.esn : ''));
+                    const btnLabel = linked ? 'Unlink' : 'Link';
+                    const btnClass = linked ? 'ghost danger' : 'primary';
+                    return '<div class="link-peer' + (linked ? ' linked' : '') + '">' +
+                        '<div><p class="name">' + title + '</p><p class="meta-line">' + meta + '</p></div>' +
+                        '<button type="button" class="' + btnClass + '" data-link-esn="' + seekEsc(p.esn || '') +
+                        '" data-link-ip="' + seekEsc(p.ip || '') +
+                        '" data-link-name="' + title +
+                        '" data-link-on="' + (linked ? '0' : '1') + '">' + btnLabel + '</button></div>';
+                }).join('');
+                listEl.querySelectorAll('button[data-link-esn]').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        seekLinkPeer(btn.getAttribute('data-link-esn'), btn.getAttribute('data-link-ip'),
+                            btn.getAttribute('data-link-name'), btn.getAttribute('data-link-on') === '1');
+                    });
+                });
+            }
+        }
+    } catch (e) {
+        if (statusEl) statusEl.textContent = 'Link scan error: ' + e.message;
+    }
+}
+
+async function seekLinkSetMaster(on) {
+    const body = new URLSearchParams({ master: on ? '1' : '0' });
+    const res = await api('linkSetMaster', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+        timeoutMs: 5000,
+        retries: 1
+    });
+    if (!res.ok) {
+        const e = await res.json().catch(function () { return {}; });
+        throw new Error(e.message || 'could not set master');
+    }
+    await seekLinkRefresh();
+}
+
+async function seekLinkPeer(esn, ip, name, link) {
+    setSeekStatus(link ? 'Linking Vector…' : 'Unlinking…');
+    const body = new URLSearchParams({
+        esn: esn || '',
+        ip: ip || '',
+        name: name || 'Vector',
+        link: link ? '1' : '0'
+    });
+    try {
+        const res = await api('linkPeer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString(),
+            timeoutMs: 8000,
+            retries: 1
+        });
+        if (!res.ok) {
+            const e = await res.json().catch(function () { return {}; });
+            setSeekStatus(e.message || 'link failed', true);
+            return;
+        }
+        setSeekStatus(link ? 'Linked.' : 'Unlinked.');
+        await seekLinkRefresh();
+    } catch (e) {
+        setSeekStatus('link error: ' + e.message, true);
+    }
+}
+
+async function seekLinkAddIP() {
+    const ip = ($('linkManualIP') && $('linkManualIP').value || '').trim();
+    if (!ip) {
+        setSeekStatus('Enter another Vector’s Wi‑Fi IP.', true);
+        return;
+    }
+    await seekLinkPeer('', ip, 'Vector', true);
+}
+
+function seekLinkStartPolling() {
+    seekLinkRefresh();
+    if (seekLinkPollTimer) clearInterval(seekLinkPollTimer);
+    seekLinkPollTimer = setInterval(seekLinkRefresh, 4000);
+}
+
+async function seekOtaPollFlash(note, bar) {
+    // Local flash — poll until reboot, error, or timeout. Cloud-with-! on the
+    // face means update-engine failed; surface that error here.
+    const started = Date.now();
+    while (Date.now() - started < 55 * 60 * 1000) {
+        await new Promise(function (r) { setTimeout(r, 2000); });
+        let j = null;
+        try {
+            const res = await api('otaStatus', { timeoutMs: 8000, retries: 1 });
+            if (res.ok) j = await res.json();
+        } catch (e) {
+            // Robot rebooting — connection drop is success-ish.
+            note('Vector rebooting (page lost contact). Wait ~2 min, then refresh.');
+            return;
+        }
+        if (!j) continue;
+        if (j.error || j.engineError) {
+            const msg = j.error || j.engineError;
+            note('Update failed: ' + msg, true);
+            return;
+        }
+        if (j.phase === 'rebooting') {
+            note('Flash done — Vector is rebooting…');
+            if (bar) bar.value = 100;
+            return;
+        }
+        if (typeof j.pct === 'number' && bar) {
+            bar.value = Math.max(0, Math.min(100, j.pct));
+        }
+        if (j.detail) note(j.detail);
+    }
+    note('Still flashing — leave this page open, or check Vector.', true);
+}
+
+async function seekOtaInstall() {
+    const input = $('otaFile');
+    const bar = $('otaProgress');
+    const st = $('otaStatus');
+    const file = input && input.files && input.files[0];
+    function note(msg, err) {
+        if (st) st.textContent = msg;
+        setSeekStatus(msg, !!err);
+    }
+    if (!file) {
+        note('Pick the .ota file first (download it on cellular, then join Vector’s Wi‑Fi).', true);
+        return;
+    }
+    const name = (file.name || '').toLowerCase();
+    if (name && name.indexOf('.ota') === -1) {
+        note('That file is not a .ota', true);
+        return;
+    }
+    if (file.size < 8 * 1024 * 1024 || file.size > 220 * 1024 * 1024) {
+        note('OTA should be about 170MB. This file is ' + Math.round(file.size / 1048576) + 'MB.', true);
+        return;
+    }
+    const CHUNK = 512 * 1024;
+    try {
+        if (bar) {
+            bar.hidden = false;
+            bar.value = 0;
+        }
+        note('Preparing robot…');
+        const begin = await api('otaBegin?size=' + file.size + '&name=' + encodeURIComponent(file.name || 'v.ota'), {
+            timeoutMs: 15000,
+            retries: 1
+        });
+        if (!begin.ok) {
+            const e = await begin.json().catch(function () { return { message: 'begin failed' }; });
+            note(e.message || 'begin failed', true);
+            return;
+        }
+        let off = 0;
+        while (off < file.size) {
+            const end = Math.min(off + CHUNK, file.size);
+            const blob = file.slice(off, end);
+            const res = await fetch(API + '/otaChunk?off=' + off, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/octet-stream' },
+                body: blob,
+                cache: 'no-store'
+            });
+            if (!res.ok) {
+                note('Upload failed at ' + Math.round(off / 1048576) + 'MB', true);
+                return;
+            }
+            off = end;
+            const pct = Math.round((off / file.size) * 100);
+            if (bar) bar.value = pct;
+            note('Uploading to Vector… ' + pct + '%');
+        }
+        note('File on robot. Starting local flash — eyes go dark. Keep this page.');
+        const inst = await api('otaInstall', { timeoutMs: 20000, retries: 1 });
+        if (!inst.ok) {
+            const e = await inst.json().catch(function () { return { message: 'install failed' }; });
+            note(e.message || 'install failed', true);
+            return;
+        }
+        note('Flashing from uploaded file…');
+        await seekOtaPollFlash(note, bar);
+    } catch (e) {
+        note('OTA error: ' + (e && e.message ? e.message : e), true);
+    }
+}
+
+async function seekMacarena() {
+    if (cameraOn) stopCamera();
+    setArmedUI(false);
+    const vol = $('audioPlayVolume') ? $('audioPlayVolume').value : '100';
+    setSeekStatus('Arming all linked Vectors (sync prep)…');
+    try {
+        const res = await api('macarena?volume=' + encodeURIComponent(vol), {
+            timeoutMs: 45000,
+            retries: 1
+        });
+        if (!res.ok) {
+            const e = await res.json().catch(() => ({ message: 'macarena failed' }));
+            setSeekStatus((e.message || 'macarena failed'), true);
+            return;
+        }
+        setSeekStatus('Macarena — synced music + dance on all linked bots. Hit Stop to end.');
+        const started = Date.now();
+        while (Date.now() - started < 280000) {
+            await new Promise((r) => setTimeout(r, 1500));
+            try {
+                const st = await api('status', { timeoutMs: 5000, retries: 1 });
+                if (!st.ok) continue;
+                const j = await st.json();
+                if (j.danceErr) {
+                    setSeekStatus('Macarena error: ' + j.danceErr, true);
+                    return;
+                }
+                if (!j.dancing) {
+                    setSeekStatus('Macarena finished.');
+                    return;
+                }
+            } catch (_) {}
+        }
+        setSeekStatus('Macarena still going — hit Stop if you want out.');
+    } catch (e) {
+        setSeekStatus('macarena error: ' + e.message, true);
+    }
+}
+
+/* ---------------- Doom ---------------- */
+
+const DOOM_API = '/api/mods/SeekDoom';
+const DOOM_KEYS = {
+    forward: 0xad, // KEY_UPARROW
+    back: 0xaf,    // KEY_DOWNARROW
+    left: 0xac,    // KEY_LEFTARROW
+    right: 0xae,   // KEY_RIGHTARROW
+    strafeL: 0xa0, // KEY_STRAFE_L
+    strafeR: 0xa1, // KEY_STRAFE_R
+    use: 0xa2,     // KEY_USE
+    fire: 0xa3,    // KEY_FIRE
+    esc: 27,       // KEY_ESCAPE
+    enter: 13      // KEY_ENTER (menus / confirm — not USE)
+};
+const doomHeld = new Set();
+
+function doomFire(path) {
+    return fetch(DOOM_API + '/' + path, { cache: 'no-store' }).catch(function () {});
+}
+
+function doomKey(code, pressed) {
+    const q = 'key?code=' + code + '&pressed=' + (pressed ? '1' : '0');
+    return doomFire(q);
+}
+
+async function doomStart() {
+    if (cameraOn) stopCamera();
+    setArmedUI(false);
+    const sfx = $('doomSfx') && $('doomSfx').checked;
+    setSeekStatus(sfx ? 'Starting Doom with SFX…' : 'Starting Doom (silent)…');
+    try {
+        const q = sfx ? '/start?sfx=1' : '/start';
+        const res = await fetch(DOOM_API + q, { cache: 'no-store' });
+        if (!res.ok) {
+            const e = await res.json().catch(() => ({ message: 'start failed' }));
+            setSeekStatus(e.message || 'Doom start failed', true);
+            return;
+        }
+        setSeekStatus('In game on his face. WASD move/turn · Space fire · Enter for menus.');
+        switchTab('doom');
+    } catch (e) {
+        setSeekStatus('doom error: ' + e.message, true);
+    }
+}
+
+async function doomStop() {
+    doomHeld.forEach(function (code) { doomKey(code, false); });
+    doomHeld.clear();
+    await doomFire('stop');
+    setSeekStatus('Doom quit.');
+}
+
+function doomPress(name, on) {
+    const code = DOOM_KEYS[name];
+    if (code == null) return;
+    if (on) {
+        if (doomHeld.has(code)) return;
+        doomHeld.add(code);
+        doomKey(code, true);
+    } else {
+        if (!doomHeld.has(code)) return;
+        doomHeld.delete(code);
+        doomKey(code, false);
+    }
+}
+
+function bindDoomControls() {
+    const pad = $('doomPad');
+    if (pad) {
+        pad.querySelectorAll('[data-doom]').forEach(function (btn) {
+            const name = btn.dataset.doom;
+            function down(e) {
+                if (e) { e.preventDefault(); e.stopPropagation(); }
+                btn.classList.add('held');
+                doomPress(name, true);
+            }
+            function up(e) {
+                if (e) { e.preventDefault(); e.stopPropagation(); }
+                btn.classList.remove('held');
+                doomPress(name, false);
+            }
+            btn.addEventListener('pointerdown', function (e) {
+                try { btn.setPointerCapture(e.pointerId); } catch (_) {}
+                down(e);
+            }, { passive: false });
+            btn.addEventListener('pointerup', up, { passive: false });
+            btn.addEventListener('pointercancel', up, { passive: false });
+            btn.addEventListener('lostpointercapture', up);
+            btn.addEventListener('touchstart', down, { passive: false });
+            btn.addEventListener('touchend', up, { passive: false });
+            btn.addEventListener('touchcancel', up, { passive: false });
+        });
+    }
+
+    function doomKeyName(e) {
+        const k = e.key;
+        if (k === ' ') return 'fire';
+        if (k === 'Enter') return 'enter';
+        if (k === 'Escape') return 'esc';
+        const lower = k.length === 1 ? k.toLowerCase() : k.toLowerCase();
+        const map = {
+            w: 'forward', s: 'back', a: 'left', d: 'right',
+            q: 'strafeL', e: 'strafeR', f: 'fire', u: 'use',
+            arrowup: 'forward', arrowdown: 'back', arrowleft: 'left', arrowright: 'right',
+            control: 'fire'
+        };
+        return map[lower] || null;
+    }
+
+    window.addEventListener('keydown', function (e) {
+        const doomTab = $('tab-doom');
+        if (!doomTab || doomTab.hidden) return;
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+        const name = doomKeyName(e);
+        if (!name) return;
+        e.preventDefault();
+        if (e.repeat) return;
+        doomPress(name, true);
+    }, { passive: false });
+
+    window.addEventListener('keyup', function (e) {
+        const doomTab = $('tab-doom');
+        if (!doomTab || doomTab.hidden) return;
+        const name = doomKeyName(e);
+        if (!name) return;
+        doomPress(name, false);
+    });
+}
+
+
+async function seekPlayVideo() {
+    const input = $('videoFile');
+    if (!input.files || !input.files[0]) {
+        setSeekStatus('Choose a video first.', true);
+        return;
+    }
+    const file = input.files[0];
+    // Phone Wi‑Fi + robot CPU: keep FPS low for snappier playback.
+    const defaultFps = isMobile() ? 5 : 8;
+    const fps = Math.max(1, Math.min(10, Number($('videoFps').value) || defaultFps));
+    const withAudio = $('videoWithAudio').value !== '0';
+    const fit = $('videoFit').value;
+    const canvas = $('seekVideoCanvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const btn = $('videoPlayBtn');
+    const vol = $('audioPlayVolume') ? $('audioPlayVolume').value : '100';
+    btn.disabled = true;
+    if (cameraOn) stopCamera();
+
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.src = url;
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    seekVideoAbort = { abort: false };
+    const token = seekVideoAbort;
+
+    try {
+        await new Promise((resolve, reject) => {
+            video.onloadeddata = () => resolve();
+            video.onerror = () => reject(new Error('could not load video'));
+        });
+
+        let pcm = null;
+        if (withAudio) {
+            setSeekStatus('Decoding audio on phone...');
+            try { pcm = await decodeFileToPcm16k(file); }
+            catch (err) { setSeekStatus('Playing without audio (' + err.message + ')'); }
+        }
+
+        setSeekStatus('Taking control...');
+        let res = await api('controlStart', { timeoutMs: 15000, retries: 2 });
+        if (!res.ok) {
+            const e = await res.json().catch(() => ({ message: 'controlStart failed' }));
+            throw new Error(e.message || 'controlStart failed');
+        }
+
+        if (seekAudioCtrl) seekAudioCtrl.abort();
+        seekAudioCtrl = new AbortController();
+        const audioCtrl = seekAudioCtrl;
+        const audioPromise = pcm
+            ? api('playPcm?rate=16000&volume=' + encodeURIComponent(vol), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/octet-stream' },
+                body: pcm,
+                timeoutMs: 300000,
+                retries: 1,
+                signal: audioCtrl.signal
+            }).then(async (audioRes) => {
+                if (!audioRes.ok) {
+                    const e = await audioRes.json().catch(() => ({ message: 'audio failed' }));
+                    throw new Error(e.message || 'audio failed');
+                }
+            }).catch(function (err) {
+                if (err && err.name === 'AbortError') return;
+                throw err;
+            })
+            : Promise.resolve();
+
+        await video.play();
+        const frameMs = Math.round(1000 / fps);
+        const holdMs = Math.max(frameMs + 20, Math.round(frameMs * 1.2));
+        setSeekStatus('Playing on face @ ' + fps + ' fps...');
+        let nextT = performance.now();
+        let inFlight = null;
+        let frames = 0;
+        while (!video.ended && !token.abort) {
+            drawVideoFrame(ctx, video, fit);
+            const rgba = ctx.getImageData(0, 0, SEEK_FACE_W, SEEK_FACE_H).data;
+            // Fast convert — dithering every frame is what made phones feel dead.
+            const body = rgbaToRgb565Fast(rgba);
+            if (inFlight) {
+                const prev = await inFlight;
+                if (!prev.ok) {
+                    const e = await prev.json().catch(() => ({ message: 'frame failed' }));
+                    throw new Error(e.message || 'frame failed');
+                }
+            }
+            inFlight = api('frame?duration_ms=' + holdMs, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/octet-stream' },
+                body: body,
+                timeoutMs: 8000,
+                retries: 2
+            });
+            frames++;
+            if (frames % 10 === 0) {
+                setSeekStatus('Playing… frame ' + frames);
+            }
+            nextT += frameMs;
+            const wait = nextT - performance.now();
+            if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+            else nextT = performance.now();
+        }
+        if (token.abort) {
+            if (seekAudioCtrl) {
+                seekAudioCtrl.abort();
+                seekAudioCtrl = null;
+            }
+            try { await api('stopMedia', { timeoutMs: 8000, retries: 2 }); } catch (_) {}
+            setSeekStatus('Stopped.');
+            return;
+        }
+        if (inFlight) {
+            const last = await inFlight;
+            if (!last.ok) {
+                const e = await last.json().catch(() => ({ message: 'frame failed' }));
+                throw new Error(e.message || 'frame failed');
+            }
+        }
+        await audioPromise;
+        await api('controlEnd', { timeoutMs: 8000, retries: 2 });
+        setSeekStatus('Video finished.');
+    } catch (e) {
+        if (seekAudioCtrl) {
+            seekAudioCtrl.abort();
+            seekAudioCtrl = null;
+        }
+        try { await api('stopMedia', { timeoutMs: 5000, retries: 1 }); } catch (_) {}
+        const msg = e.name === 'AbortError' ? 'timed out — toggle Wi‑Fi once, then retry' : e.message;
+        setSeekStatus('video error: ' + msg, true);
+    } finally {
+        video.pause();
+        URL.revokeObjectURL(url);
+        btn.disabled = false;
+        seekVideoAbort = null;
+        if (seekAudioCtrl) seekAudioCtrl = null;
+    }
+}
+
+/* ---------------- Drive + Camera (WASD) ---------------- */
+
+function driveSpeed() {
+    return Number($('driveSpeed').value) || 60;
+}
+
+function setArmedUI(on) {
+    driveArmed = on;
+    const el = $('driveArmed');
+    if (!el) return;
+    el.textContent = on ? 'CONTROL ON · WASD ready' : 'Not armed — click Take control';
+    el.classList.toggle('on', on);
+}
+
+async function armDrive() {
+    if (driveArmed) {
+        setSeekStatus('Already armed. Hold WASD.');
+        return;
+    }
+    setSeekStatus('Taking control (safe mode)...');
+    try {
+        const res = await api('controlStart');
+        if (!res.ok) {
+            const e = await res.json().catch(() => ({ message: 'control failed' }));
+            setArmedUI(false);
+            setSeekStatus(e.message || 'control failed', true);
+            return;
+        }
+        setArmedUI(true);
+        setSeekStatus('Armed. Hold WASD to drive.');
+        startDriveHeartbeat();
+        window.focus();
+    } catch (e) {
+        setArmedUI(false);
+        setSeekStatus('network error: ' + e.message, true);
+    }
+}
+
+function sendDrive(forward, turn) {
+    if (!driveArmed && (forward !== 0 || turn !== 0)) {
+        setSeekStatus('Click Take control first.', true);
+        return;
+    }
+    const s = Math.min(120, driveSpeed());
+    let left = forward * s + turn * s * 0.7;
+    let right = forward * s - turn * s * 0.7;
+    left = Math.max(-120, Math.min(120, left));
+    right = Math.max(-120, Math.min(120, right));
+    const key = left.toFixed(1) + ',' + right.toFixed(1);
+    if (key === lastDriveSent) return;
+    lastDriveSent = key;
+    if (left === 0 && right === 0) {
+        fire('stopMotors');
+        return;
+    }
+    fire('drive?left=' + left.toFixed(1) + '&right=' + right.toFixed(1));
+}
+
+function updateWasdKeys() {
+    document.querySelectorAll('.wasd-board .key').forEach((el) => {
+        el.classList.toggle('held', keysDown.has(el.dataset.k));
+    });
+}
+
+function syncKeysToDrive() {
+    let f = 0, t = 0;
+    if (keysDown.has('w')) f += 1;
+    if (keysDown.has('s')) f -= 1;
+    if (keysDown.has('a')) t += 1;
+    if (keysDown.has('d')) t -= 1;
+    updateWasdKeys();
+    sendDrive(f, t);
+}
+
+function bindKeyboard() {
+    window.addEventListener('keydown', (e) => {
+        if (e.repeat) return;
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
+        const driveTab = $('tab-drive');
+        if (!driveTab || driveTab.hidden) return;
+        const k = e.key.toLowerCase();
+        if (['w', 'a', 's', 'd', ' ', 'q', 'e', 'r', 'f'].includes(k)) e.preventDefault();
+        if (!driveArmed && ['w', 'a', 's', 'd'].includes(k)) {
+            setSeekStatus('Click Take control first, then WASD.', true);
+            return;
+        }
+        if (e.key === ' ') {
+            keysDown.clear();
+            lastDriveSent = '';
+            sendDrive(0, 0);
+            fire('stopMotors');
+            updateWasdKeys();
+            return;
+        }
+        if (k === 'q') { fire('moveHead?speed=3'); return; }
+        if (k === 'e') { fire('moveHead?speed=-3'); return; }
+        if (k === 'r') { fire('moveLift?speed=3'); return; }
+        if (k === 'f') { fire('moveLift?speed=-3'); return; }
+        if (['w', 'a', 's', 'd'].includes(k) && !keysDown.has(k)) {
+            keysDown.add(k);
+            syncKeysToDrive();
+        }
+    }, { passive: false });
+
+    window.addEventListener('keyup', (e) => {
+        const k = e.key.toLowerCase();
+        if (k === 'q' || k === 'e') fire('moveHead?speed=0');
+        if (k === 'r' || k === 'f') fire('moveLift?speed=0');
+        if (keysDown.delete(k)) {
+            lastDriveSent = '';
+            syncKeysToDrive();
+        }
+    });
+
+    window.addEventListener('blur', () => {
+        hardStopDrive('window blur');
+    });
+}
+
+function startCamera() {
+    if (cameraOn) return;
+    cameraOn = true;
+    $('cameraView').src = API + '/cameraMjpeg?' + Date.now();
+    setSeekStatus('Camera on (optional — uses CPU).');
+    api('cameraStart').catch(() => {});
+}
+
+function stopCamera() {
+    cameraOn = false;
+    const img = $('cameraView');
+    img.removeAttribute('src');
+    img.src = '';
+    fire('cameraStop');
+}
+
+function bindUI() {
+    function on(id, ev, fn) {
+        const el = $(id);
+        if (!el) return;
+        if (ev === 'click') bindTap(el, fn);
+        else el.addEventListener(ev, fn);
+    }
+
+    on('eyeMode', 'change', seekEyeModeChanged);
+    on('eyeHue', 'input', () => {
+        if ($('eyeHueVal')) $('eyeHueVal').textContent = Number($('eyeHue').value).toFixed(2);
+    });
+    on('eyeSat', 'input', () => {
+        if ($('eyeSatVal')) $('eyeSatVal').textContent = Number($('eyeSat').value).toFixed(2);
+    });
+    on('audioPlayVolume', 'input', () => {
+        if ($('audioPlayVolVal')) $('audioPlayVolVal').textContent = $('audioPlayVolume').value;
+    });
+    on('driveSpeed', 'input', () => {
+        if ($('driveSpeedVal')) $('driveSpeedVal').textContent = $('driveSpeed').value;
+        lastDriveSent = '';
+        syncKeysToDrive();
+    });
+
+    on('btnEye', 'click', seekSetEyeColor);
+    on('btnCopyAIAnswer', 'click', seekCopyAIAnswer);
+    seekLoadVoiceChoice();
+    on('btnEyeOverlayApply', 'click', seekApplyEyeOverlay);
+    on('btnEyeOverlayClear', 'click', seekClearEyeOverlay);
+    on('btnApplySeekLights', 'click', seekApplySeekLights);
+    on('btnApplyAnkiLights', 'click', seekApplyAnkiLights);
+    seekRefreshLightsStatus();
+    on('eyeOverlayFile', 'change', function () {
+        const f = $('eyeOverlayFile');
+        if (f && f.files && f.files[0]) {
+            resizeImageToFaceJPEG(f.files[0]).catch(function () {});
+        }
+    });
+    on('btnVolume', 'click', seekSetVolume);
+    on('btnSay', 'click', seekSayText);
+    on('btnSaveOval', 'click', seekSaveOvalKey);
+    on('btnClearOval', 'click', seekClearOvalKey);
+    on('btnTestOval', 'click', seekTestOval);
+    on('btnSaveOpenAI', 'click', seekSaveOpenAIKey);
+    on('btnClearOpenAI', 'click', seekClearOpenAIKey);
+    on('btnTestOpenAI', 'click', seekTestOpenAI);
+    on('btnSaveHoundify', 'click', seekSaveHoundify);
+    on('btnClearHoundify', 'click', seekClearHoundify);
+    on('btnTestHoundify', 'click', seekTestHoundify);
+    on('btnAskAI', 'click', function () { seekAskAI(); });
+    bindAskAIMic();
+    on('btnAudio', 'click', seekPlayAudio);
+    on('videoPlayBtn', 'click', seekPlayVideo);
+    on('btnStopMedia', 'click', seekStopMedia);
+    on('btnCamStart', 'click', startCamera);
+    on('btnCamStop', 'click', stopCamera);
+    on('btnArmDrive', 'click', armDrive);
+    on('btnRelease', 'click', async () => {
+        keysDown.clear();
+        lastDriveSent = '';
+        sendDrive(0, 0);
+        stopCamera();
+        setArmedUI(false);
+        await api('controlEnd');
+        setSeekStatus('Control released.');
+        updateWasdKeys();
+    });
+    on('btnListen', 'click', activateVoice);
+    on('btnMacarena', 'click', seekMacarena);
+    on('btnMacarenaStop', 'click', seekStopMedia);
+    on('btnOtaInstall', 'click', seekOtaInstall);
+    on('btnLinkRefresh', 'click', function () { seekLinkRefresh(); });
+    on('btnLinkAddIP', 'click', function () { seekLinkAddIP(); });
+    on('linkMasterToggle', 'change', async function () {
+        const on = !!( $('linkMasterToggle') && $('linkMasterToggle').checked );
+        try {
+            await seekLinkSetMaster(on);
+            setSeekStatus(on ? 'This Vector is master.' : 'Master cleared.');
+        } catch (e) {
+            setSeekStatus('master toggle: ' + e.message, true);
+            seekLinkRefresh();
+        }
+    });
+    seekLinkStartPolling();
+    on('btnDoomStart', 'click', doomStart);
+    on('btnDoomStop', 'click', doomStop);
+    on('btnMeet', 'click', () => {
+        runMove('intent', { id: 'intent_meet_victor', label: 'Meet Vector' });
+    });
+    bindTouchPad();
+    bindDoomControls();
+}
+
+/* ---------------- Moves (behaviors + anims) ---------------- */
+
+const MOVE_INTENT_ORDER = [
+    'intent_play_fistbump',
+    'intent_imperative_dance',
+    'intent_imperative_come',
+    'explore_start',
+    'intent_play_popawheelie',
+    'intent_play_rollcube',
+    'intent_play_pickupcube',
+    'intent_play_blackjack',
+    'intent_play_anytrick',
+    'intent_play_anygame',
+    'intent_imperative_lookatme',
+    'intent_imperative_fetchcube',
+    'intent_imperative_findcube',
+    'intent_greeting_goodmorning',
+    'intent_greeting_goodnight',
+    'intent_greeting_goodbye',
+    'intent_imperative_praise',
+    'intent_imperative_love',
+    'intent_imperative_affirmative',
+    'intent_imperative_negative',
+    'intent_imperative_apologize',
+    'intent_imperative_scold',
+    'intent_status_feeling',
+    'intent_clock_time',
+    'intent_character_age',
+    'intent_names_ask',
+    'intent_meet_victor',
+    'intent_system_sleep',
+    'intent_system_charger',
+    'intent_imperative_volumeup',
+    'intent_imperative_volumedown',
+    'intent_imperative_quiet',
+    'intent_imperative_shutup',
+    'intent_seasonal_happyholidays',
+    'intent_seasonal_happynewyear',
+    'intent_global_stop_extend',
+];
+
+const MOVE_FAVORITES = [
+    { id: 'intent_play_fistbump', label: 'Fist bump' },
+    { id: 'intent_imperative_dance', label: 'Dance' },
+    { id: 'intent_imperative_come', label: 'Come here' },
+    { id: 'intent_imperative_love', label: 'I love you' },
+    { id: 'intent_imperative_praise', label: 'Good robot' },
+    { id: 'intent_system_sleep', label: 'Go to sleep' },
+    { id: 'intent_system_charger', label: 'Go to charger' },
+    { id: 'explore_start', label: 'Explore' },
+    { id: 'intent_global_stop_extend', label: 'Stop' },
+];
+
+function sortMoves(items, order) {
+    const rank = new Map(order.map((id, i) => [id, i]));
+    return items.slice().sort((a, b) => {
+        const ra = rank.has(a.id) ? rank.get(a.id) : 999;
+        const rb = rank.has(b.id) ? rank.get(b.id) : 999;
+        if (ra !== rb) return ra - rb;
+        return a.label.localeCompare(b.label);
+    });
+}
+
+function fillMoveGrid(el, items, kind) {
+    if (!el) return;
+    el.textContent = '';
+    items.forEach((item) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ghost';
+        btn.textContent = item.label;
+        btn.dataset.id = item.id;
+        bindTap(btn, function () { runMove(kind, item); });
+        el.appendChild(btn);
+    });
+}
+
+async function loadMoves() {
+    try {
+        const res = await api('moves');
+        if (!res.ok) {
+            setSeekStatus('Moves catalog failed to load — robot may still be waking up.', true);
+            return;
+        }
+        const data = await res.json();
+        fillMoveGrid($('movesFavorites'), MOVE_FAVORITES, 'intent');
+        fillMoveGrid($('movesIntents'), sortMoves(data.intents || [], MOVE_INTENT_ORDER), 'intent');
+        fillMoveGrid($('movesAnims'), sortMoves(data.anims || [], []), 'anim');
+    } catch (_) {
+        setSeekStatus('Cannot reach robot API yet. Pull to refresh in a moment.', true);
+    }
+}
+
+async function runMove(kind, item) {
+    setSeekStatus('Running: ' + item.label + '…');
+    try {
+        let path;
+        if (kind === 'intent') {
+            let param = '';
+            if (item.id === 'intent_meet_victor') {
+                const meet = $('meetName');
+                param = (meet && meet.value.trim()) || 'friend';
+            }
+            path = 'appIntent?intent=' + encodeURIComponent(item.id) + '&param=' + encodeURIComponent(param);
+            setArmedUI(false);
+        } else {
+            path = 'playAnim?name=' + encodeURIComponent(item.id);
+        }
+        const res = await api(path);
+        if (!res.ok) {
+            const e = await res.json().catch(() => ({ message: 'failed' }));
+            setSeekStatus(e.message || 'failed', true);
+            return;
+        }
+        setSeekStatus(item.label + ' — sent.');
+    } catch (e) {
+        setSeekStatus('network error: ' + e.message, true);
+    }
+}
+
+async function activateVoice() {
+    setSeekStatus('Freeing control so Vector can listen…');
+    try {
+        setArmedUI(false);
+        const res = await api('listen');
+        if (!res.ok) {
+            const e = await res.json().catch(() => ({ message: 'failed' }));
+            setSeekStatus(e.message || 'failed', true);
+            return;
+        }
+        setSeekStatus('Voice ready — say “Hey Vector” or press his backpack.');
+    } catch (e) {
+        setSeekStatus('network error: ' + e.message, true);
+    }
+}
+
+function bindTouchPad() {
+    const pad = $('touchPad');
+    if (!pad) return;
+    let heldBtn = null;
+
+    function setHeld(btn, on) {
+        if (!btn) return;
+        btn.classList.toggle('held', on);
+    }
+
+    function start(btn, e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        if (!driveArmed) {
+            setSeekStatus('Tap Take control first.', true);
+            return;
+        }
+        if (heldBtn && heldBtn !== btn) {
+            setHeld(heldBtn, false);
+        }
+        heldBtn = btn;
+        setHeld(btn, true);
+        const f = Number(btn.dataset.f) || 0;
+        const t = Number(btn.dataset.t) || 0;
+        padHeld = { f: f, t: t };
+        lastDriveSent = '';
+        sendDrive(f, t);
+    }
+
+    function stop(e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        if (!heldBtn && !padHeld) return;
+        setHeld(heldBtn, false);
+        heldBtn = null;
+        padHeld = null;
+        lastDriveSent = '';
+        sendDrive(0, 0);
+    }
+
+    pad.querySelectorAll('.pad-btn').forEach((btn) => {
+        // pointer + touch + mouse so iOS Safari / old WebViews all work
+        btn.addEventListener('pointerdown', (e) => {
+            try { btn.setPointerCapture(e.pointerId); } catch (_) {}
+            start(btn, e);
+        }, { passive: false });
+        btn.addEventListener('pointerup', stop, { passive: false });
+        btn.addEventListener('pointercancel', stop, { passive: false });
+        btn.addEventListener('lostpointercapture', stop);
+        btn.addEventListener('touchstart', (e) => start(btn, e), { passive: false });
+        btn.addEventListener('touchend', stop, { passive: false });
+        btn.addEventListener('touchcancel', stop, { passive: false });
+        btn.addEventListener('mousedown', (e) => start(btn, e));
+        btn.addEventListener('mouseup', stop);
+        btn.addEventListener('mouseleave', stop);
+        btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    });
+}
+
+async function loadNetInfo() {
+    const ipEl = $('netLanIp');
+    const urlEl = $('netPhoneUrl');
+    const url8080El = $('netPhoneUrl8080');
+    const listEl = $('netAddrList');
+    const ssidEl = $('netSsid');
+    const hotEl = $('netHotspotHint');
+    try {
+        const res = await fetch(seekNetInfoUrl(), { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const addrs = (data.addrs || []).filter(function (a) { return a.phoneOk; });
+        const home = addrs.find(function (a) { return a.kind === 'wifi' && !a.hotspot; }) ||
+            addrs.find(function (a) { return a.phoneOk && !a.hotspot; });
+        const hot = addrs.find(function (a) { return a.hotspot; });
+        // Never copy USB 192.168.42.1 from the PC browser — phones cannot reach USB.
+        const lanIp = (home && home.ip) || data.lanIp || '';
+        const url80 = (home && home.url) || data.phoneUrl || (lanIp ? ('http://' + lanIp + '/') : '');
+        const url8080 = (home && home.url8080) || data.phoneUrl8080 || (lanIp ? ('http://' + lanIp + ':8080/') : '');
+        if (ssidEl) {
+            ssidEl.textContent = data.ssid ? data.ssid : 'unknown — check Vector’s Wi‑Fi name in the app';
+        }
+        if (ipEl) {
+            ipEl.hidden = !lanIp;
+            ipEl.textContent = lanIp || '';
+        }
+        if (urlEl) {
+            urlEl.hidden = !url80;
+            urlEl.innerHTML = url80 ? ('<a href="' + url80 + '">' + url80 + '</a>') : '';
+        }
+        if (url8080El) {
+            url8080El.hidden = !url8080;
+            url8080El.innerHTML = url8080 ? ('backup: <a href="' + url8080 + '">' + url8080 + '</a>') : '';
+        }
+        if (hotEl) {
+            if (hot && hot.ip) {
+                hotEl.hidden = false;
+                hotEl.innerHTML = 'Pairing hotspot only (Vector‑XXXX): <a href="' + (hot.url || ('http://' + hot.ip + '/')) + '">' + hot.ip + '</a> — skip this if Vector is on home Wi‑Fi.';
+            } else {
+                hotEl.hidden = true;
+                hotEl.textContent = '';
+            }
+        }
+        if (listEl) {
+            listEl.textContent = '';
+            addrs.forEach(function (a) {
+                const li = document.createElement('li');
+                const label = a.hotspot ? 'hotspot' : a.kind;
+                li.innerHTML = label + ' · <a href="' + (a.url || ('http://' + a.ip + '/')) + '">' + a.ip + '</a>';
+                listEl.appendChild(li);
+            });
+        }
+    } catch (_) { /* ignore */ }
+}
+
+async function waitForRobot() {
+    setSeekStatus('Connecting to Vector…');
+    for (let i = 0; i < 30; i++) {
+        try {
+            const res = await fetch(seekHealthUrl(), { cache: 'no-store' });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.ready) {
+                    setSeekStatus('Connected.');
+                    return true;
+                }
+                setSeekStatus('Robot waking up… (' + (i + 1) + ')');
+            } else {
+                setSeekStatus('Dashboard up — waiting for SDK…', true);
+            }
+        } catch (_) {
+            setSeekStatus('Cannot reach ' + location.host + '. Phone must be on the same home Wi‑Fi as Vector. VPN/Private Relay off. Try http://' + location.hostname + '/ (port 80) or :8080.', true);
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+    }
+    setSeekStatus('Still waking up — UI is usable; retry actions in a bit.', true);
+    return false;
+}
+
+/* boot */
+window.__seekLoaded = true;
+(function boot() {
+    try {
+        initTabs();
+        bindUI();
+        bindKeyboard();
+        startKeepalive();
+        seekEyeModeChanged();
+        if (isMobile() && $('videoFps')) $('videoFps').value = '5';
+        if (isMobile() && $('driveSpeed')) {
+            $('driveSpeed').value = '50';
+            if ($('driveSpeedVal')) $('driveSpeedVal').textContent = '50';
+        }
+        loadNetInfo();
+        seekRefresh();
+        loadMoves();
+        waitForRobot().then(function (ok) {
+            if (ok) {
+                seekRefresh();
+                loadMoves();
+            }
+        });
+    } catch (e) {
+        setSeekStatus('Boot error: ' + (e && e.message ? e.message : e), true);
+        console.error(e);
+    }
+})();

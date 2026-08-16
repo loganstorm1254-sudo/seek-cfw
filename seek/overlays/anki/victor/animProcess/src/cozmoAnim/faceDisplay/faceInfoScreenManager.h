@@ -200,6 +200,10 @@ private:
   void DrawAlexaFace();
   void DrawMuteAnimation();
   void DrawAlexaNotification();
+  // SeekOS: face-menu Update OS (GitHub check + Comfortaa status screens)
+  void DrawUpdateOS();
+  void StartFaceOSUpdateCheck();
+  std::string ReadFaceUpdateStatus() const;
   
   // Draw the _scratchDrawingImg to the face
   void DrawScratch();

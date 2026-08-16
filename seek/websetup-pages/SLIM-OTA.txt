@@ -1,0 +1,17 @@
+SeekOS builds
+=============
+
+FULL (recommended for “everything”):
+  https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.64d/vicos-3.0.1.64d.ota
+  ~217 MB — Doom, Vosk, sounds, English+extra TTS, wrap v11.
+
+Upload that file to R2 as the newest OTA so:
+  http://files.anki.org.uk/ota/latest
+serves the full build.
+
+Speed (full file, no scripts):
+  Put Vector on home Wi-Fi during Install, not phone hotspot.
+  Optional: Cloudflare zone → Network → disable HTTP/3 (helps Vector curl).
+
+SLIM 63d (~145 MB) still exists for experiments only — missing Doom/Vosk/sounds.
+Do not use slim if you want everything.

@@ -58,12 +58,14 @@
 
 #include "webServerProcess/src/webService.h"
 
+#include <atomic>
 #include <chrono>
 #include <fstream>
 #include <iomanip>
 #include <thread>
 #include <sys/stat.h>
 #include <string>
+#include <cstdlib>
 
 #ifndef SIMULATOR
 #include <linux/reboot.h>
@@ -264,7 +266,7 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   }
 
   ADD_SCREEN(BuildInfo, Main); // Last screen cycles back to Main
-
+  ADD_SCREEN(UpdateOS, Main);
 
   // ========== Screen Customization ========= 
   // Enter/Exit fcns, menu items, timeouts
@@ -323,6 +325,17 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   ADD_MENU_ITEM(Main, IsXray() ? "TEST" : "SELF TEST", SelfTest);
 #endif
   ADD_MENU_ITEM(Main, IsXray() ? "CLEAR" : "CLEAR OUT SOUL", ClearUserData);
+  ADD_MENU_ITEM(Main, "UPDATE OS", UpdateOS);
+
+  // SeekOS: Doom is started only from the web dashboard (not this face menu).
+
+  // === Update OS (SeekOS) ===
+  auto updateOSEnterFcn = [this]() {
+    StartFaceOSUpdateCheck();
+    DrawUpdateOS();
+  };
+  SET_ENTER_ACTION(UpdateOS, updateOSEnterFcn);
+  DISABLE_TIMEOUT(UpdateOS);
 
   // === Self test screen ===
   ADD_MENU_ITEM(SelfTest, "EXIT", Main);
@@ -1313,6 +1326,33 @@ void FaceInfoScreenManager::Update(const RobotState& state)
     case ScreenName::BuildInfo:
       DrawBuildInfo();
       break;
+    case ScreenName::UpdateOS:
+    {
+      static std::string lastStatus;
+      static float terminalSince = 0.f;
+      const std::string st = ReadFaceUpdateStatus();
+      if (st != lastStatus) {
+        lastStatus = st;
+        DrawUpdateOS();
+        if (st == "none" || st == "disabled" || st == "error" || st == "no-network" || st == "failed") {
+          terminalSince = BaseStationTimer::getInstance()->GetCurrentTimeInSeconds();
+        } else {
+          terminalSince = 0.f;
+        }
+      } else {
+        // Keep redrawing checking/updating so the face stays lit
+        DrawUpdateOS();
+      }
+      if (terminalSince > 0.f) {
+        const float now = BaseStationTimer::getInstance()->GetCurrentTimeInSeconds();
+        if ((now - terminalSince) > 2.5f) {
+          lastStatus.clear();
+          terminalSince = 0.f;
+          SetScreen(ScreenName::Main);
+        }
+      }
+      break;
+    }
     default:
       // Other screens are either updated once when SetScreen() is called
       // or updated by their own draw functions that are called externally
@@ -1640,6 +1680,86 @@ void FaceInfoScreenManager::DrawCustomText()
                              _customText.bgColor.g,
                              _customText.bgColor.b),
                    { 0, FACE_DISPLAY_HEIGHT-10 }, 10, 3.f);
+}
+
+namespace {
+  const char* kSeekFaceUpdateStatusPath = "/run/seek-face-update.status";
+  const char* kSeekFacePNGDir = "/etc/wired/webroot/face/";
+
+  std::string SeekFacePNGForStatus(const std::string& status)
+  {
+    if (status == "checking" || status == "idle" || status.empty()) {
+      return std::string(kSeekFacePNGDir) + "checking.png";
+    }
+    if (status == "installing") {
+      return std::string(kSeekFacePNGDir) + "updating.png";
+    }
+    if (status == "none") {
+      return std::string(kSeekFacePNGDir) + "up-to-date.png";
+    }
+    if (status == "disabled") {
+      return std::string(kSeekFacePNGDir) + "off.png";
+    }
+    if (status == "no-network") {
+      return std::string(kSeekFacePNGDir) + "no-network.png";
+    }
+    return std::string(kSeekFacePNGDir) + "failed.png";
+  }
+}
+
+std::string FaceInfoScreenManager::ReadFaceUpdateStatus() const
+{
+  std::ifstream in(kSeekFaceUpdateStatusPath);
+  std::string line;
+  if (!in || !std::getline(in, line)) {
+    return "checking";
+  }
+  // trim
+  while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' ')) {
+    line.pop_back();
+  }
+  if (line.empty()) {
+    return "checking";
+  }
+  return line;
+}
+
+void FaceInfoScreenManager::StartFaceOSUpdateCheck()
+{
+  // Seed status so the first frame shows Comfortaa "checking"
+  Util::FileUtils::WriteFile(kSeekFaceUpdateStatusPath, "checking\n");
+  std::thread([]() {
+    // Prefer port 8080; fall back to 80. Fire-and-forget so the face stays responsive.
+    const int rc = std::system(
+      "curl -s -m 8 http://127.0.0.1:8080/api/mods/SeekFaceUpdate/run >/dev/null 2>&1 || "
+      "curl -s -m 8 http://127.0.0.1/api/mods/SeekFaceUpdate/run >/dev/null 2>&1");
+    (void)rc;
+  }).detach();
+}
+
+void FaceInfoScreenManager::DrawUpdateOS()
+{
+  const std::string status = ReadFaceUpdateStatus();
+  const std::string path = SeekFacePNGForStatus(status);
+
+  Vision::ImageRGB img;
+  if (img.Load(path) == RESULT_OK && !img.IsEmpty()) {
+    if (img.GetNumRows() != FACE_DISPLAY_HEIGHT || img.GetNumCols() != FACE_DISPLAY_WIDTH) {
+      img.Resize(FACE_DISPLAY_HEIGHT, FACE_DISPLAY_WIDTH);
+    }
+    _scratchDrawingImg->SetFromImageRGB(img);
+    DrawScratch();
+    return;
+  }
+
+  // Fallback if PNGs are missing from the image
+  std::string label = "checking";
+  if (status == "installing") label = "updating";
+  else if (status == "none") label = "up to date";
+  else if (status == "disabled") label = "updates off";
+  else if (status == "no-network") label = "no network";
+  else if (status == "error" || status == "failed") label = "update failed";
+  DrawTextOnScreen({label}, NamedColors::WHITE, NamedColors::BLACK, {20, 55}, 14, 0.7f);
 }
   
 void FaceInfoScreenManager::DrawAlexaFace()

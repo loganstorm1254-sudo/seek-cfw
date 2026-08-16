@@ -1,0 +1,17 @@
+{
+  "name": "seek-web-setup",
+  "version": "1.0.0",
+  "description": "Seek Web Setup — local Chrome BLE setup and HTTP OTA for Vector (no phone app, no Anki account).",
+  "bin": {
+    "seek-web-setup": "./bin/seek-web-setup.js"
+  },
+  "scripts": {
+    "configure": "node bin/seek-web-setup.js configure",
+    "ota-sync": "node bin/seek-web-setup.js ota-sync",
+    "serve": "node bin/seek-web-setup.js serve"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "license": "MIT"
+}

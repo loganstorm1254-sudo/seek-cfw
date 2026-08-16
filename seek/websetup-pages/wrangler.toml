@@ -1,0 +1,13 @@
+# Seek files host Worker — bind R2 as "OTA"
+name = "seek-otas"
+main = "worker-otas.js"
+compatibility_date = "2024-09-23"
+workers_dev = true
+
+# Set your account id, or export CLOUDFLARE_ACCOUNT_ID.
+# account_id = "YOUR_ACCOUNT_ID"
+
+[[r2_buckets]]
+binding = "OTA"
+# Change to your real bucket name (same as SEEK_R2_BUCKET).
+bucket_name = "YOUR_R2_BUCKET"

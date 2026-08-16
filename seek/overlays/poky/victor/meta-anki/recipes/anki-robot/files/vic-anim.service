@@ -1,0 +1,24 @@
+[Unit]
+Description=Victor animator daemon
+SourcePath=/anki/bin/vic-anim
+PartOf=anki-robot.target
+
+Wants=vic-robot.service
+Requires=anki-audio-init.service
+After=vic-robot.service anki-audio-init.service
+
+[Service]
+EnvironmentFile=/anki/etc/vic-anim.env
+Restart=no
+ExecStartPre=-/bin/systemctl stop vic-bootAnim.service
+# LD / other CFWs leave green idle+charging under /data/data/customBackpackLights,
+# which overrides OTA WireOS Seek lights. One-shot clear so orange/red apply.
+ExecStartPre=/bin/sh -c 'MARK=/data/data/com.anki.victor/persistent/seek/cleared_ld_lights_v1; if [ ! -f "$MARK" ]; then rm -rf /data/data/customBackpackLights /data/data/enableankilights; mkdir -p "$(dirname "$MARK")"; : > "$MARK"; fi'
+ExecStart=/usr/bin/logwrapper /anki/bin/vic-anim $VIC_ANIM_OPTS
+ExecStopPost=/anki/bin/vic-on-exit
+Nice=-2
+Group=anki
+UMask=0002
+
+[Install]
+WantedBy=anki-robot.target

@@ -1,0 +1,136 @@
+# Seek: install BLE OTA fix on a Vector from Windows (PowerShell).
+# ASCII-only (Windows PowerShell 5.1 parser).
+# Fixes: ssh-rsa algo mismatch, robot curl CA (77), bot IP changes on hotspot.
+#
+# Usage:
+#   powershell -ExecutionPolicy Bypass -File fix-ble-ota.ps1
+#   powershell -ExecutionPolicy Bypass -File fix-ble-ota.ps1 -Key C:\Users\Logan\Downloads\ssh_root_key.txt -Ip 192.168.43.130
+#   powershell -ExecutionPolicy Bypass -File fix-ble-ota.ps1 -Scan
+
+param(
+  [string]$Key = "$env:USERPROFILE\Downloads\ssh_root_key.txt",
+  [string]$Ip = "",
+  [string]$ScriptUrl = "https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/scripts/fix-ble-ota.sh",
+  [switch]$Scan
+)
+
+# Do NOT use Stop: ssh.exe writes warnings to stderr and PS 5.1 turns those
+# into terminating NativeCommandError even when ssh succeeded.
+$ErrorActionPreference = "Continue"
+
+if (-not (Test-Path $Key)) {
+  Write-Host "SSH key not found: $Key"
+  Write-Host "Pass -Key path\to\ssh_root_key.txt"
+  exit 1
+}
+
+$sshOpts = @(
+  "-i", $Key,
+  "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa",
+  "-o", "HostkeyAlgorithms=+ssh-rsa",
+  "-o", "StrictHostKeyChecking=no",
+  "-o", "UserKnownHostsFile=NUL",
+  "-o", "LogLevel=ERROR",
+  "-o", "IdentitiesOnly=yes",
+  "-o", "ConnectTimeout=6",
+  "-o", "BatchMode=yes"
+)
+
+function Invoke-Ssh([string]$addr, [string]$remoteCmd) {
+  # Merge stderr so host-key warnings never become terminating errors.
+  $output = & ssh @sshOpts "root@$addr" $remoteCmd 2>&1
+  $code = $LASTEXITCODE
+  return @{ Code = $code; Output = $output }
+}
+
+function Test-Robot([string]$addr) {
+  $r = Invoke-Ssh $addr "echo OK"
+  return ($r.Code -eq 0)
+}
+
+function Install-On([string]$addr) {
+  Write-Host "=== Installing BLE OTA fix on $addr ==="
+  $beside = Join-Path $PSScriptRoot "fix-ble-ota.sh"
+  $local = Join-Path $env:TEMP "fix-ble-ota.sh"
+  if (Test-Path $beside) {
+    Copy-Item -Force $beside $local
+    Write-Host "Using local script $beside"
+  } else {
+    Write-Host "Downloading script to $local ..."
+    Invoke-WebRequest -Uri $ScriptUrl -OutFile $local -UseBasicParsing
+  }
+
+  Write-Host "Copying via scp..."
+  & scp @sshOpts $local "root@${addr}:/tmp/f.sh" 2>&1 | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "scp failed to $addr (exit $LASTEXITCODE)"
+    exit 1
+  }
+
+  Write-Host "Running fix on robot..."
+  $r = Invoke-Ssh $addr "chmod +x /tmp/f.sh && sh /tmp/f.sh"
+  $r.Output | ForEach-Object { Write-Host $_ }
+  if ($r.Code -ne 0) {
+    Write-Host "fix script failed on $addr (exit $($r.Code))"
+    exit 1
+  }
+  $v = Invoke-Ssh $addr "test -x /data/update-engine-wrap && test -x /data/seek-ble-ota-apply.sh && mount | grep update-engine && echo VERIFY_OK"
+  $v.Output | ForEach-Object { Write-Host $_ }
+  if ($v.Code -ne 0 -or (($v.Output | Out-String) -notmatch "VERIFY_OK")) {
+    Write-Host "Install reported OK but /data wrap files missing on $addr - refuse DONE."
+    exit 1
+  }
+  Write-Host "DONE on $addr (verified)"
+}
+
+$candidates = @()
+if ($Ip) { $candidates += $Ip }
+$candidates += @("192.168.43.130", "192.168.43.3", "192.168.43.2", "192.168.43.4")
+
+if ($Scan -or -not $Ip) {
+  Write-Host "Probing known IPs (and quick scan of .2-.40 if needed)..."
+  $found = @()
+  foreach ($c in ($candidates | Select-Object -Unique)) {
+    Write-Host -NoNewline "  ssh $c ... "
+    if (Test-Robot $c) {
+      Write-Host "UP"
+      $found += $c
+    } else {
+      Write-Host "down"
+    }
+  }
+  if ($found.Count -eq 0 -and $Scan) {
+    for ($i = 2; $i -le 40; $i++) {
+      $c = "192.168.43.$i"
+      if ($candidates -contains $c) { continue }
+      Write-Host -NoNewline "  ssh $c ... "
+      if (Test-Robot $c) {
+        Write-Host "UP"
+        $found += $c
+      } else {
+        Write-Host "down"
+      }
+    }
+  }
+  if ($found.Count -eq 0) {
+    Write-Host ""
+    Write-Host "No robot answered SSH on this hotspot."
+    Write-Host "1) Put Vector on the charger, wait for eyes."
+    Write-Host "2) Confirm it rejoined the phone hotspot (IP on face / BLE websetup)."
+    Write-Host "3) Re-run this script with the new IP:  -Ip 192.168.43.XX"
+    Write-Host "Or skip SSH: open http://ROBOT_IP in Chrome -> Install OTA (file upload)."
+    exit 2
+  }
+  foreach ($f in $found) {
+    Install-On $f
+  }
+} else {
+  if (-not (Test-Robot $Ip)) {
+    Write-Host "SSH timeout to $Ip - robot is offline on this network."
+    exit 2
+  }
+  Install-On $Ip
+}
+
+Write-Host ""
+Write-Host "Next: websetup -> Install with https://files.anki.org.uk/ota/latest"
