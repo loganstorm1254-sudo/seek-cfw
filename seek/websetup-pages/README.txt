@@ -1,22 +1,23 @@
-Seek Web Setup (Cloudflare Pages) — FAST UI
-============================================
+Seek Web Setup (Cloudflare Pages) — FAST UI (old zip mechanism)
+===============================================================
 
-Upload seek-websetup-pages.zip to Cloudflare Pages (index.html at zip root).
-That is the fast setup UI (static on the CF edge).
+This zip is the same Direct Upload flow as before: static files on the
+Cloudflare edge. That is what felt fast.
 
-Do NOT rely on https://files.anki.org.uk/setup for day-to-day use — the
-Worker pulls UI from GitHub/CDN and feels slow. files.anki.org.uk is for
-OTA files: /ota/latest, /api/otas.json, /files.
+1. Download seek-websetup-pages.zip
+2. Cloudflare → Workers & Pages → your Pages project → Upload assets
+   (zip root must contain index.html)
+3. Open the Pages URL (NOT files.anki.org.uk/setup)
+4. Hard refresh until top-right shows: UI seek22
 
-After upload, hard-refresh until top-right shows: UI seek21
-
-Install still sends Vector:
+files.anki.org.uk is for OTA only:
   http://files.anki.org.uk/ota/latest
 
-settings.json already points otaListUrl at that host.
+Optional (so /setup on files.anki.org.uk is fast again):
+  A) Worker var WEBSETUP_PAGES_URL = your Pages URL  → /setup redirects
+  B) Upload unzipped zip into R2 under websetup/     → /setup serves edge files
 
-Full OTA (~217 MB, everything):
-  https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.64d/vicos-3.0.1.64d.ota
-Upload that to R2 so /ota/latest is current.
+Do NOT use Worker → GitHub/jsDelivr UI proxy (removed; that was the slow path).
 
-Wi-Fi tip: home Wi-Fi for Install, not phone hotspot.
+Install tip: Vector on home Wi-Fi, not phone hotspot.
+Full OTA (~217 MB): vicos-3.0.1.64d.ota on R2 as latest.

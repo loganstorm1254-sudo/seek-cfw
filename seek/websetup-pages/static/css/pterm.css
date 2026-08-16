@@ -1,6 +1,6 @@
 /* Copyright (c) 2019-2020 Digital Dream Labs. See LICENSE file for details */
 .pterm-main {
-  font-family: 'Ubuntu Mono', monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   padding: 20px;
   color: #4FED94;
   height: 100%;

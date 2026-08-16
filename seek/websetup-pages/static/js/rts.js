@@ -1460,7 +1460,7 @@ function setPhase(phase) {
   }
 }
 
-var SEEK_UI_VERSION = "seek21";
+var SEEK_UI_VERSION = "seek22";
 
 function setOtaProgress(percent, opts) {
   if (percent !== percent || percent < 0) return;
@@ -1713,7 +1713,7 @@ function otaStatusMessage(status) {
         "Robot could not open the OTA URL (status 203).<br/>" +
         "Vector cannot use HTTPS. The Install URL must be <code>http://files.anki.org.uk/ota/latest</code>.<br/>" +
         "Upload the latest <code>seek-websetup-pages.zip</code> to Cloudflare Pages, hard-refresh " +
-        "(<code>rts.seek16.js</code>), keep the phone hotspot on, then Install <b>once</b>.<br/>" +
+        "(top-right <code>UI seek22</code>), keep Wi‑Fi on, then Install <b>once</b>.<br/>" +
         ( _otaEndpoint
           ? "URL sent: <code>" +
             $("<div>").text(String(_otaEndpoint)).html() +
@@ -1760,8 +1760,8 @@ function doOta() {
       "Refusing to send HTTPS OTA URL to Vector (status 203).<br/>" +
         "Got: <code>" +
         $("<div>").text(url).html() +
-        "</code><br/>Select <b>Seek OS (latest)</b> or hard-refresh so " +
-        "<code>rts.seek21.js</code> loads."
+        "</code><br/>Select <b>Seek OS (latest)</b> or hard-refresh so top-right shows " +
+        "<code>UI seek22</code>."
       );
       $("#btnTryAgain").removeClass("vec-hidden");
       return;

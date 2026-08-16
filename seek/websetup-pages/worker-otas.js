@@ -4,13 +4,18 @@
  * Paste into Cloudflare Worker for files.anki.org.uk (R2 binding: OTA), Deploy.
  *
  *   GET /           → landing (Web Setup | OTA storage)
- *   GET /setup      → Seek Web Setup UI
- *   GET /files      → white "Index of /" directory listing (same as before)
+ *   GET /setup      → fast UI from R2 websetup/* OR redirect to Pages URL
+ *   GET /files      → white "Index of /" directory listing
  *   GET /OTA/       → browse OTA folder
  *   GET /ota/latest → newest .ota (Vector HTTP)
- *   GET /fast-ota.ps1 → Windows one-liner helper (no Node/git)
- *   GET /fast-ota.bat → double-click launcher
- *   GET /fast-ota.sh  → Mac/Linux helper
+ *
+ * Optional env (Worker Settings → Variables):
+ *   WEBSETUP_PAGES_URL = https://your-pages-project.pages.dev
+ *     → /setup redirects here (fastest; same as old Pages zip)
+ *
+ * Fast /setup without a separate Pages project:
+ *   Upload unzipped seek-websetup-pages.zip into R2 under prefix websetup/
+ *   (websetup/index.html, websetup/static/...)
  */
 function corsHeaders() {
   return {
@@ -140,21 +145,25 @@ async function serveOtaKey(env, key, request, cors, downloadName, listedSize) {
   return otaResponse(obj, cors, downloadName);
 }
 
-// Public repo mirror of seek/websetup-pages (Worker fetches server-side).
-// Fast CDN for UI assets (jsDelivr). OTA itself stays on R2 /ota/latest.
-const WEBSETUP_CDN =
-  "https://cdn.jsdelivr.net/gh/loganstorm1254-sudo/seek-cfw@cursor/seek-web-dashboard-f1f4/seek/websetup-pages";
+// Prefer Pages zip or R2 websetup/ (both are edge-fast). Never proxy GitHub/jsDelivr.
+function pagesSetupUrl(env) {
+  const u = (env && env.WEBSETUP_PAGES_URL) || "";
+  return String(u).replace(/\/$/, "");
+}
 
-function landingPage(cors) {
+function landingPage(cors, env) {
+  const pages = pagesSetupUrl(env);
+  const setupHref = pages || "/setup";
+  const setupLabel = pages ? "Web Setup" : "Web Setup (from R2)";
+  const setupHint = pages
+    ? "Cloudflare Pages zip — edge-fast (recommended)"
+    : "Needs R2 websetup/* upload, or set WEBSETUP_PAGES_URL";
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Seek — files.anki.org.uk</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <style>
     :root {
       --bg0: #0c1219;
@@ -169,7 +178,7 @@ function landingPage(cors) {
     body {
       margin: 0;
       min-height: 100vh;
-      font-family: "DM Sans", system-ui, sans-serif;
+      font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
       color: var(--ink);
       background:
         radial-gradient(900px 500px at 10% -10%, #1a3a5c 0%, transparent 55%),
@@ -181,7 +190,7 @@ function landingPage(cors) {
     }
     main { width: min(640px, 100%); }
     .brand {
-      font-family: "IBM Plex Mono", monospace;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 13px;
       letter-spacing: 0.08em;
       text-transform: uppercase;
@@ -227,14 +236,14 @@ function landingPage(cors) {
       color: var(--muted);
       font-size: 0.92rem;
       line-height: 1.35;
-      font-family: "IBM Plex Mono", monospace;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
     a.choice.primary .label { color: var(--accent); }
     footer {
       margin-top: 28px;
       color: var(--muted);
       font-size: 12px;
-      font-family: "IBM Plex Mono", monospace;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
   </style>
 </head>
@@ -242,11 +251,11 @@ function landingPage(cors) {
   <main>
     <p class="brand">Seek · files.anki.org.uk</p>
     <h1>What do you need?</h1>
-    <p class="sub">OTA files live here. For a <b>fast</b> Web Setup UI, use your Cloudflare Pages site (upload the zip). This host’s /setup is a slower fallback.</p>
+    <p class="sub">OTA files live here. Web Setup UI should be the <b>Pages zip</b> (static on the edge) — same mechanism as before. This host only serves OTA bytes.</p>
     <div class="choices">
-      <a class="choice primary" href="/setup">
-        <span class="label">Web Setup (fallback)</span>
-        <span class="hint">Works, but slower than Pages zip — prefer your Pages URL</span>
+      <a class="choice primary" href="${setupHref}">
+        <span class="label">${setupLabel}</span>
+        <span class="hint">${setupHint}</span>
       </a>
       <a class="choice" href="/files/">
         <span class="label">OTA storage</span>
@@ -267,8 +276,20 @@ function landingPage(cors) {
   });
 }
 
-/** Serve Seek Web Setup UI from R2 websetup/*, else GitHub via jsDelivr. */
+/** Serve Seek Web Setup UI from R2 websetup/* only (edge-fast, like Pages). */
 async function serveWebsetup(env, urlPath, cors) {
+  const pages = pagesSetupUrl(env);
+  if (
+    pages &&
+    (urlPath === "/setup" ||
+      urlPath === "/setup/" ||
+      urlPath === "/websetup" ||
+      urlPath === "/websetup/" ||
+      urlPath === "/index.html")
+  ) {
+    return Response.redirect(pages + "/", 302);
+  }
+
   let rel = urlPath;
   if (rel === "/setup" || rel === "/setup/" || rel === "/websetup" || rel === "/websetup/") {
     rel = "/index.html";
@@ -290,7 +311,7 @@ async function serveWebsetup(env, urlPath, cors) {
   if (rel === "/index.html" || rel.endsWith(".js") || rel.endsWith(".css")) {
     headers.set("cache-control", "no-cache");
   } else {
-    headers.set("cache-control", "public, max-age=3600");
+    headers.set("cache-control", "public, max-age=31536000, immutable");
   }
 
   const key = "websetup" + rel;
@@ -302,30 +323,39 @@ async function serveWebsetup(env, urlPath, cors) {
       return new Response(obj.body, { headers });
     }
   } catch (e) {
-    // fall through to CDN
+    // fall through
   }
 
-  const cdnUrl = WEBSETUP_CDN + rel;
-  const upstream = await fetch(cdnUrl, {
-    cf: { cacheTtl: 300, cacheEverything: true },
-  });
-  if (!upstream.ok) {
-    return new Response(
-      "Websetup UI missing (R2 " +
-        key +
-        " and CDN " +
-        cdnUrl +
-        " → " +
-        upstream.status +
-        "). Paste the latest worker-otas.js from the seek-cfw repo.",
-      {
-        status: 502,
-        headers: { ...cors, "content-type": "text/plain; charset=utf-8" },
-      }
-    );
+  // No GitHub/jsDelivr proxy — that was the slow path. Tell the user how to fix it.
+  if (rel === "/index.html") {
+    const hint = pages
+      ? pages
+      : "https://dash.cloudflare.com → Pages → Upload seek-websetup-pages.zip";
+    const html =
+      "<!DOCTYPE html><html><head><meta charset=UTF-8><title>Seek Web Setup</title></head><body style=\"font-family:system-ui;padding:2rem;max-width:40rem;line-height:1.45\">" +
+      "<h1>Web Setup UI not on this host</h1>" +
+      "<p>Use the old fast mechanism: upload <code>seek-websetup-pages.zip</code> to <b>Cloudflare Pages</b> (Direct Upload), then open that Pages URL.</p>" +
+      "<p>Or upload the unzipped files into R2 under <code>websetup/</code> so <code>/setup</code> is edge-fast again.</p>" +
+      "<p>Optional Worker var <code>WEBSETUP_PAGES_URL</code> = your Pages URL so <code>/setup</code> redirects.</p>" +
+      "<p><a href=\"" +
+      hint +
+      "\">Open Pages / dashboard</a> · <a href=\"/\">Home</a></p>" +
+      "</body></html>";
+    return new Response(html, {
+      status: 503,
+      headers: {
+        ...cors,
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-cache",
+        "x-seek-ui": "missing",
+      },
+    });
   }
-  headers.set("x-seek-ui", "cdn");
-  return new Response(upstream.body, { headers });
+
+  return new Response("Missing R2 object: " + key + " (upload Pages zip contents under websetup/)", {
+    status: 404,
+    headers: { ...cors, "content-type": "text/plain; charset=utf-8" },
+  });
 }
 
 async function directoryListing(env, path, cors) {
@@ -388,7 +418,7 @@ export default {
 
     // Landing: two choices
     if (path === "/" || path === "") {
-      return landingPage(cors);
+      return landingPage(cors, env);
     }
 
     // Same white directory listing as before (Index of /)
