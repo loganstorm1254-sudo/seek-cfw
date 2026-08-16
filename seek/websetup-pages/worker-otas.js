@@ -1,9 +1,13 @@
 /**
  * Seek OTA + Web Setup Worker (files.anki.org.uk)
  *
+ * ONE STEP: paste this file into your Cloudflare Worker for files.anki.org.uk,
+ * keep R2 binding name "OTA", Deploy. Then open:
+ *   https://files.anki.org.uk/
+ * You should see "UI seek16" top-right.
+ *
  * Web UI (Chrome):
- *   GET /              → R2 websetup/index.html (Seek Web Setup seek16+)
- *   GET /static/...    → R2 websetup/static/...
+ *   GET / + /static/...  → R2 websetup/* if present, else GitHub (jsDelivr)
  *
  * OTA (Vector BLE — plain HTTP only):
  *   GET /api/otas.json → R2 .ota list (url=https, robotUrl=http)
@@ -11,9 +15,7 @@
  *   GET /dl/<name>     → ASCII download alias
  *   GET /OTA/...       → raw R2 key
  *
- * Bind R2 as OTA. Keep HTTP working on /ota and /dl (no Always-HTTPS on those).
- * After every UI change: upload seek/websetup-pages → R2 prefix websetup/
- *   node seek/websetup-pages/deploy-cloudflare.mjs
+ * Keep HTTP working on /ota and /dl (no Always-HTTPS on those).
  */
 function corsHeaders() {
   return {
@@ -141,7 +143,12 @@ async function serveOtaKey(env, key, request, cors, downloadName, listedSize) {
   return otaResponse(obj, cors, downloadName);
 }
 
-/** Serve Seek Web Setup UI from R2 keys under websetup/ */
+// Public repo mirror of seek/websetup-pages (Worker fetches server-side).
+// Pin the feature branch so paste-deploy gets seek16 without an R2 UI upload.
+const WEBSETUP_CDN =
+  "https://cdn.jsdelivr.net/gh/loganstorm1254-sudo/seek-cfw@cursor/seek-web-dashboard-f1f4/seek/websetup-pages";
+
+/** Serve Seek Web Setup UI from R2 websetup/*, else GitHub via jsDelivr. */
 async function serveWebsetup(env, urlPath, cors) {
   let rel = urlPath === "/" ? "/index.html" : urlPath;
   if (rel === "/setup" || rel === "/setup/") rel = "/index.html";
@@ -150,16 +157,7 @@ async function serveWebsetup(env, urlPath, cors) {
   if (rel !== "/index.html" && !rel.startsWith("/static/")) {
     return null;
   }
-  const key = "websetup" + rel;
-  const obj = await env.OTA.get(key);
-  if (!obj) {
-    return new Response(
-      "Websetup UI missing in R2 (" +
-        key +
-        "). Upload with: node seek/websetup-pages/deploy-cloudflare.mjs",
-      { status: 404, headers: { ...cors, "content-type": "text/plain; charset=utf-8" } }
-    );
-  }
+
   const headers = new Headers(cors);
   headers.set("content-type", contentTypeFor(rel));
   if (rel === "/index.html" || rel.endsWith(".js") || rel.endsWith(".css")) {
@@ -167,8 +165,41 @@ async function serveWebsetup(env, urlPath, cors) {
   } else {
     headers.set("cache-control", "public, max-age=3600");
   }
-  if (obj.size != null) headers.set("content-length", String(obj.size));
-  return new Response(obj.body, { headers });
+
+  // Prefer R2 copy when Logan has uploaded websetup/ (faster, offline from GH).
+  const key = "websetup" + rel;
+  try {
+    const obj = await env.OTA.get(key);
+    if (obj) {
+      if (obj.size != null) headers.set("content-length", String(obj.size));
+      headers.set("x-seek-ui", "r2");
+      return new Response(obj.body, { headers });
+    }
+  } catch (e) {
+    // fall through to CDN
+  }
+
+  const cdnUrl = WEBSETUP_CDN + rel;
+  const upstream = await fetch(cdnUrl, {
+    cf: { cacheTtl: 300, cacheEverything: true },
+  });
+  if (!upstream.ok) {
+    return new Response(
+      "Websetup UI missing (R2 " +
+        key +
+        " and CDN " +
+        cdnUrl +
+        " → " +
+        upstream.status +
+        "). Paste the latest worker-otas.js from the seek-cfw repo.",
+      {
+        status: 502,
+        headers: { ...cors, "content-type": "text/plain; charset=utf-8" },
+      }
+    );
+  }
+  headers.set("x-seek-ui", "cdn");
+  return new Response(upstream.body, { headers });
 }
 
 export default {
