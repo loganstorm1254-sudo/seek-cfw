@@ -5,19 +5,20 @@ Paste [`worker-otas.js`](./worker-otas.js) into your Worker → Deploy (R2 bindi
 | URL | What |
 |-----|------|
 | https://files.anki.org.uk/ | Landing |
-| https://files.anki.org.uk/setup | Seek Web Setup |
+| https://files.anki.org.uk/setup | Seek Web Setup (UI seek19) |
 | https://files.anki.org.uk/files | White OTA directory listing |
-| https://files.anki.org.uk/fast-ota.ps1 | Windows Fast OTA helper |
-| https://files.anki.org.uk/fast-ota.bat | Double-click launcher |
 | http://files.anki.org.uk/ota/latest | Robot download (HTTP) |
 
-## Fast install for users (easy)
+## Fast install (all on the site — no scripts)
 
-1. PC + Vector on the **same phone hotspot**
-2. PowerShell on the PC:
-   ```
-   irm https://files.anki.org.uk/fast-ota.ps1 | iex
-   ```
-3. Chrome → https://files.anki.org.uk/setup → pair → paste the printed LAN URL → Install
+1. Chrome → https://files.anki.org.uk/setup  
+2. Pair Vector  
+3. Connect Vector to **home Wi‑Fi** (not phone hotspot)  
+4. Install **Seek OS (latest)**  
+5. Wait for reboot  
 
-Hard-refresh after Worker deploy (`Ctrl+Shift+R`). `/setup` should show **UI seek18**.
+Home Wi‑Fi uses your broadband. Phone hotspot uses cellular (~20–40 min for 217 MB).
+
+Optional: Cloudflare Dashboard → Network → turn **HTTP/3** off for this zone (helps Vector’s old curl).
+
+Hard-refresh after Worker deploy until `/setup` shows **UI seek19**.

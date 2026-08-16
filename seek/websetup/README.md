@@ -1,33 +1,21 @@
 # Seek Web Setup
 
-## Fast install (easiest — no git, no Node)
+All on the website — no scripts required.
 
-1. Join your **PC** to the **same phone hotspot** as Vector  
-2. On Windows, open **PowerShell** and paste:
+## Fast path
 
-```powershell
-irm https://files.anki.org.uk/fast-ota.ps1 | iex
-```
+1. Chrome → https://files.anki.org.uk/setup  
+2. Pair Vector over Bluetooth  
+3. Join **home Wi‑Fi** (not a phone hotspot)  
+4. Install **Seek OS (latest)**  
+5. Leave the tab open until Vector reboots  
 
-Or download and double-click: https://files.anki.org.uk/fast-ota.bat
+## Why hotspot feels slow
 
-3. Chrome → https://files.anki.org.uk/setup → pair Vector  
-4. Paste the `http://192.168.…:8765/latest.ota` URL into **Fast install** → Install  
+Vector downloads ~217 MB from Cloudflare. On a phone hotspot that traffic
+goes through cellular. On home Wi‑Fi it uses your broadband.
 
-Mac/Linux:
+## Local optional tools
 
-```bash
-curl -fsSL https://files.anki.org.uk/fast-ota.sh | bash
-```
-
-## Full local UI
-
-```bash
-cd seek/websetup
-npm install
-node bin/seek-web-setup.js serve
-```
-
-## Slow path
-
-Cloudflare Install without Fast OTA makes Vector pull ~217 MB over cellular (often 20–40 min).
+`fast-ota.ps1` / `node bin/seek-web-setup.js serve` still exist for advanced
+LAN installs, but normal users only need the site + home Wi‑Fi.

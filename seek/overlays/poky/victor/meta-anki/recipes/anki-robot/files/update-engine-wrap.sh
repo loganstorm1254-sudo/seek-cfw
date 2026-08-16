@@ -1,16 +1,16 @@
 #!/bin/sh
-# Seek BLE OTA wrap v10.1 (shipped in the OTA — no SSH).
+# Seek BLE OTA wrap v11 (shipped in the OTA — no SSH).
 # Public websetup only starts /anki/bin/update-engine <url>. This wrap:
 #   - remounts root rw and prefers /ota or /cache for the payload
 #   - rewrites https://*.anki.org.uk → http:// (Vector cannot verify TLS)
-#   - downloads with resume + live BLE progress files, then flashes file://
+#   - downloads with resume + parallel ranges when possible, then flashes file://
 #   - grows expected-size if the file passes a stale size guess (no 193/171)
 #   - otherwise execs the streaming C++ engine (no second HTTP pull)
 # Periodic auto-update (no URL) is passed through. Do not default to /ota/latest.
 mount -o remount,rw / 2>/dev/null || true
 mkdir -p /run/update-engine /data /ota /cache
 LOG=/run/update-engine/wrapper.log
-echo "wrapper v10.1 start $(date 2>/dev/null || true)" >> "$LOG"
+echo "wrapper v11 start $(date 2>/dev/null || true)" >> "$LOG"
 echo "env URL=${UPDATE_ENGINE_URL-}" >> "$LOG"
 echo "args=$*" >> "$LOG"
 
@@ -171,30 +171,87 @@ if [ "$NEED" = 1 ]; then
   while [ "$TRIES" -lt 8 ]; do
     TRIES=`expr "$TRIES" + 1`
     echo "curl try $TRIES size=$SZ expect=$EXPECT" >> "$LOG"
-    "$CURL" -k -L --http1.1 -4 --fail --connect-timeout 20 --retry 0 \
-      --speed-limit 1024 --speed-time 90 -C - -o "$OTA" "$URL" >> "$LOG" 2>&1 &
-    CPID=$!
-    TICK=0
-    while kill -0 "$CPID" 2>/dev/null; do
-      NOW=`stat -c %s "$OTA" 2>/dev/null || echo 0`
-      # If the file grows past our guess (old 180MB / bad HEAD), raise expected
-      # so BLE does not show 193/171 and look "past 100%".
-      if [ "$NOW" -gt "$EXPECT" ]; then
-        EXPECT=`expr "$NOW" + 2097152`
+    # Prefer multi-range pull (often 2–4× on phone hotspots / Wi-Fi).
+    # Falls back to single resume curl if ranges fail.
+    PARALLEL_OK=0
+    if [ "$SZ" -eq 0 ] && [ "$EXPECT" -ge 16000000 ]; then
+      PARTS=4
+      CHUNK=`expr "$EXPECT" / "$PARTS"`
+      PI=0
+      PIDS=""
+      FAIL=0
+      while [ "$PI" -lt "$PARTS" ]; do
+        START=`expr "$PI" \* "$CHUNK"`
+        if [ "$PI" -eq `expr "$PARTS" - 1` ]; then
+          END=`expr "$EXPECT" - 1`
+        else
+          END=`expr "$START" + "$CHUNK" - 1`
+        fi
+        PART="$OTA.p$PI"
+        rm -f "$PART"
+        echo "range $PI bytes=$START-$END" >> "$LOG"
+        "$CURL" -k -L --http1.1 -4 --fail --connect-timeout 20 --retry 2 \
+          -r "$START-$END" -o "$PART" "$URL" >> "$LOG" 2>&1 &
+        PIDS="$PIDS $!"
+        PI=`expr "$PI" + 1`
+      done
+      for P in $PIDS; do
+        if ! wait "$P"; then
+          FAIL=1
+        fi
+      done
+      if [ "$FAIL" = 0 ]; then
+        rm -f "$OTA"
+        PI=0
+        while [ "$PI" -lt "$PARTS" ]; do
+          cat "$OTA.p$PI" >> "$OTA" || FAIL=1
+          rm -f "$OTA.p$PI"
+          PI=`expr "$PI" + 1`
+        done
+      else
+        PI=0
+        while [ "$PI" -lt "$PARTS" ]; do
+          rm -f "$OTA.p$PI"
+          PI=`expr "$PI" + 1`
+        done
       fi
-      echo "$NOW" > /run/update-engine/progress
+      SZ=`stat -c %s "$OTA" 2>/dev/null || echo 0`
+      echo "$SZ" > /run/update-engine/progress
       echo "$EXPECT" > /run/update-engine/expected-size
-      TICK=`expr "$TICK" + 1`
-      if [ `expr "$TICK" % 5` -eq 0 ]; then
-        echo "progress $NOW / $EXPECT bytes" >> "$LOG"
+      if [ "$FAIL" = 0 ] && [ "$SZ" -ge 8000000 ]; then
+        PARALLEL_OK=1
+        CR=0
+        echo "parallel download ok size=$SZ" >> "$LOG"
+      else
+        echo "parallel download failed; single resume" >> "$LOG"
+        rm -f "$OTA"
+        SZ=0
       fi
-      sleep 1
-    done
-    wait "$CPID"
-    CR=$?
-    SZ=`stat -c %s "$OTA" 2>/dev/null || echo 0`
-    echo "$SZ" > /run/update-engine/progress
-    echo "try $TRIES done rc=$CR size=$SZ" >> "$LOG"
+    fi
+    if [ "$PARALLEL_OK" = 0 ]; then
+      "$CURL" -k -L --http1.1 -4 --fail --connect-timeout 20 --retry 2 \
+        -C - -o "$OTA" "$URL" >> "$LOG" 2>&1 &
+      CPID=$!
+      TICK=0
+      while kill -0 "$CPID" 2>/dev/null; do
+        NOW=`stat -c %s "$OTA" 2>/dev/null || echo 0`
+        if [ "$NOW" -gt "$EXPECT" ]; then
+          EXPECT=`expr "$NOW" + 2097152`
+        fi
+        echo "$NOW" > /run/update-engine/progress
+        echo "$EXPECT" > /run/update-engine/expected-size
+        TICK=`expr "$TICK" + 1`
+        if [ `expr "$TICK" % 5` -eq 0 ]; then
+          echo "progress $NOW / $EXPECT bytes" >> "$LOG"
+        fi
+        sleep 1
+      done
+      wait "$CPID"
+      CR=$?
+      SZ=`stat -c %s "$OTA" 2>/dev/null || echo 0`
+      echo "$SZ" > /run/update-engine/progress
+      echo "try $TRIES done rc=$CR size=$SZ" >> "$LOG"
+    fi
     if [ "$CR" = 0 ] && [ "$SZ" -ge 8000000 ]; then
       break
     fi

@@ -246,11 +246,7 @@ function landingPage(cors) {
     <div class="choices">
       <a class="choice primary" href="/setup">
         <span class="label">Web Setup</span>
-        <span class="hint">Pair Vector — use Fast install (one PowerShell paste)</span>
-      </a>
-      <a class="choice" href="/fast-ota.bat">
-        <span class="label">Fast OTA helper (Windows)</span>
-        <span class="hint">Download · double-click · same hotspot as Vector</span>
+        <span class="hint">Pair Vector · join home Wi‑Fi · Install (no scripts)</span>
       </a>
       <a class="choice" href="/files/">
         <span class="label">OTA storage</span>
