@@ -317,18 +317,79 @@ function cmdServe(port) {
   });
 }
 
+/**
+ * Fast path for Cloudflare websetup users:
+ * PC downloads the OTA (fast), then Vector pulls over hotspot LAN HTTP (~2–5 min)
+ * instead of Cloudflare via cellular (often 20–40 min).
+ */
+async function cmdFastOta(port) {
+  ensureDirs();
+  port = port || 8765;
+  const dest = path.join(FW_DIR, "latest.ota");
+  let need = true;
+  if (fs.existsSync(dest)) {
+    const st = fs.statSync(dest);
+    if (st.size > 80 * 1024 * 1024) need = false;
+  }
+  if (need) {
+    console.log("Downloading Seek OS latest (~217 MB) to this PC…");
+    console.log("  " + OTA_LATEST);
+    const buf = await fetchBuffer(OTA_LATEST);
+    fs.writeFileSync(dest, buf);
+    console.log("Saved " + dest + " (" + buf.length + " bytes)");
+  } else {
+    console.log("Using existing " + dest + " (" + fs.statSync(dest).size + " bytes)");
+  }
+
+  const ip = lanIp();
+  const robotUrl = "http://" + ip + ":" + port + "/latest.ota";
+  const server = http.createServer((req, res) => {
+    const u = new URL(req.url || "/", "http://127.0.0.1");
+    const p = u.pathname;
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, {
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "GET, HEAD, OPTIONS",
+        "access-control-allow-headers": "*",
+      });
+      res.end();
+      return;
+    }
+    if (p === "/" || p === "/latest.ota" || p === "/firmware/latest.ota" || p === "/ota/latest") {
+      sendLocalOta(res, dest, req);
+      return;
+    }
+    res.writeHead(404, { "content-type": "text/plain" });
+    res.end(
+      "Seek fast-ota server.\nRobot URL:\n  " + robotUrl + "\n"
+    );
+  });
+  server.listen(port, "0.0.0.0", () => {
+    console.log("");
+    console.log("=== FAST OTA READY ===");
+    console.log("1. Join this PC to the SAME phone hotspot as Vector");
+    console.log("2. Chrome: https://files.anki.org.uk/setup  (pair Vector)");
+    console.log("3. Paste this URL into Fast install:");
+    console.log("");
+    console.log("   " + robotUrl);
+    console.log("");
+    console.log("Leave this window open until Vector finishes.");
+  });
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const cmd = argv[0] || "serve";
-  let port = 8000;
+  let port = cmd === "fast-ota" ? 8765 : 8000;
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "-p" || argv[i] === "--port") port = parseInt(argv[i + 1], 10) || 8000;
+    if (argv[i] === "-p" || argv[i] === "--port") port = parseInt(argv[i + 1], 10) || port;
   }
   if (cmd === "configure") cmdConfigure();
   else if (cmd === "ota-sync") await cmdOtaSync();
   else if (cmd === "serve") cmdServe(port);
+  else if (cmd === "fast-ota") await cmdFastOta(port);
   else if (cmd === "-h" || cmd === "--help") {
-    console.log("seek-web-setup configure | ota-sync | serve [-p 8000]");
+    console.log("seek-web-setup configure | ota-sync | serve [-p 8000] | fast-ota [-p 8765]");
   } else {
     console.error("Unknown command: " + cmd);
     process.exit(1);

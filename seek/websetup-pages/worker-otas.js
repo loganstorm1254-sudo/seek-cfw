@@ -137,8 +137,9 @@ async function serveOtaKey(env, key, request, cors, downloadName, listedSize) {
 }
 
 // Public repo mirror of seek/websetup-pages (Worker fetches server-side).
+// GitHub raw (short cache) so Worker paste picks up seek17 UI quickly.
 const WEBSETUP_CDN =
-  "https://cdn.jsdelivr.net/gh/loganstorm1254-sudo/seek-cfw@cursor/seek-web-dashboard-f1f4/seek/websetup-pages";
+  "https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/websetup-pages";
 
 function landingPage(cors) {
   const html = `<!DOCTYPE html>
@@ -241,7 +242,7 @@ function landingPage(cors) {
     <div class="choices">
       <a class="choice primary" href="/setup">
         <span class="label">Web Setup</span>
-        <span class="hint">Pair Vector over Bluetooth and install Seek OS</span>
+        <span class="hint">Pair Vector — use Fast install (LAN) for ~2–5 min</span>
       </a>
       <a class="choice" href="/files/">
         <span class="label">OTA storage</span>
