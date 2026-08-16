@@ -1082,9 +1082,10 @@ function setupOTAFiles() {
       if (!seekIsLocalWebsetup()) {
         speedBanner =
           '<div id="seekSpeedBanner" style="margin:0 0 14px;padding:10px 12px;background:#1a2332;color:#d7e2f0;font-size:13px;line-height:1.4;">' +
-          "<b>Slow on phone hotspot:</b> ~217 MB over cellular often takes 20–40 min.<br/>" +
-          "<b>Fast path (~2–5 min):</b> Mac/PC on the same hotspot → <code>seek/websetup</code> → " +
-          "<code>ota-sync</code> + <code>serve</code> → open <code>http://localhost:8000</code> → Install." +
+          "<b>Cloudflare Install:</b> Vector downloads ~217 MB over your phone hotspot (often 20–40 min). " +
+          "Keep hotspot on — do not tap Try Again. Progress must stay ≤99% until flash (" +
+          SEEK_UI_VERSION +
+          ")." +
           "</div>";
       }
       var urlViews = speedBanner;
@@ -1634,8 +1635,7 @@ function seekOtaStartClock() {
     if (noBytes && s > 90) {
       msg = seekIsLocalWebsetup()
         ? "Waiting for Vector byte reports… elapsed " + clock + tag
-        : "Cellular hotspot pull of ~217 MB often takes 20–40 min. " +
-          "Next time use local Seek Web Setup (LAN) for ~2–5 min. " +
+        : "Downloading ~217 MB via Cloudflare over hotspot (often 20–40 min). " +
           "Keep hotspot on — do not retry. elapsed " +
           clock +
           tag;
@@ -1773,9 +1773,8 @@ function doOta() {
     var speedTip = seekIsLocalWebsetup()
       ? ""
       : '<div class="seek-ota-speed" style="margin:0 0 10px;padding:8px 10px;background:#1a2332;color:#d7e2f0;font-size:12px;line-height:1.35;">' +
-        "Cellular hotspot is slow (~20–40 min for 217 MB). Fast path: Mac/PC on the same hotspot → " +
-        "<code>cd seek/websetup && npm i && node bin/seek-web-setup.js ota-sync && node bin/seek-web-setup.js serve</code> " +
-        "→ Chrome <code>http://localhost:8000</code> → Install (LAN, usually a few minutes)." +
+        "Cloudflare OTA over hotspot is slow but normal (~20–40 min for 217 MB). " +
+        "Leave this page alone until Vector reboots. Do not tap Try Again." +
         "</div>";
     $("#otaUpdate").prepend(
       speedTip +

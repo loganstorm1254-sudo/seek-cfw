@@ -1,13 +1,19 @@
 /**
- * Seek OTA file host Worker
- * - GET /api/otas.json  → R2 .ota files (url=https for Chrome, robotUrl=http for Vector)
- * Vector cannot verify TLS (status 203). Keep HTTP working on /ota and /dl
- * (do not Always-HTTPS-redirect those paths).
- * - GET /OTA/...        → raw R2 key
- * - GET /ota/latest     → newest .ota (safe for Vector BLE)
- * - GET /dl/<safe-name> → same file via ASCII-only path
+ * Seek OTA + Web Setup Worker (files.anki.org.uk)
  *
- * Bind R2 as OTA. Upload under OTA/ preferably without spaces in the name.
+ * Web UI (Chrome):
+ *   GET /              → R2 websetup/index.html (Seek Web Setup seek16+)
+ *   GET /static/...    → R2 websetup/static/...
+ *
+ * OTA (Vector BLE — plain HTTP only):
+ *   GET /api/otas.json → R2 .ota list (url=https, robotUrl=http)
+ *   GET /ota/latest    → newest .ota
+ *   GET /dl/<name>     → ASCII download alias
+ *   GET /OTA/...       → raw R2 key
+ *
+ * Bind R2 as OTA. Keep HTTP working on /ota and /dl (no Always-HTTPS on those).
+ * After every UI change: upload seek/websetup-pages → R2 prefix websetup/
+ *   node seek/websetup-pages/deploy-cloudflare.mjs
  */
 function corsHeaders() {
   return {
@@ -25,6 +31,21 @@ function safeName(name) {
     .toLowerCase();
 }
 
+function contentTypeFor(path) {
+  const p = String(path).toLowerCase();
+  if (p.endsWith(".html")) return "text/html; charset=utf-8";
+  if (p.endsWith(".js")) return "application/javascript; charset=utf-8";
+  if (p.endsWith(".css")) return "text/css; charset=utf-8";
+  if (p.endsWith(".json")) return "application/json; charset=utf-8";
+  if (p.endsWith(".svg")) return "image/svg+xml";
+  if (p.endsWith(".png")) return "image/png";
+  if (p.endsWith(".jpg") || p.endsWith(".jpeg")) return "image/jpeg";
+  if (p.endsWith(".ico")) return "image/x-icon";
+  if (p.endsWith(".map")) return "application/json";
+  if (p.endsWith(".txt")) return "text/plain; charset=utf-8";
+  return "application/octet-stream";
+}
+
 async function listOtaObjects(env) {
   const prefixes = ["OTA/", "ota/", ""];
   const seen = new Set();
@@ -35,6 +56,8 @@ async function listOtaObjects(env) {
       const listed = await env.OTA.list({ prefix, limit: 1000, cursor });
       for (const obj of listed.objects || []) {
         if (!obj.key.toLowerCase().endsWith(".ota")) continue;
+        // Do not treat websetup UI copies as OTAs.
+        if (obj.key.toLowerCase().startsWith("websetup/")) continue;
         if (seen.has(obj.key)) continue;
         seen.add(obj.key);
         out.push(obj);
@@ -71,7 +94,6 @@ function otaResponse(obj, cors, downloadName) {
   const fname = safeName(downloadName || "update.ota");
   headers.set("content-disposition", 'inline; filename="' + fname + '"');
   if (obj.size != null) headers.set("content-length", String(obj.size));
-  // Old Vector curl stalls if the edge advertises HTTP/3.
   headers.set("alt-svc", "clear");
   headers.set("Alt-Svc", "clear");
   headers.set("cache-control", "public, max-age=86400");
@@ -119,6 +141,36 @@ async function serveOtaKey(env, key, request, cors, downloadName, listedSize) {
   return otaResponse(obj, cors, downloadName);
 }
 
+/** Serve Seek Web Setup UI from R2 keys under websetup/ */
+async function serveWebsetup(env, urlPath, cors) {
+  let rel = urlPath === "/" ? "/index.html" : urlPath;
+  if (rel === "/setup" || rel === "/setup/") rel = "/index.html";
+  if (!rel.startsWith("/")) rel = "/" + rel;
+  // Only allow index + static assets (never OTA keys via this helper).
+  if (rel !== "/index.html" && !rel.startsWith("/static/")) {
+    return null;
+  }
+  const key = "websetup" + rel;
+  const obj = await env.OTA.get(key);
+  if (!obj) {
+    return new Response(
+      "Websetup UI missing in R2 (" +
+        key +
+        "). Upload with: node seek/websetup-pages/deploy-cloudflare.mjs",
+      { status: 404, headers: { ...cors, "content-type": "text/plain; charset=utf-8" } }
+    );
+  }
+  const headers = new Headers(cors);
+  headers.set("content-type", contentTypeFor(rel));
+  if (rel === "/index.html" || rel.endsWith(".js") || rel.endsWith(".css")) {
+    headers.set("cache-control", "no-cache");
+  } else {
+    headers.set("cache-control", "public, max-age=3600");
+  }
+  if (obj.size != null) headers.set("content-length", String(obj.size));
+  return new Response(obj.body, { headers });
+}
+
 export default {
   async fetch(request, env) {
     if (!env.OTA) {
@@ -133,6 +185,18 @@ export default {
 
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: cors });
+    }
+
+    // ---- Seek Web Setup UI (same host as OTA) ----
+    if (
+      path === "/" ||
+      path === "/index.html" ||
+      path === "/setup" ||
+      path === "/setup/" ||
+      path.startsWith("/static/")
+    ) {
+      const page = await serveWebsetup(env, path, cors);
+      if (page) return page;
     }
 
     if (path === "/api/otas.json") {
@@ -217,14 +281,24 @@ export default {
       );
     }
 
-    // Raw R2 key path
+    // Raw R2 key path (files only — not directories)
     if (!path.endsWith("/")) {
       const key = path.replace(/^\/+/, "");
-      if (!key) return Response.redirect(url.origin + "/", 302);
+      if (!key) {
+        const page = await serveWebsetup(env, "/", cors);
+        if (page) return page;
+      }
       let decoded = key;
       try {
         decoded = decodeURIComponent(key);
       } catch (e) {}
+      // Never treat websetup UI paths as raw OTA keys here (already handled).
+      if (decoded.toLowerCase().startsWith("websetup/")) {
+        return new Response("Not found: " + key, {
+          status: 404,
+          headers: cors,
+        });
+      }
       const objHead =
         (await env.OTA.head(decoded)) ||
         (decoded !== key ? await env.OTA.head(key) : null);
@@ -245,7 +319,7 @@ export default {
       );
     }
 
-    // Directory listing
+    // Directory listing (e.g. /OTA/)
     const prefix = path.replace(/^\/+/, "");
     const listed = await env.OTA.list({ prefix, delimiter: "/" });
     const rows = [];
