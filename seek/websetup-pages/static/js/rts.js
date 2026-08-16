@@ -1575,7 +1575,7 @@ function seekOtaStartClock() {
     if (!(pct >= 0)) {
       pct = Math.min(0.88, 0.03 + s / 900);
     }
-      pct = Math.min(0.99, pct);
+    pct = Math.min(0.99, pct);
     setOtaProgress(pct);
     var showPct = Math.min(99, Math.round(pct * 100));
     var stalled =
