@@ -20,8 +20,12 @@ function ctrl_c() {
     exit 1
 }
 
-BASE_URL=`grep UPDATE_ENGINE_BASE_URL= /anki/etc/update-engine.env | awk -F= '{print $NF;}'`
-BASE_URL_LATEST=`grep UPDATE_ENGINE_BASE_URL_LATEST /anki/etc/update-engine.env | awk -F= '{print $NF;}'`
+BASE_URL=""
+BASE_URL_LATEST=""
+if [ -f /anki/etc/update-engine.env ]; then
+    BASE_URL=`grep UPDATE_ENGINE_BASE_URL= /anki/etc/update-engine.env 2>/dev/null | awk -F= '{print $NF;}'`
+    BASE_URL_LATEST=`grep UPDATE_ENGINE_BASE_URL_LATEST /anki/etc/update-engine.env 2>/dev/null | awk -F= '{print $NF;}'`
+fi
 if [ -z "${BASE_URL_LATEST}" ]; then
     BASE_URL_LATEST="${BASE_URL}"
 fi
@@ -37,6 +41,12 @@ if [ $# -gt 0 ]; then
 	[0-9].[0-9].[0-9].[0-9]*) URL="${BASE_URL}full/$1.ota" ;;
 	*) URL=$1 ;;
     esac
+fi
+
+# Unlock / minimal images often have no BASE_URL — require an explicit URL.
+if [ -z "$URL" ] || [ "$URL" = "full/lkg.ota" ]; then
+    echo "No OTA URL. Usage: update-os http://files.anki.org.uk/ota/latest"
+    exit 1
 fi
 
 systemctl start anki-robot.target 2>/dev/null || true
@@ -71,7 +81,7 @@ case "$URL" in
       echo "Local OTA missing: /data/ota/v.ota"
       exit 1
     fi
-    echo "Current OS Version: `getprop ro.anki.version`"
+    echo "Current OS Version: `getprop ro.anki.version 2>/dev/null || echo unknown`"
     echo "Flashing local uploaded OTA:"
     echo "$URL"
     ;;
@@ -86,7 +96,7 @@ case "$URL" in
         ;;
     esac
 
-    echo "Current OS Version: `getprop ro.anki.version`"
+    echo "Current OS Version: `getprop ro.anki.version 2>/dev/null || echo unknown`"
     echo "Installing OS update from:"
     echo "$URL"
 
@@ -102,9 +112,9 @@ case "$URL" in
     ;;
 esac
 
-systemctl -q stop update-engine.timer update-engine || true
+systemctl -q stop update-engine.timer update-engine 2>/dev/null || true
 rm -rf /run/update-engine
-mkdir -p /run/vic-switchboard /run/update-engine
+mkdir -p /run/vic-switchboard /run/update-engine /ota /cache
 {
   echo UPDATE_ENGINE_ENABLED=True
   echo UPDATE_ENGINE_MAX_SLEEP=1
@@ -112,19 +122,76 @@ mkdir -p /run/vic-switchboard /run/update-engine
   echo UPDATE_ENGINE_DEBUG=True
   printf 'UPDATE_ENGINE_URL=%s\n' "$URL"
 } >/run/vic-switchboard/update-engine.env
-chown -R net:anki /run/vic-switchboard
+# Unlock may not have net:anki — ignore chown failures.
+chown -R net:anki /run/vic-switchboard 2>/dev/null || true
 
 # Max CPU for the transfer; keep anki-robot UP so Wi-Fi stays alive.
 echo 1267200 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null || true
 
-systemctl reset-failed update-engine || true
-systemctl start update-engine
+export UPDATE_ENGINE_ENABLED=True
+export UPDATE_ENGINE_ALLOW_DOWNGRADE=True
+export UPDATE_ENGINE_MAX_SLEEP=1
+export UPDATE_ENGINE_URL="$URL"
+export SSL_CERT_FILE=
+export CURL_CA_BUNDLE=
+unset SSL_CERT_FILE CURL_CA_BUNDLE 2>/dev/null || true
+
+ENGINE=""
+for e in /anki/bin/update-engine /anki/bin/update-engine.real /usr/bin/update-engine; do
+  if [ -x "$e" ] && ! head -n 1 "$e" 2>/dev/null | grep -q 'Seek BLE OTA wrap'; then
+    ENGINE="$e"
+    break
+  fi
+done
+# Prefer wrap if present (downloads to /ota then flashes) — works on Unlock.
+if [ -x /anki/bin/update-engine ] && grep -q 'Seek BLE OTA wrap' /anki/bin/update-engine 2>/dev/null; then
+  ENGINE=/anki/bin/update-engine
+elif [ -x /data/update-engine-wrap ]; then
+  ENGINE=/data/update-engine-wrap
+elif [ -z "$ENGINE" ] && [ -x /anki/bin/update-engine ]; then
+  ENGINE=/anki/bin/update-engine
+fi
+
+if [ -z "$ENGINE" ]; then
+  echo "No /anki/bin/update-engine on this robot (Unlock missing binary?)."
+  echo "Falling back: download OTA to /ota/v.ota then you need update-engine to flash."
+  echo "Downloading to /ota/v.ota ..."
+  $CURL_BIN -k -L --http1.1 -4 --fail -o /ota/v.ota "$URL"
+  ls -la /ota/v.ota
+  echo "Downloaded, but cannot flash without update-engine binary."
+  exit 1
+fi
+
+USE_SYSTEMD=0
+if systemctl cat update-engine.service >/dev/null 2>&1; then
+  USE_SYSTEMD=1
+fi
+
+if [ "$USE_SYSTEMD" = 1 ]; then
+  systemctl reset-failed update-engine 2>/dev/null || true
+  systemctl start update-engine
+else
+  # Unlock 0.9.x: no update-engine.service — run the binary directly.
+  echo "Unlock/no-systemd mode: running $ENGINE directly"
+  echo starting > /run/update-engine/phase
+  (
+    if [ -x /usr/bin/logwrapper ]; then
+      /usr/bin/logwrapper "$ENGINE" -v "$URL"
+    else
+      "$ENGINE" -v "$URL"
+    fi
+    echo $? > /run/update-engine/exit_code
+    touch /run/update-engine/done
+  ) &
+  ENGINE_PID=$!
+  echo "update-engine pid=$ENGINE_PID"
+fi
 
 # Local upload flash: Wi‑Fi not required — free CPU immediately.
 case "$URL" in
   http://127.0.0.1:*|http://localhost:*)
     echo "Stopping anki-robot.target... (eyes will go dark)"
-    systemctl stop anki-robot.target || true
+    systemctl stop anki-robot.target 2>/dev/null || true
     ;;
 esac
 
@@ -137,7 +204,7 @@ while true; do
 	ERRORMSG=`cat /run/update-engine/error`
 	if [ "$ERRORMSG" != "Unclean exit" ]; then
 	    echo "Error updating OS: $ERRORMSG"
-            systemctl start anki-robot.target || true
+            systemctl start anki-robot.target 2>/dev/null || true
 	    exit 1
 	fi
     fi
@@ -162,7 +229,7 @@ while true; do
             # Enough data flowing — safe to free CPU for the flash.
             if systemctl is-active --quiet anki-robot.target 2>/dev/null; then
                 echo "Stopping anki-robot.target... (eyes will go dark)"
-                systemctl stop anki-robot.target || true
+                systemctl stop anki-robot.target 2>/dev/null || true
             fi
         fi
         ;;
@@ -176,23 +243,48 @@ while true; do
     # If we never leave 0% for 2 minutes, abort cleanly.
     if [ "$PROGRESS" -eq 0 ] 2>/dev/null && [ "$STALL" -gt 60 ]; then
         echo "Stuck at 0%. CDN stream stalled."
-        systemctl -q stop update-engine || true
-        systemctl start anki-robot.target || true
+        systemctl -q stop update-engine 2>/dev/null || true
+        kill "$ENGINE_PID" 2>/dev/null || true
+        systemctl start anki-robot.target 2>/dev/null || true
         exit 1
     fi
     if [ -f /run/update-engine/done ]; then
-        if [ ! -f /run/update-engine/manifest.ini ]; then
+        if [ ! -f /run/update-engine/manifest.ini ] && [ "$USE_SYSTEMD" = 1 ]; then
             echo "Did not flash (stale done flag). Not rebooting."
             rm -f /run/update-engine/done
-            systemctl start anki-robot.target || true
+            systemctl start anki-robot.target 2>/dev/null || true
             exit 1
         fi
+        # Direct mode: wait for background engine to exit.
+        if [ "$USE_SYSTEMD" != 1 ] && [ -n "${ENGINE_PID:-}" ]; then
+          wait "$ENGINE_PID" 2>/dev/null || true
+          EC=`cat /run/update-engine/exit_code 2>/dev/null || echo 1`
+          if [ "$EC" != "0" ]; then
+            echo "update-engine exited $EC"
+            systemctl start anki-robot.target 2>/dev/null || true
+            exit "$EC"
+          fi
+        fi
         break
+    fi
+    # Direct mode: process exited without done flag
+    if [ "$USE_SYSTEMD" != 1 ] && [ -n "${ENGINE_PID:-}" ]; then
+      if ! kill -0 "$ENGINE_PID" 2>/dev/null; then
+        wait "$ENGINE_PID" 2>/dev/null || true
+        EC=`cat /run/update-engine/exit_code 2>/dev/null || echo 1`
+        if [ "$EC" = "0" ]; then
+          break
+        fi
+        echo "update-engine exited $EC"
+        cat /run/update-engine/error 2>/dev/null || true
+        systemctl start anki-robot.target 2>/dev/null || true
+        exit "$EC"
+      fi
     fi
     WAIT=$((WAIT+1))
     if [ "$WAIT" -gt 3600 ]; then
         echo "Timed out. Not rebooting."
-        systemctl start anki-robot.target || true
+        systemctl start anki-robot.target 2>/dev/null || true
         exit 1
     fi
     sleep 2
