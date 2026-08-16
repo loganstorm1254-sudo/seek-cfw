@@ -48,14 +48,13 @@ fi
 
 export UPDATE_ENGINE_ENABLED=True
 export UPDATE_ENGINE_ALLOW_DOWNGRADE=True
+export UPDATE_ENGINE_URL="file:///ota/v.ota"
 echo "Flashing file:///ota/v.ota ..."
 # Keep Wi-Fi alive briefly then stop robot services for flash
 systemctl stop anki-robot.target 2>/dev/null || true
-if [ -x /usr/bin/logwrapper ]; then
-  /usr/bin/logwrapper "$ENGINE" -v "file:///ota/v.ota"
-else
-  "$ENGINE" -v "file:///ota/v.ota"
-fi
+# Do NOT pass -v through logwrapper — Unlock's logwrapper treats it as its own flag.
+# Run the engine directly (verbose on stdout is fine over SSH).
+"$ENGINE" -v "file:///ota/v.ota"
 EC=$?
 echo "flash exit=$EC"
 if [ "$EC" = 0 ]; then

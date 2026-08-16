@@ -175,11 +175,8 @@ else
   echo "Unlock/no-systemd mode: running $ENGINE directly"
   echo starting > /run/update-engine/phase
   (
-    if [ -x /usr/bin/logwrapper ]; then
-      /usr/bin/logwrapper "$ENGINE" -v "$URL"
-    else
-      "$ENGINE" -v "$URL"
-    fi
+    # Never put -v before BINARY via logwrapper — Unlock logwrapper claims -v.
+    "$ENGINE" -v "$URL"
     echo $? > /run/update-engine/exit_code
     touch /run/update-engine/done
   ) &
