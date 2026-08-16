@@ -71,8 +71,8 @@
 #endif
 
 // CHANGE THIS TO BE YOUR PROJECT'S STUFF
-const std::string OSProject = "SeekOS";
-const std::string Creator = "By Logan / Seek CFW";
+const std::string OSProject = "SeekOS DVT3";
+const std::string Creator = "By Logan / DVT3 theme";
 const std::string CreatorWebsite = "github.com/loganstorm1254-sudo/seek-cfw";
 
 // Log options

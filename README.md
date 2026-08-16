@@ -10,13 +10,19 @@ CCIS face-info strings (guide step in `faceInfoScreenManager.cpp`):
 
 | Field | Value |
 | --- | --- |
-| OSProject | `SeekOS` |
-| Creator | `By Logan / Seek CFW` |
+| OSProject | `SeekOS DVT3` |
+| Creator | `By Logan / DVT3 theme` |
 | CreatorWebsite | `github.com/loganstorm1254-sudo/seek-cfw` |
 
 Source of truth: `seek/overlays/anki/victor/animProcess/src/cozmoAnim/faceDisplay/faceInfoScreenManager.cpp`
 
+## DVT3 theme (Vector 1.0)
 
+This branch ships a **DVT3-themed SeekOS** for unlocked Vector 1.0:
+
+- Early rampost splash recreates the classic confidential test-unit look (`seek/assets/dvt3-boot-184x96.png`)
+- CCIS identity reads **SeekOS DVT3**
+- Personality stack is modern WireOS/SeekOS (not Anki 0.9–0.12 binaries)
 
 ## Backpack button
 
@@ -28,9 +34,9 @@ Source of truth: `seek/overlays/anki/victor/animProcess/src/cozmoAnim/faceDispla
 
 ## Boot splash
 
-The first static early-boot screen (rampost `anki_dev_unit`) is the **SeekAra** wordmark.
+The first static early-boot screen (rampost `anki_dev_unit`) is the **DVT3 confidential test-unit** splash.
 
-- Source: `seek/assets/seekara-boot-184x96.png`
+- Source: `seek/assets/dvt3-boot-184x96.png`
 - Overlay: `seek/overlays/anki/rampost/anki_dev_unit.h` (184×96 RGB565)
 - Applied automatically by `seek/apply-overlay.sh` before `./build/build.sh`
 
