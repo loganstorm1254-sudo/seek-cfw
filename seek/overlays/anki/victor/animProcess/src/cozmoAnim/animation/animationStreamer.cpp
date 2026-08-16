@@ -1279,7 +1279,7 @@ namespace Anim {
 
 #endif // ANKI_DEV_CHEATS
 
-    // SeekOS: persistent mute icon while all sounds are muted (triple-click)
+    // Brief red mute icon after triple-click mute (1s, then gone)
     FaceInfoScreenManager::getInstance()->DrawSoundMuteIcon(faceImg565);
 
     if (SHOULD_SEND_DISPLAYED_FACE_TO_ENGINE)

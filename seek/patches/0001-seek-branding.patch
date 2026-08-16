@@ -9,8 +9,8 @@ index 5ac6dd2f..d537e33b 100644
 -const std::string OSProject = "WireOS";
 -const std::string Creator = "By Wire/kercre123";
 -const std::string CreatorWebsite = "kerigan.dev";
-+const std::string OSProject = "Victor";
-+const std::string Creator = "CONFIDENTIAL";
++const std::string OSProject = "";
++const std::string Creator = "";
 +const std::string CreatorWebsite = "";
  
  // Log options
