@@ -1036,7 +1036,7 @@ function setupOTAFiles() {
           lan.filename = cloud.filename || lan.filename;
           otaUrls.push(lan);
         } else {
-          var robotHref = seekRobotPlainHttp(cloud.href);
+          var robotHref = seekCanonicalRobotOtaUrl(cloud.href);
           var row = parseURL(robotHref);
           row.type = TYPE.CLOUD;
           row.filename = cloud.filename || row.filename;
@@ -1164,30 +1164,65 @@ function seekPreferLanOta(u) {
 
 function seekRobotPlainHttp(u) {
   if (!u) return u;
+  var s = String(u).trim();
+  // Fast-path: any files.anki.org.uk URL must be plain HTTP for Vector.
+  if (/files\.anki\.org\.uk/i.test(s) || /\.anki\.org\.uk/i.test(s)) {
+    s = s.replace(/^https:/i, "http:");
+  }
   try {
-    var x = new URL(u);
-    if (x.protocol !== "https:") return u;
+    var x = new URL(s);
+    if (x.protocol === "https:") {
+      var host = (x.hostname || "").toLowerCase();
+      var filesHost = "";
+      try {
+        filesHost = new URL(
+          seekOtaListUrl() || "https://files.anki.org.uk"
+        ).hostname.toLowerCase();
+      } catch (e) {}
+      var originHost = "";
+      try {
+        var fo = seekFilesHostOrigin();
+        if (fo) originHost = new URL(fo).hostname.toLowerCase();
+      } catch (e2) {}
+      if (
+        host === "files.anki.org.uk" ||
+        host === filesHost ||
+        host === originHost ||
+        /\.anki\.org\.uk$/i.test(host) ||
+        host === "localhost" ||
+        /^\d{1,3}(\.\d{1,3}){3}$/.test(host)
+      ) {
+        x.protocol = "http:";
+        return x.href;
+      }
+    }
+    return x.href;
+  } catch (e) {}
+  return s;
+}
+
+/** Canonical short HTTP URL for "Seek OS (latest)" — safest BLE payload. */
+function seekCanonicalRobotOtaUrl(u) {
+  var raw = seekRobotPlainHttp(u);
+  if (!raw) return raw;
+  try {
+    var x = new URL(raw);
+    var path = (x.pathname || "").toLowerCase();
     var host = (x.hostname || "").toLowerCase();
-    var filesHost = "";
-    try {
-      filesHost = new URL(seekOtaListUrl() || "https://files.anki.org.uk").hostname.toLowerCase();
-    } catch (e) {}
-    var originHost = "";
-    try {
-      var fo = seekFilesHostOrigin();
-      if (fo) originHost = new URL(fo).hostname.toLowerCase();
-    } catch (e2) {}
     if (
-      host === "files.anki.org.uk" ||
-      host === filesHost ||
-      host === originHost ||
-      /\.anki\.org\.uk$/i.test(host)
+      (host === "files.anki.org.uk" || /\.anki\.org\.uk$/i.test(host)) &&
+      (path === "/ota/latest" ||
+        path === "/latest.ota" ||
+        /\/ota\/latest\/?$/.test(path))
     ) {
-      x.protocol = "http:";
-      return x.href;
+      return "http://files.anki.org.uk/ota/latest";
     }
   } catch (e) {}
-  return u;
+  // Name-based latest from the picker
+  if (/seek\s*os\s*\(latest\)/i.test(String(u)) || /latest\.ota/i.test(String(u))) {
+    return "http://files.anki.org.uk/ota/latest";
+  }
+  return raw;
 }
 function seekRewriteOtaUrl(u) {
   if (!u) return u;
@@ -1540,9 +1575,9 @@ function seekOtaStartClock() {
     if (!(pct >= 0)) {
       pct = Math.min(0.88, 0.03 + s / 900);
     }
-    // Cap while in-flight — 100% only after status=complete.
-    pct = Math.min(0.99, pct);
+      pct = Math.min(0.99, pct);
     setOtaProgress(pct);
+    var showPct = Math.min(99, Math.round(pct * 100));
     var stalled =
       _seekOtaLastByteAt > 0 && Date.now() - _seekOtaLastByteAt > 180000;
     var noBytes = !(_seekOtaBytes && _seekOtaBytes.exp > 0);
@@ -1570,7 +1605,7 @@ function seekOtaStartClock() {
       // Still pulling — never say done/100% here (stale 171MB estimate).
       msg =
         "Still downloading… " +
-        Math.round(pct * 100) +
+        showPct +
         "%" +
         bytesNote +
         "  elapsed " +
@@ -1590,7 +1625,7 @@ function seekOtaStartClock() {
     } else {
       msg =
         "Updating Vector… " +
-        Math.round(pct * 100) +
+        showPct +
         "%" +
         bytesNote +
         "  elapsed " +
@@ -1631,9 +1666,17 @@ function otaStatusMessage(status) {
     case 201:
       return "OTA package invalid (missing boot/system)";
     case 203:
-      return "Robot could not open the OTA URL (status 203).<br/>" +
-        "Vector cannot verify HTTPS. Install must send <code>http://files.anki.org.uk/...</code> " +
-        "(not https). Hard-refresh this page, keep the phone hotspot on, then Install once.";
+      return (
+        "Robot could not open the OTA URL (status 203).<br/>" +
+        "Vector cannot use HTTPS. The Install URL must be <code>http://files.anki.org.uk/ota/latest</code>.<br/>" +
+        "Upload the latest <code>seek-websetup-pages.zip</code> to Cloudflare Pages, hard-refresh " +
+        "(<code>rts.js?v=seek15</code>), keep the phone hotspot on, then Install <b>once</b>.<br/>" +
+        ( _otaEndpoint
+          ? "URL sent: <code>" +
+            $("<div>").text(String(_otaEndpoint)).html() +
+            "</code>"
+          : "")
+      );
     case 204:
       return "Download failed / not a valid OTA (status 204).<br/>" +
         "On stock Unlock, /data is too small for a full OTA file. Use local Seek Web Setup " +
@@ -1656,12 +1699,27 @@ function doOta() {
     return;
   }
 
-  var url = seekRobotPlainHttp(seekPreferLanOta(seekRewriteOtaUrl(getOtaUrl())));
+  var url = seekCanonicalRobotOtaUrl(
+    seekPreferLanOta(seekRewriteOtaUrl(getOtaUrl()))
+  );
   _otaEndpoint = url;
 
   if (!url) {
     $("#otaErrorLabel").removeClass("vec-hidden");
     $("#otaErrorLabel").html("No OTA URL selected.");
+    $("#btnTryAgain").removeClass("vec-hidden");
+    return;
+  }
+
+  if (/^https:/i.test(url)) {
+    $("#otaErrorLabel").removeClass("vec-hidden");
+    $("#otaErrorLabel").html(
+      "Refusing to send HTTPS OTA URL to Vector (status 203).<br/>" +
+        "Got: <code>" +
+        $("<div>").text(url).html() +
+        "</code><br/>Select <b>Seek OS (latest)</b> or hard-refresh so " +
+        "<code>rts.js?v=seek15</code> loads."
+    );
     $("#btnTryAgain").removeClass("vec-hidden");
     return;
   }

@@ -56,6 +56,7 @@ function otaHeadHeaders(cors, size) {
   headers.set("content-type", "application/octet-stream");
   if (size != null) headers.set("content-length", String(size));
   headers.set("accept-ranges", "bytes");
+  // Old Vector curl stalls if the edge advertises HTTP/3.
   headers.set("alt-svc", "clear");
   headers.set("cache-control", "public, max-age=86400");
   return headers;
@@ -72,6 +73,7 @@ function otaResponse(obj, cors, downloadName) {
   if (obj.size != null) headers.set("content-length", String(obj.size));
   // Old Vector curl stalls if the edge advertises HTTP/3.
   headers.set("alt-svc", "clear");
+  headers.set("Alt-Svc", "clear");
   headers.set("cache-control", "public, max-age=86400");
   return new Response(obj.body, { headers });
 }
