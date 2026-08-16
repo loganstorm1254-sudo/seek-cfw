@@ -9,33 +9,43 @@ $Ota = Join-Path $Dir "latest.ota"
 New-Item -ItemType Directory -Force -Path $Dir | Out-Null
 
 function Get-LanIPv4 {
+  # Prefer real Wi-Fi/Ethernet; skip VirtualBox/VMware/Hyper-V host-only NICs.
+  $skipIf = '(VirtualBox|VMware|Hyper-V|vEthernet|Loopback|Docker|WSL|VPN|Tailscale|Bluetooth)'
   $candidates = @()
+
   Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
     Where-Object {
       $_.IPAddress -notlike "127.*" -and
-      $_.PrefixOrigin -ne "WellKnown" -and
       (
         $_.IPAddress -like "192.168.*" -or
         $_.IPAddress -like "10.*" -or
         $_.IPAddress -match '^172\.(1[6-9]|2[0-9]|3[0-1])\.'
       )
     } |
-    ForEach-Object { $candidates += $_.IPAddress }
+    ForEach-Object {
+      $ip = $_.IPAddress
+      $alias = ""
+      try {
+        $alias = (Get-NetAdapter -InterfaceIndex $_.InterfaceIndex -ErrorAction SilentlyContinue).Name
+      } catch {}
+      if ($alias -match $skipIf) { return }
+      # Common host-only / VM ranges
+      if ($ip -like "192.168.56.*" -or $ip -like "192.168.59.*" -or $ip -like "192.168.64.*") { return }
+      $candidates += [pscustomobject]@{ IP = $ip; Alias = $alias; IfIndex = $_.InterfaceIndex }
+    }
 
   if (-not $candidates.Count) {
-    $cfg = Get-NetIPConfiguration -ErrorAction SilentlyContinue |
-      Where-Object { $_.IPv4Address -and $_.NetAdapter.Status -eq "Up" }
-    foreach ($c in $cfg) {
-      $ip = $c.IPv4Address.IPAddress
-      if ($ip -and $ip -notlike "127.*") { $candidates += $ip }
-    }
+    throw "No usable LAN IP. Join this PC to the SAME Wi-Fi as Vector (not only a VPN/VM adapter)."
   }
-  if (-not $candidates.Count) {
-    throw "No LAN IP found. Join this PC to the SAME Wi-Fi as Vector, then run again."
-  }
-  $pref = $candidates | Where-Object { $_ -like "192.168.*" } | Select-Object -First 1
-  if ($pref) { return $pref }
-  return $candidates[0]
+
+  $pick = $candidates | Where-Object { $_.IP -like "192.168.42.*" } | Select-Object -First 1
+  if (-not $pick) { $pick = $candidates | Where-Object { $_.IP -like "192.168.43.*" } | Select-Object -First 1 }
+  if (-not $pick) { $pick = $candidates | Where-Object { $_.IP -like "192.168.*" } | Select-Object -First 1 }
+  if (-not $pick) { $pick = $candidates | Select-Object -First 1 }
+
+  Write-Host ("Using PC LAN IP {0} ({1})" -f $pick.IP, $pick.Alias)
+  Write-Host "Other IPs seen: $(($candidates | ForEach-Object { $_.IP }) -join ', ')"
+  return $pick.IP
 }
 
 function Start-PythonServer([string]$root, [int]$port) {
