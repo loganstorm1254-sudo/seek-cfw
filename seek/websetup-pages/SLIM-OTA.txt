@@ -1,0 +1,18 @@
+SeekOS 3.0.1.63d — slim websetup OTA (~145 MB)
+=============================================
+
+Download:
+https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.63d/vicos-3.0.1.63d.ota
+
+Upload to Cloudflare R2 (OTA bucket) as:
+  OTA/vicos-3.0.1.63d.ota
+and make sure it is the newest .ota so /ota/latest points to it
+(or replace the existing latest object).
+
+What changed vs 62d:
+- Removed Doom (~28MB), on-device Vosk model (~68MB), non-English TTS,
+  sound banks, wired webroot — for faster site Install
+- Includes update-engine wrap v11 (parallel HTTP ranges)
+- Keep full 62d available for users who want Doom + offline STT
+
+After R2 upload, Chrome → https://files.anki.org.uk/setup → Install.

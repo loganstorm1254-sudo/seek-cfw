@@ -1466,7 +1466,7 @@ function setOtaProgress(percent, opts) {
   if (percent !== percent || percent < 0) return;
   if (percent > 1) percent = 1;
   // Never paint 100% while an OTA is still in flight — old wrap size guesses
-  // made cur/exp hit 100% long before the real ~217MB file finished.
+  // made cur/exp hit 100% long before the real ~145MB file finished.
   var allowComplete = opts && opts.complete;
   if (!allowComplete && _seekOtaBusy && percent >= 0.995) {
     percent = 0.99;
@@ -1554,8 +1554,8 @@ function seekOtaNote(msg) {
   if (el.length) el.text(msg);
 }
 
-// Current Seek OS latest is ~217MB. Older wrap guessed 180MB (~171 MiB).
-var SEEK_OTA_SIZE_HINT = 226938880;
+// Current Seek OS latest is ~145MB. Older wrap guessed 180MB (~171 MiB).
+var SEEK_OTA_SIZE_HINT = 151224320;
 
 function seekIsLocalWebsetup() {
   var h = (window.location && window.location.hostname) || "";
@@ -1793,7 +1793,7 @@ function doOta() {
       '<div class="seek-ota-speed" style="margin:0 0 10px;padding:8px 10px;background:#102418;color:#d7e2f0;font-size:12px;line-height:1.35;">' +
       (isLanUrl || seekIsLocalWebsetup()
         ? "Downloading on your network. Keep this tab open until Vector reboots."
-        : "Downloading ~217 MB from Cloudflare. Home Wi‑Fi is much faster than a phone hotspot. Keep this tab open — do not tap Try Again.") +
+        : "Downloading ~145 MB from Cloudflare. Home Wi‑Fi is much faster than a phone hotspot. Keep this tab open — do not tap Try Again.") +
       "</div>";
     $("#otaUpdate").prepend(
       speedTip +

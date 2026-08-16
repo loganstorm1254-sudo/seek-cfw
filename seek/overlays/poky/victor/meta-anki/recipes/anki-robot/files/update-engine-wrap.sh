@@ -56,7 +56,7 @@ if [ ! -x "$REAL" ] || grep -q 'Seek BLE OTA wrap' "$REAL" 2>/dev/null; then
 fi
 
 # Default ~Seek cloudless OTA size; HEAD may replace this.
-EXPECT=230000000
+EXPECT=152000000
 probe_expect() {
   HURL="$1"
   case "$HURL" in
