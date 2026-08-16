@@ -243,7 +243,7 @@ function landingPage(cors) {
         <span class="label">Web Setup</span>
         <span class="hint">Pair Vector over Bluetooth and install Seek OS</span>
       </a>
-      <a class="choice" href="/files">
+      <a class="choice" href="/files/">
         <span class="label">OTA storage</span>
         <span class="hint">White directory listing — browse /OTA files</span>
       </a>
