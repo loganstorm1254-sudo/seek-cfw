@@ -1,21 +1,14 @@
 /**
  * Seek OTA + Web Setup Worker (files.anki.org.uk)
  *
- * ONE STEP: paste this file into your Cloudflare Worker for files.anki.org.uk,
- * keep R2 binding name "OTA", Deploy. Then open:
- *   https://files.anki.org.uk/
- * You should see "UI seek16" top-right.
+ * Paste into Cloudflare Worker for files.anki.org.uk (R2 binding: OTA), Deploy.
  *
- * Web UI (Chrome):
- *   GET / + /static/...  → R2 websetup/* if present, else GitHub (jsDelivr)
- *
- * OTA (Vector BLE — plain HTTP only):
- *   GET /api/otas.json → R2 .ota list (url=https, robotUrl=http)
- *   GET /ota/latest    → newest .ota
- *   GET /dl/<name>     → ASCII download alias
- *   GET /OTA/...       → raw R2 key
- *
- * Keep HTTP working on /ota and /dl (no Always-HTTPS on those).
+ *   GET /           → landing (Web Setup | OTA storage)
+ *   GET /setup      → Seek Web Setup UI
+ *   GET /files      → white "Index of /" directory listing (same as before)
+ *   GET /OTA/       → browse OTA folder
+ *   GET /ota/latest → newest .ota (Vector HTTP)
+ *   GET /api/otas.json
  */
 function corsHeaders() {
   return {
@@ -144,14 +137,136 @@ async function serveOtaKey(env, key, request, cors, downloadName, listedSize) {
 }
 
 // Public repo mirror of seek/websetup-pages (Worker fetches server-side).
-// Pin the feature branch so paste-deploy gets seek16 without an R2 UI upload.
 const WEBSETUP_CDN =
   "https://cdn.jsdelivr.net/gh/loganstorm1254-sudo/seek-cfw@cursor/seek-web-dashboard-f1f4/seek/websetup-pages";
 
+function landingPage(cors) {
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Seek — files.anki.org.uk</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg0: #0c1219;
+      --bg1: #152033;
+      --ink: #e8eef6;
+      --muted: #8fa3b8;
+      --line: rgba(232,238,246,0.14);
+      --accent: #3d9bfd;
+      --accent2: #7ddea2;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "DM Sans", system-ui, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(900px 500px at 10% -10%, #1a3a5c 0%, transparent 55%),
+        radial-gradient(700px 420px at 100% 0%, #163528 0%, transparent 50%),
+        linear-gradient(165deg, var(--bg0), var(--bg1));
+      display: grid;
+      place-items: center;
+      padding: 32px 20px;
+    }
+    main { width: min(640px, 100%); }
+    .brand {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent2);
+      margin: 0 0 10px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(1.8rem, 4vw, 2.4rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .sub {
+      margin: 0 0 28px;
+      color: var(--muted);
+      font-size: 1.02rem;
+      line-height: 1.45;
+      max-width: 34em;
+    }
+    .choices { display: grid; gap: 14px; }
+    a.choice {
+      display: block;
+      text-decoration: none;
+      color: inherit;
+      border: 1px solid var(--line);
+      background: rgba(12, 18, 25, 0.55);
+      padding: 18px 20px;
+      transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+    }
+    a.choice:hover {
+      border-color: rgba(61, 155, 253, 0.55);
+      background: rgba(21, 32, 51, 0.9);
+      transform: translateY(-1px);
+    }
+    a.choice .label {
+      display: block;
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    a.choice .hint {
+      display: block;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.35;
+      font-family: "IBM Plex Mono", monospace;
+    }
+    a.choice.primary .label { color: var(--accent); }
+    footer {
+      margin-top: 28px;
+      color: var(--muted);
+      font-size: 12px;
+      font-family: "IBM Plex Mono", monospace;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="brand">Seek · files.anki.org.uk</p>
+    <h1>What do you need?</h1>
+    <p class="sub">Pick Web Setup to flash Vector, or open the file browser for raw OTA storage.</p>
+    <div class="choices">
+      <a class="choice primary" href="/setup">
+        <span class="label">Web Setup</span>
+        <span class="hint">Pair Vector over Bluetooth and install Seek OS</span>
+      </a>
+      <a class="choice" href="/files">
+        <span class="label">OTA storage</span>
+        <span class="hint">White directory listing — browse /OTA files</span>
+      </a>
+    </div>
+    <footer>http://files.anki.org.uk/ota/latest · robot installs over plain HTTP</footer>
+  </main>
+</body>
+</html>`;
+  return new Response(html, {
+    headers: {
+      ...cors,
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-cache",
+    },
+  });
+}
+
 /** Serve Seek Web Setup UI from R2 websetup/*, else GitHub via jsDelivr. */
 async function serveWebsetup(env, urlPath, cors) {
-  let rel = urlPath === "/" ? "/index.html" : urlPath;
-  if (rel === "/setup" || rel === "/setup/") rel = "/index.html";
+  let rel = urlPath;
+  if (rel === "/setup" || rel === "/setup/" || rel === "/websetup" || rel === "/websetup/") {
+    rel = "/index.html";
+  }
   if (!rel.startsWith("/")) rel = "/" + rel;
   // Only allow index + static assets (never OTA keys via this helper).
   if (rel !== "/index.html" && !rel.startsWith("/static/")) {
@@ -166,7 +281,6 @@ async function serveWebsetup(env, urlPath, cors) {
     headers.set("cache-control", "public, max-age=3600");
   }
 
-  // Prefer R2 copy when Logan has uploaded websetup/ (faster, offline from GH).
   const key = "websetup" + rel;
   try {
     const obj = await env.OTA.get(key);
@@ -202,6 +316,48 @@ async function serveWebsetup(env, urlPath, cors) {
   return new Response(upstream.body, { headers });
 }
 
+async function directoryListing(env, path, cors) {
+  const prefix = path.replace(/^\/+/, "");
+  const listed = await env.OTA.list({ prefix, delimiter: "/" });
+  const rows = [];
+  for (const p of listed.delimitedPrefixes || []) {
+    if (p.toLowerCase().startsWith("websetup")) continue;
+    const name = p.slice(prefix.length);
+    rows.push(`<a href="/${p}">${name}</a>`);
+  }
+  for (const obj of listed.objects || []) {
+    if (obj.key.toLowerCase().startsWith("websetup/")) continue;
+    const name = obj.key.slice(prefix.length);
+    if (!name) continue;
+    const when = obj.uploaded.toISOString().replace("T", " ").slice(0, 16);
+    const safe = safeName(name);
+    rows.push(
+      `<a href="/dl/${safe}">${name}</a>` +
+        " ".repeat(Math.max(2, 40 - name.length)) +
+        when +
+        " ".repeat(4) +
+        String(obj.size)
+    );
+  }
+  const displayPath = path === "/files" || path === "/files/" ? "/" : path;
+  const title = "Index of " + displayPath;
+  const up =
+    displayPath === "/"
+      ? `<a href="/">home</a>`
+      : `<a href="../">../</a>`;
+  const html = `<!DOCTYPE html>
+<html><head><title>${title}</title></head>
+<body bgcolor="white">
+<h1>${title}</h1><hr><pre>${up}
+${rows.join("\n")}
+</pre><hr>
+<p style="font-family:sans-serif;font-size:13px;"><a href="/">← Seek home</a> · <a href="/setup">Web Setup</a></p>
+</body></html>`;
+  return new Response(html, {
+    headers: { ...cors, "content-type": "text/html; charset=utf-8" },
+  });
+}
+
 export default {
   async fetch(request, env) {
     if (!env.OTA) {
@@ -218,12 +374,23 @@ export default {
       return new Response(null, { headers: cors });
     }
 
-    // ---- Seek Web Setup UI (same host as OTA) ----
+    // Landing: two choices
+    if (path === "/" || path === "") {
+      return landingPage(cors);
+    }
+
+    // Same white directory listing as before
+    if (path === "/files" || path === "/files/" || path === "/browse" || path === "/browse/") {
+      return directoryListing(env, "/", cors);
+    }
+
+    // Seek Web Setup UI
     if (
-      path === "/" ||
-      path === "/index.html" ||
       path === "/setup" ||
       path === "/setup/" ||
+      path === "/websetup" ||
+      path === "/websetup/" ||
+      path === "/index.html" ||
       path.startsWith("/static/")
     ) {
       const page = await serveWebsetup(env, path, cors);
@@ -315,15 +482,10 @@ export default {
     // Raw R2 key path (files only — not directories)
     if (!path.endsWith("/")) {
       const key = path.replace(/^\/+/, "");
-      if (!key) {
-        const page = await serveWebsetup(env, "/", cors);
-        if (page) return page;
-      }
       let decoded = key;
       try {
         decoded = decodeURIComponent(key);
       } catch (e) {}
-      // Never treat websetup UI paths as raw OTA keys here (already handled).
       if (decoded.toLowerCase().startsWith("websetup/")) {
         return new Response("Not found: " + key, {
           status: 404,
@@ -351,35 +513,6 @@ export default {
     }
 
     // Directory listing (e.g. /OTA/)
-    const prefix = path.replace(/^\/+/, "");
-    const listed = await env.OTA.list({ prefix, delimiter: "/" });
-    const rows = [];
-    for (const p of listed.delimitedPrefixes || []) {
-      const name = p.slice(prefix.length);
-      rows.push(`<a href="/${p}">${name}</a>`);
-    }
-    for (const obj of listed.objects || []) {
-      const name = obj.key.slice(prefix.length);
-      if (!name) continue;
-      const when = obj.uploaded.toISOString().replace("T", " ").slice(0, 16);
-      const safe = safeName(name);
-      rows.push(
-        `<a href="/dl/${safe}">${name}</a>` +
-          " ".repeat(Math.max(2, 40 - name.length)) +
-          when +
-          " ".repeat(4) +
-          String(obj.size)
-      );
-    }
-    const title = "Index of " + path;
-    const html = `<!DOCTYPE html>
-<html><head><title>${title}</title></head>
-<body bgcolor="white">
-<h1>${title}</h1><hr><pre><a href="../">../</a>
-${rows.join("\n")}
-</pre><hr></body></html>`;
-    return new Response(html, {
-      headers: { ...cors, "content-type": "text/html; charset=utf-8" },
-    });
+    return directoryListing(env, path, cors);
   },
 };
