@@ -3,7 +3,8 @@
 Open-source Vector setup without the phone app or an Anki account.
 Chrome talks to the robot over BLE; the robot pulls the OS image over
 **plain HTTP from this PC** (fast LAN). That avoids TLS status 203 and
-is much faster than the robot downloading from the internet itself.
+is much faster than the robot downloading ~217 MB over a phone hotspot
+(cellular is often 20–40 minutes; LAN is usually a few minutes).
 
 Requires Node.js. Works on macOS, Windows, and Linux.
 
@@ -19,7 +20,7 @@ node bin/seek-web-setup.js ota-sync
 `ota-sync` downloads Seek OTAs from https://files.anki.org.uk into
 `~/.seek-web-setup/firmware/seek/` (or `%USERPROFILE%\.seek-web-setup\...`).
 
-## Daily usage
+## Daily usage (fast flash)
 
 ```bash
 node bin/seek-web-setup.js serve
@@ -44,8 +45,12 @@ host while the robot only speaks LAN HTTP.
 node bin/seek-web-setup.js serve -p 7010
 ```
 
-## Hosted Pages
+## Hosted Pages (slower)
 
 `../websetup-pages/` can be uploaded to Cloudflare Pages for the same
-BLE UI. Public Install uses `http://files.anki.org.uk/ota/latest`.
-For the fastest flash on stock Unlock, prefer this local server.
+BLE UI. Public Install uses `http://files.anki.org.uk/ota/latest`, so
+Vector downloads ~217 MB through the phone hotspot (often 20–40 min).
+
+After uploading `seek-websetup-pages.zip`, confirm the page shows
+**UI seek16** top-right. If you still see percent past 100%, Pages is
+serving an old zip — redeploy and hard-refresh.

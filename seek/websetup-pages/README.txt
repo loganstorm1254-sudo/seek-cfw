@@ -9,19 +9,33 @@ HTTPS; Install tells the robot to fetch **http://** (no TLS).
 http://files.anki.org.uk/ota/latest  already returns HTTP 200 (no redirect).
 
 ------------------------------------------------
-What other people do
+Speed (read this)
+------------------------------------------------
+Cloudflare Pages + phone hotspot pulls ~217 MB over cellular. That often
+takes **20–40 minutes**. The percent bar lying past 100% is an old UI bug —
+real size is ~217 MB; leave it alone until reboot.
+
+**Fast path (~2–5 min):** run local Seek Web Setup on a Mac/PC joined to
+the **same** hotspot as Vector:
+
+  cd seek/websetup
+  npm install
+  node bin/seek-web-setup.js ota-sync
+  node bin/seek-web-setup.js serve
+
+Chrome → http://localhost:8000/ → pair → Install.
+Robot URL looks like http://192.168.x.x:8000/firmware/latest.ota (LAN).
+
+------------------------------------------------
+What other people do (public Pages)
 ------------------------------------------------
 1. Open the Seek Web Setup Pages site in Chrome.
-2. Pair Vector over Bluetooth, join the phone hotspot.
-3. Choose **Seek OS (latest)** → Install.
-4. Leave the page open. The bar often freezes during flash — wait for
-   Vector to reboot (a few minutes). Do not tap Try Again.
+2. Confirm the top-right badge says **UI seek16** (if not, redeploy the zip).
+3. Pair Vector over Bluetooth, join the phone hotspot.
+4. Choose **Seek OS (latest)** → Install.
+5. Leave the page open. Wait for reboot. Do not tap Try Again.
 
 The robot downloads: http://files.anki.org.uk/ota/latest
-
-For a **faster** first flash (especially stock Unlock), run the local
-Mac/PC server instead so the robot pulls over LAN HTTP — see
-`../websetup/README.md`.
 
 SeekOS 3.0.1.44d and later ship the BLE wrap + HTTP fallback inside the
 OTA, so later updates work the same with no extra steps.
@@ -42,7 +56,8 @@ settings.json:
   "otaListUrl": "https://files.anki.org.uk/api/otas.json"
 
 Upload seek-websetup-pages.zip (index.html at the zip root).
-Hard-refresh Chrome so rts.js?v=seek15 loads.
+Hard-refresh Chrome. You MUST see **UI seek16** top-right and
+script rts.seek16.js in DevTools → Network.
 
 Do NOT enable a Cloudflare "Always Use HTTPS" rule on /ota* or /dl*
 or the robot will follow the redirect and 203 again.

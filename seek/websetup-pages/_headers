@@ -6,3 +6,6 @@
 
 /static/js/rts.js
   Cache-Control: no-cache
+
+/static/js/rts.seek16.js
+  Cache-Control: no-cache
