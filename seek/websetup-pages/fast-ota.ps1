@@ -1,9 +1,13 @@
-# Seek Fast OTA — run on the PC (same hotspot as Vector). No Node, no git clone.
-# Windows one-liner:
-#   irm https://files.anki.org.uk/fast-ota.ps1 | iex
+# Seek Fast OTA — PC downloads ~217MB, Vector pulls over LAN Wi-Fi (fast).
+# Windows CMD / PowerShell one-liner (copy-paste):
+#   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://files.anki.org.uk/fast-ota.ps1 | iex"
+# Fallback if that 404s:
+#   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/websetup-pages/fast-ota.ps1 | iex"
 $ErrorActionPreference = "Stop"
 $Port = 8765
-$OtaUrl = "http://files.anki.org.uk/ota/latest"
+# PC can use HTTPS — GitHub release is reliable. Robot still uses LAN HTTP below.
+$OtaUrl = "https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.64d/vicos-3.0.1.64d.ota"
+$OtaUrlAlt = "http://files.anki.org.uk/ota/latest"
 $Dir = Join-Path $env:TEMP "seek-fast-ota"
 $Ota = Join-Path $Dir "latest.ota"
 New-Item -ItemType Directory -Force -Path $Dir | Out-Null
@@ -31,9 +35,8 @@ function Get-LanIPv4 {
     }
   }
   if (-not $candidates.Count) {
-    throw "No LAN IP found. Join this PC to the same phone hotspot as Vector, then run again."
+    throw "No LAN IP found. Join this PC to the SAME Wi-Fi as Vector (home Wi-Fi or same phone hotspot), then run again."
   }
-  # Prefer 192.168 (typical phone hotspot)
   $pref = $candidates | Where-Object { $_ -like "192.168.*" } | Select-Object -First 1
   if ($pref) { return $pref }
   return $candidates[0]
@@ -41,7 +44,7 @@ function Get-LanIPv4 {
 
 Write-Host ""
 Write-Host "=== Seek Fast OTA ===" -ForegroundColor Green
-Write-Host "PC downloads the OS image; Vector pulls it over hotspot Wi-Fi (fast)."
+Write-Host "This PC downloads the CFW once; Vector installs over local Wi-Fi (not cellular)."
 Write-Host ""
 
 $need = $true
@@ -53,10 +56,15 @@ if (Test-Path $Ota) {
   }
 }
 if ($need) {
-  Write-Host "Downloading Seek OS (~217 MB) to this PC…"
-  Write-Host "  $OtaUrl"
+  Write-Host "Downloading Seek OS (~217 MB) to this PC (one time)…"
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-  Invoke-WebRequest -Uri $OtaUrl -OutFile $Ota -UseBasicParsing
+  try {
+    Write-Host "  $OtaUrl"
+    Invoke-WebRequest -Uri $OtaUrl -OutFile $Ota -UseBasicParsing
+  } catch {
+    Write-Host "GitHub download failed, trying files.anki.org.uk…"
+    Invoke-WebRequest -Uri $OtaUrlAlt -OutFile $Ota -UseBasicParsing
+  }
   Write-Host ("Saved {0:N1} MB" -f ((Get-Item $Ota).Length / 1MB))
 }
 
@@ -64,7 +72,6 @@ $ip = Get-LanIPv4
 $robotUrl = "http://${ip}:${Port}/latest.ota"
 try { Set-Clipboard -Value $robotUrl } catch {}
 
-# Allow non-admin bind to this IP:port when possible
 $prefix = "http://${ip}:${Port}/"
 $listener = New-Object System.Net.HttpListener
 $bound = $false
@@ -85,11 +92,10 @@ if (-not $bound) {
 Could not listen on port $Port.
 Fix: open PowerShell as Administrator once and run:
   netsh http add urlacl url=http://+:$Port/ user=Everyone
-Then run this script again.
+Then run this command again.
 "@
 }
 
-# Best-effort firewall allow (may prompt / need admin)
 try {
   $rule = "Seek Fast OTA $Port"
   if (-not (Get-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue)) {
@@ -98,12 +104,17 @@ try {
 } catch {}
 
 Write-Host ""
-Write-Host "READY — leave this window open." -ForegroundColor Green
-Write-Host "1. Chrome:  https://files.anki.org.uk/setup"
-Write-Host "2. Pair Vector (same hotspot as this PC)"
-Write-Host "3. Paste this into Fast install (copied to clipboard if possible):"
+Write-Host "READY — leave this window OPEN." -ForegroundColor Green
+Write-Host ""
+Write-Host "1. Put Vector + this PC on the SAME Wi-Fi (home Wi-Fi is best)"
+Write-Host "2. Chrome → your Cloudflare Pages websetup (or files.anki.org.uk/setup)"
+Write-Host "3. Pair Vector over Bluetooth"
+Write-Host "4. On the OTA screen, paste this LAN URL (already copied if possible):"
 Write-Host ""
 Write-Host "   $robotUrl" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "   Tip: open Chrome with the URL baked in:"
+Write-Host ("   ?otaUrl=" + [uri]::EscapeDataString($robotUrl)) -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "Serving $Ota … Ctrl+C to stop."
 Write-Host ""
@@ -172,6 +183,7 @@ while ($listener.IsListening) {
         $remaining -= $read
       }
     }
+    Write-Host ("{0} {1} -> {2} bytes" -f (Get-Date -Format "HH:mm:ss"), $req.RemoteEndPoint.Address, $len)
   } catch {
     try { $res.StatusCode = 500 } catch {}
   } finally {

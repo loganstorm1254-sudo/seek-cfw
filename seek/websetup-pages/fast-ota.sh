@@ -3,7 +3,7 @@
 #   curl -fsSL https://files.anki.org.uk/fast-ota.sh | bash
 set -euo pipefail
 PORT="${SEEK_FAST_OTA_PORT:-8765}"
-OTA_URL="${SEEK_OTA_URL:-http://files.anki.org.uk/ota/latest}"
+OTA_URL="${SEEK_OTA_URL:-https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.64d/vicos-3.0.1.64d.ota}"
 DIR="${TMPDIR:-/tmp}/seek-fast-ota"
 OTA="$DIR/latest.ota"
 mkdir -p "$DIR"

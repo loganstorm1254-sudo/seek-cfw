@@ -276,6 +276,54 @@ function landingPage(cors, env) {
   });
 }
 
+/** Tiny CMD/PowerShell helpers — always served (not via slow UI proxy). */
+async function serveFastOtaHelper(path, cors) {
+  const map = {
+    "/fast-ota.ps1": {
+      url: "https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/websetup-pages/fast-ota.ps1",
+      type: "text/plain; charset=utf-8",
+    },
+    "/fast-ota.sh": {
+      url: "https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/websetup-pages/fast-ota.sh",
+      type: "text/plain; charset=utf-8",
+    },
+    "/fast-ota.bat": {
+      url: "https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/websetup-pages/fast-ota.bat",
+      type: "text/plain; charset=utf-8",
+    },
+  };
+  const meta = map[path];
+  if (!meta) {
+    return new Response("not found", { status: 404, headers: cors });
+  }
+  try {
+    const upstream = await fetch(meta.url, {
+      cf: { cacheTtl: 120, cacheEverything: true },
+    });
+    if (upstream.ok) {
+      const headers = new Headers(cors);
+      headers.set("content-type", meta.type);
+      headers.set("cache-control", "no-cache");
+      headers.set("x-seek-helper", "github-raw");
+      return new Response(upstream.body, { headers });
+    }
+  } catch (e) {}
+  // Inline fallback so CMD never 404s if GitHub is briefly down
+  if (path === "/fast-ota.bat") {
+    const bat =
+      "@echo off\r\n" +
+      "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/websetup-pages/fast-ota.ps1 | iex\"\r\n" +
+      "pause\r\n";
+    return new Response(bat, {
+      headers: { ...cors, "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+  return new Response(
+    "# Fetch failed. Run instead:\n# powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/websetup-pages/fast-ota.ps1 | iex\"\n",
+    { status: 502, headers: { ...cors, "content-type": "text/plain; charset=utf-8" } }
+  );
+}
+
 /** Serve Seek Web Setup UI from R2 websetup/* only (edge-fast, like Pages). */
 async function serveWebsetup(env, urlPath, cors) {
   const pages = pagesSetupUrl(env);
@@ -433,14 +481,13 @@ export default {
       return directoryListing(env, "/", cors);
     }
 
-    // Fast-install helpers (no git / no Node)
+    // Fast-install helpers (always available — do not depend on R2 websetup/)
     if (
       path === "/fast-ota.ps1" ||
       path === "/fast-ota.sh" ||
       path === "/fast-ota.bat"
     ) {
-      const page = await serveWebsetup(env, path, cors);
-      if (page) return page;
+      return serveFastOtaHelper(path, cors);
     }
 
     // Seek Web Setup UI

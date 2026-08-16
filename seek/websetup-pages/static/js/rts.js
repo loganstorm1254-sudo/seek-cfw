@@ -1082,16 +1082,39 @@ function setupOTAFiles() {
       if (!seekIsLocalWebsetup()) {
         speedBanner =
           '<div id="seekFastInstall" style="margin:0 0 16px;padding:12px 14px;background:#102418;border:1px solid #2a5a3c;color:#d7e2f0;font-size:13px;line-height:1.45;">' +
-          "<b style=\"color:#7ddea2;font-size:15px;\">Full Seek Install (~217&nbsp;MB)</b><br/>" +
-          "1. Wi‑Fi: join <b>home Wi‑Fi</b> (not phone hotspot) — this is what makes it fast<br/>" +
-          "2. Tap <b>Seek OS (latest)</b> — full build (Doom, voice, sounds, everything)<br/>" +
-          "3. Leave this tab open until Vector reboots<br/>" +
-          "<span style=\"opacity:0.85;font-size:12px;\">Same full file either way. Hotspot = cellular = slow. Home Wi‑Fi = broadband = usually a few minutes. No scripts.</span>" +
+          "<b style=\"color:#7ddea2;font-size:15px;\">Fast install (recommended)</b><br/>" +
+          "On your <b>Windows PC</b> (same Wi‑Fi as Vector), open <b>CMD</b> and paste:<br/>" +
+          "<code style=\"display:block;margin:8px 0;padding:8px;background:#0a120e;color:#9fe6b8;word-break:break-all;font-size:11px;\">powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://files.anki.org.uk/fast-ota.ps1 | iex\"</code>" +
+          "Leave that window open. It prints a LAN URL like <code>http://192.168.x.x:8765/latest.ota</code> — paste it here:<br/>" +
+          '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center;">' +
+          '<input id="seekLanOtaUrl" type="text" placeholder="http://192.168.x.x:8765/latest.ota" style="flex:1;min-width:220px;padding:8px;background:#0a120e;border:1px solid #2a5a3c;color:#e8eef6;" />' +
+          '<button type="button" id="seekLanOtaBtn" style="padding:8px 14px;background:#2a5a3c;border:0;color:#fff;font-weight:700;cursor:pointer;">Install from PC</button>' +
+          "</div>" +
+          "<span style=\"opacity:0.85;font-size:12px;display:block;margin-top:8px;\">Or pick <b>Seek OS (latest)</b> below only if Vector is on home Wi‑Fi (phone hotspot is hours).</span>" +
           "</div>";
       }
       var urlViews = speedBanner;
       otaUrls.map((url, index) => (urlViews += generateOtaFileRow(index, url)));
       $("#otaSelection").html(urlViews);
+
+      $("#seekLanOtaBtn").click(function () {
+        var u = String($("#seekLanOtaUrl").val() || "").trim();
+        if (!/^http:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.)/i.test(u)) {
+          alert("Paste the LAN URL from the CMD window (must start with http://192.168… or http://10…)");
+          return;
+        }
+        $("#containerOtaSelection").addClass("vec-hidden");
+        $("#otaUpdate").removeClass("vec-hidden");
+        _otaEndpoint = u;
+        pterm_set("OTA_LKG", _otaEndpoint);
+        pterm_set("OTA_URL", _otaEndpoint);
+        doOta();
+      });
+
+      // If Chrome was opened with ?otaUrl=http://192.168... prefill + offer one tap
+      if (urlParams["otaUrl"] && /^http:\/\//i.test(urlParams["otaUrl"])) {
+        $("#seekLanOtaUrl").val(urlParams["otaUrl"]);
+      }
 
       $(".vec-ota-row").click(function () {
         $("#containerOtaSelection").addClass("vec-hidden");
@@ -1460,7 +1483,7 @@ function setPhase(phase) {
   }
 }
 
-var SEEK_UI_VERSION = "seek23";
+var SEEK_UI_VERSION = "seek24";
 
 function setOtaProgress(percent, opts) {
   if (percent !== percent || percent < 0) return;
