@@ -1,56 +1,35 @@
 # Seek Web Setup
 
-Open-source Vector setup without the phone app or an Anki account.
-Chrome talks to the robot over BLE; the robot pulls the OS image over
-**plain HTTP from this PC** (fast LAN). That avoids TLS status 203 and
-is much faster than the robot downloading ~217 MB over a phone hotspot
-(cellular is often 20–40 minutes; LAN is usually a few minutes).
+Chrome ↔ Vector over BLE. For a **fast** flash, the robot must pull the
+~217 MB OTA over **LAN HTTP from this PC** (same hotspot) — not through
+the phone’s cellular link to Cloudflare (that is often 20–40 minutes).
 
-Requires Node.js. Works on macOS, Windows, and Linux.
-
-## One-time install
+## Fast install (recommended)
 
 ```bash
 cd seek/websetup
-npm install
-node bin/seek-web-setup.js configure
-node bin/seek-web-setup.js ota-sync
+npm install   # once
+node bin/seek-web-setup.js fast-ota
 ```
 
-`ota-sync` downloads Seek OTAs from https://files.anki.org.uk into
-`~/.seek-web-setup/firmware/seek/` (or `%USERPROFILE%\.seek-web-setup\...`).
+Windows: double-click `fast-ota.cmd`.
 
-## Daily usage (fast flash)
+It prints something like `http://192.168.x.x:8765/latest.ota`.
+
+1. Join this PC to the **same hotspot** as Vector
+2. Chrome → https://files.anki.org.uk/setup → pair
+3. Paste that URL into **Fast install** → Install
+
+## Full local UI (also fast)
 
 ```bash
+node bin/seek-web-setup.js ota-sync
 node bin/seek-web-setup.js serve
 ```
 
-Chrome → **http://localhost:8000/**
+Chrome → http://localhost:8000/
 
-1. Place Vector on the charger
-2. Double-press the backpack button
-3. Pair with Vector
-4. Join Wi-Fi (**same hotspot/Wi-Fi as this PC**)
-5. Pick **Seek OS (latest)** → Install
+## Cloudflare-only (slow)
 
-Robot URL looks like `http://192.168.x.x:8000/firmware/latest.ota`.
-
-If you skip `ota-sync`, Install still works: this PC proxies the files
-host while the robot only speaks LAN HTTP.
-
-### Custom port
-
-```bash
-node bin/seek-web-setup.js serve -p 7010
-```
-
-## Hosted Pages (slower)
-
-`../websetup-pages/` can be uploaded to Cloudflare Pages for the same
-BLE UI. Public Install uses `http://files.anki.org.uk/ota/latest`, so
-Vector downloads ~217 MB through the phone hotspot (often 20–40 min).
-
-After uploading `seek-websetup-pages.zip`, confirm the page shows
-**UI seek16** top-right. If you still see percent past 100%, Pages is
-serving an old zip — redeploy and hard-refresh.
+Using Install with `http://files.anki.org.uk/ota/latest` makes Vector
+download ~217 MB via cellular. Expect 20–40 minutes. Prefer Fast install.
