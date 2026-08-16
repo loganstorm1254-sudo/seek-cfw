@@ -242,11 +242,11 @@ function landingPage(cors) {
   <main>
     <p class="brand">Seek · files.anki.org.uk</p>
     <h1>What do you need?</h1>
-    <p class="sub">Pick Web Setup to flash Vector, or open the file browser for raw OTA storage.</p>
+    <p class="sub">OTA files live here. For a <b>fast</b> Web Setup UI, use your Cloudflare Pages site (upload the zip). This host’s /setup is a slower fallback.</p>
     <div class="choices">
       <a class="choice primary" href="/setup">
-        <span class="label">Web Setup</span>
-        <span class="hint">Pair Vector · join home Wi‑Fi · Install (no scripts)</span>
+        <span class="label">Web Setup (fallback)</span>
+        <span class="hint">Works, but slower than Pages zip — prefer your Pages URL</span>
       </a>
       <a class="choice" href="/files/">
         <span class="label">OTA storage</span>

@@ -1,15 +1,29 @@
-# Cloudflare (files.anki.org.uk)
+# Cloudflare — fast websetup (Pages zip)
 
-Paste [`worker-otas.js`](./worker-otas.js) → Deploy (R2 binding **OTA**).
+The **zip on Cloudflare Pages** is the fast UI (static files on the edge).
+Serving `/setup` from the Worker via GitHub/jsDelivr is slower — don’t use that for the UI.
 
-## Full Seek on the site (no scripts)
+## 1) Pages (websetup UI) — do this
 
-1. Upload **vicos-3.0.1.64d.ota** to R2 (`OTA/`) so `/ota/latest` is the full ~217 MB build  
-   https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.64d/vicos-3.0.1.64d.ota  
-2. Chrome → https://files.anki.org.uk/setup (**UI seek21**)  
-3. Pair → connect Vector to **home Wi‑Fi** → Install **Seek OS (latest)**  
+1. Download `seek-websetup-pages.zip` from this folder / the PR / release  
+2. Cloudflare Dashboard → **Workers & Pages** → your **Pages** project  
+3. **Upload assets** / replace deployment with the zip  
+   - Zip root must contain `index.html` (not a nested folder)  
+4. Hard refresh the Pages URL (`Ctrl+Shift+R`)  
+5. Confirm top-right **UI seek21**
 
-Home Wi‑Fi = broadband (usually a few minutes).  
-Phone hotspot = cellular (often 20–40 min for the same full file).
+That site talks BLE; Install still tells Vector to fetch:
+`http://files.anki.org.uk/ota/latest`
 
-Optional: Cloudflare → Network → turn **HTTP/3** off for this zone.
+## 2) Worker (OTA files only)
+
+Keep the Worker on **files.anki.org.uk** for `/ota/latest`, `/api/otas.json`, `/dl/…`, `/files`.  
+Paste current `worker-otas.js` if needed. R2 binding name: **OTA**.
+
+Upload full OTA to R2:
+https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.64d/vicos-3.0.1.64d.ota
+
+## 3) Optional: landing on files.anki.org.uk
+
+Worker `/` can stay as a small landing that links to your **Pages** websetup URL.
+If Worker `/setup` feels slow, open the Pages URL instead.

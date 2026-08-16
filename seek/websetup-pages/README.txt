@@ -1,23 +1,22 @@
-Seek Web Setup on Cloudflare
-============================
+Seek Web Setup (Cloudflare Pages) — FAST UI
+============================================
 
-Primary host: https://files.anki.org.uk/
+Upload seek-websetup-pages.zip to Cloudflare Pages (index.html at zip root).
+That is the fast setup UI (static on the CF edge).
 
-Chrome uses HTTPS for the UI. Install tells Vector to fetch
-http://files.anki.org.uk/ota/latest (plain HTTP — Vector cannot do TLS).
+Do NOT rely on https://files.anki.org.uk/setup for day-to-day use — the
+Worker pulls UI from GitHub/CDN and feels slow. files.anki.org.uk is for
+OTA files: /ota/latest, /api/otas.json, /files.
 
-Deploy steps: see CLOUDFLARE.md
-  1) Paste worker-otas.js into your files.anki.org.uk Worker + Deploy
-  2) Upload UI to R2 under websetup/ (deploy-cloudflare.mjs --ui-only)
-  3) Open https://files.anki.org.uk/ — top-right must say UI seek16
+After upload, hard-refresh until top-right shows: UI seek21
 
-OTA list: https://files.anki.org.uk/api/otas.json
-settings.json already points otaListUrl there.
+Install still sends Vector:
+  http://files.anki.org.uk/ota/latest
 
-Hotspot downloads of ~217 MB often take 20–40 minutes. That is expected.
-Do not tap Try Again while bytes are still climbing.
+settings.json already points otaListUrl at that host.
 
-Optional alternate: upload seek-websetup-pages.zip to a Pages project.
-Prefer files.anki.org.uk so UI + OTA stay on one Cloudflare deploy.
+Full OTA (~217 MB, everything):
+  https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.64d/vicos-3.0.1.64d.ota
+Upload that to R2 so /ota/latest is current.
 
-Do NOT enable Always Use HTTPS on /ota* or /dl*.
+Wi-Fi tip: home Wi-Fi for Install, not phone hotspot.
