@@ -70,10 +70,10 @@
 #include <sys/reboot.h>
 #endif
 
-// CHANGE THIS TO BE YOUR PROJECT'S STUFF
-const std::string OSProject = "SeekOS DVT3";
-const std::string Creator = "By Logan / DVT3 theme";
-const std::string CreatorWebsite = "github.com/loganstorm1254-sudo/seek-cfw";
+// DVT-style identity (no Seek/Wire branding on face)
+const std::string OSProject = "Victor";
+const std::string Creator = "CONFIDENTIAL";
+const std::string CreatorWebsite = "";
 
 // Log options
 #define LOG_CHANNEL    "FaceInfoScreenManager"
