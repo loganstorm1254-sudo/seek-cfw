@@ -1496,6 +1496,10 @@ function seekOtaNote(msg) {
   if (el.length) el.text(msg);
 }
 
+// Current Seek OS latest is ~217MB. Older wrap guessed 180MB (~171 MiB) and
+// the UI looked like it "kept going past 100%" while curl finished the real file.
+var SEEK_OTA_SIZE_HINT = 226938880;
+
 function seekOtaStartClock() {
   _seekOtaStartedAt = Date.now();
   _seekOtaRealPct = -1;
@@ -1512,14 +1516,23 @@ function seekOtaStartClock() {
     var clock = m + ":" + (r < 10 ? "0" : "") + r;
     var pct = _seekOtaRealPct;
     var bytesNote = "";
+    var cur = 0;
+    var exp = 0;
+    var bytesMoving =
+      _seekOtaLastByteAt > 0 && Date.now() - _seekOtaLastByteAt < 45000;
     if (_seekOtaBytes && _seekOtaBytes.exp > 0) {
-      var curMb = (_seekOtaBytes.cur / 1048576).toFixed(1);
-      var expMb = (_seekOtaBytes.exp / 1048576).toFixed(0);
-      bytesNote = "  " + curMb + " / " + expMb + " MB";
+      cur = _seekOtaBytes.cur;
+      // Robot may report a low stale estimate (old wrap used 180000000 ≈ 171MB).
+      exp = Math.max(_seekOtaBytes.exp, SEEK_OTA_SIZE_HINT, cur);
+      var curMb = (cur / 1048576).toFixed(1);
+      var expMb = (exp / 1048576).toFixed(0);
+      bytesNote = "  " + curMb + " / ~" + expMb + " MB";
+      if (cur > 0) {
+        pct = Math.min(0.99, cur / exp);
+      }
     }
     if (!(pct >= 0)) {
       // Time-based estimate until BLE reports bytes (~217MB / hotspot often 8–15 min).
-      // Do NOT cap at 35% — that looked like a freeze.
       pct = Math.min(0.88, 0.03 + s / 900);
     }
     setOtaProgress(pct);
@@ -1528,7 +1541,6 @@ function seekOtaStartClock() {
     var noBytes = !(_seekOtaBytes && _seekOtaBytes.exp > 0);
     var msg;
     if (noBytes && s > 900) {
-      // ~15 min with zero BLE byte reports → almost certainly stuck.
       seekOtaDone();
       $("#otaErrorLabel").removeClass("vec-hidden");
       $("#otaErrorLabel").html(
@@ -1546,10 +1558,24 @@ function seekOtaStartClock() {
         "Downloading over hotspot (byte counter starts when Vector reports). " +
         "Keep the hotspot on. Do not tap Try Again. elapsed " +
         clock;
-    } else if (pct >= 0.9 || stalled) {
+    } else if (bytesMoving && cur > 0) {
       msg =
-        "Download done / flashing on the robot. The bar often freezes here. " +
-        "Wait for Vector to reboot (2–5 min). Do not retry. elapsed " +
+        "Still downloading… " +
+        Math.round(pct * 100) +
+        "%" +
+        bytesNote +
+        "  elapsed " +
+        clock +
+        ". Past an old size guess is normal — real OTA is ~217MB. Do not retry.";
+    } else if (stalled && cur > 0 && cur >= exp * 0.98) {
+      msg =
+        "Download looks complete — flashing on the robot. Wait for reboot (2–5 min). " +
+        "Do not retry. elapsed " +
+        clock +
+        bytesNote;
+    } else if (stalled) {
+      msg =
+        "Bytes paused — robot may be flashing. Wait for reboot. Do not retry. elapsed " +
         clock +
         bytesNote;
     } else {
@@ -2120,13 +2146,18 @@ function HandleHandshake(version) {
       var exp = Number(value.expected);
       var cur = Number(value.current);
       if (exp > 0 && cur >= 0) {
+        // Grow expected when robot's estimate is low (old wrap used 180MB).
+        if (cur > exp) exp = cur;
+        if (exp < SEEK_OTA_SIZE_HINT && cur + 5 * 1048576 > exp) {
+          exp = SEEK_OTA_SIZE_HINT;
+        }
         _seekOtaBytes = { cur: cur, exp: exp };
         if (cur !== _seekOtaLastCur) {
           _seekOtaLastCur = cur;
           _seekOtaLastByteAt = Date.now();
         }
         if (cur > 0) {
-          _seekOtaRealPct = Math.min(1, cur / exp);
+          _seekOtaRealPct = Math.min(0.99, cur / Math.max(exp, cur, 1));
           setOtaProgress(_seekOtaRealPct);
         }
       }

@@ -1,15 +1,16 @@
 #!/bin/sh
-# Seek BLE OTA wrap v10 (shipped in the OTA — no SSH).
+# Seek BLE OTA wrap v10.1 (shipped in the OTA — no SSH).
 # Public websetup only starts /anki/bin/update-engine <url>. This wrap:
 #   - remounts root rw and prefers /ota or /cache for the payload
 #   - rewrites https://*.anki.org.uk → http:// (Vector cannot verify TLS)
 #   - downloads with resume + live BLE progress files, then flashes file://
+#   - grows expected-size if the file passes a stale size guess (no 193/171)
 #   - otherwise execs the streaming C++ engine (no second HTTP pull)
 # Periodic auto-update (no URL) is passed through. Do not default to /ota/latest.
 mount -o remount,rw / 2>/dev/null || true
 mkdir -p /run/update-engine /data /ota /cache
 LOG=/run/update-engine/wrapper.log
-echo "wrapper v10 start $(date 2>/dev/null || true)" >> "$LOG"
+echo "wrapper v10.1 start $(date 2>/dev/null || true)" >> "$LOG"
 echo "env URL=${UPDATE_ENGINE_URL-}" >> "$LOG"
 echo "args=$*" >> "$LOG"
 
@@ -176,6 +177,11 @@ if [ "$NEED" = 1 ]; then
     TICK=0
     while kill -0 "$CPID" 2>/dev/null; do
       NOW=`stat -c %s "$OTA" 2>/dev/null || echo 0`
+      # If the file grows past our guess (old 180MB / bad HEAD), raise expected
+      # so BLE does not show 193/171 and look "past 100%".
+      if [ "$NOW" -gt "$EXPECT" ]; then
+        EXPECT=`expr "$NOW" + 2097152`
+      fi
       echo "$NOW" > /run/update-engine/progress
       echo "$EXPECT" > /run/update-engine/expected-size
       TICK=`expr "$TICK" + 1`
