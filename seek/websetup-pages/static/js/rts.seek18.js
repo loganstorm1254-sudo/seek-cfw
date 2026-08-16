@@ -1815,7 +1815,7 @@ function doOta() {
         "Got: <code>" +
         $("<div>").text(url).html() +
         "</code><br/>Select <b>Seek OS (latest)</b> or hard-refresh so " +
-        "<code>rts.seek18.js</code> loads."
+        "<code>rts.seek17.js</code> loads."
       );
       $("#btnTryAgain").removeClass("vec-hidden");
       return;

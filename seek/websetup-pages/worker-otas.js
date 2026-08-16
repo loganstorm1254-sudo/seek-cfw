@@ -8,7 +8,9 @@
  *   GET /files      → white "Index of /" directory listing (same as before)
  *   GET /OTA/       → browse OTA folder
  *   GET /ota/latest → newest .ota (Vector HTTP)
- *   GET /api/otas.json
+ *   GET /fast-ota.ps1 → Windows one-liner helper (no Node/git)
+ *   GET /fast-ota.bat → double-click launcher
+ *   GET /fast-ota.sh  → Mac/Linux helper
  */
 function corsHeaders() {
   return {
@@ -37,7 +39,9 @@ function contentTypeFor(path) {
   if (p.endsWith(".jpg") || p.endsWith(".jpeg")) return "image/jpeg";
   if (p.endsWith(".ico")) return "image/x-icon";
   if (p.endsWith(".map")) return "application/json";
-  if (p.endsWith(".txt")) return "text/plain; charset=utf-8";
+  if (p.endsWith(".txt") || p.endsWith(".ps1") || p.endsWith(".sh") || p.endsWith(".bat") || p.endsWith(".cmd")) {
+    return "text/plain; charset=utf-8";
+  }
   return "application/octet-stream";
 }
 
@@ -242,7 +246,11 @@ function landingPage(cors) {
     <div class="choices">
       <a class="choice primary" href="/setup">
         <span class="label">Web Setup</span>
-        <span class="hint">Pair Vector — use Fast install (LAN) for ~2–5 min</span>
+        <span class="hint">Pair Vector — use Fast install (one PowerShell paste)</span>
+      </a>
+      <a class="choice" href="/fast-ota.bat">
+        <span class="label">Fast OTA helper (Windows)</span>
+        <span class="hint">Download · double-click · same hotspot as Vector</span>
       </a>
       <a class="choice" href="/files/">
         <span class="label">OTA storage</span>
@@ -271,7 +279,13 @@ async function serveWebsetup(env, urlPath, cors) {
   }
   if (!rel.startsWith("/")) rel = "/" + rel;
   // Only allow index + static assets (never OTA keys via this helper).
-  if (rel !== "/index.html" && !rel.startsWith("/static/")) {
+  if (
+    rel !== "/index.html" &&
+    !rel.startsWith("/static/") &&
+    rel !== "/fast-ota.ps1" &&
+    rel !== "/fast-ota.sh" &&
+    rel !== "/fast-ota.bat"
+  ) {
     return null;
   }
 
@@ -391,6 +405,16 @@ export default {
       path === "/storage/"
     ) {
       return directoryListing(env, "/", cors);
+    }
+
+    // Fast-install helpers (no git / no Node)
+    if (
+      path === "/fast-ota.ps1" ||
+      path === "/fast-ota.sh" ||
+      path === "/fast-ota.bat"
+    ) {
+      const page = await serveWebsetup(env, path, cors);
+      if (page) return page;
     }
 
     // Seek Web Setup UI

@@ -1,35 +1,33 @@
 # Seek Web Setup
 
-Chrome ↔ Vector over BLE. For a **fast** flash, the robot must pull the
-~217 MB OTA over **LAN HTTP from this PC** (same hotspot) — not through
-the phone’s cellular link to Cloudflare (that is often 20–40 minutes).
+## Fast install (easiest — no git, no Node)
 
-## Fast install (recommended)
+1. Join your **PC** to the **same phone hotspot** as Vector  
+2. On Windows, open **PowerShell** and paste:
+
+```powershell
+irm https://files.anki.org.uk/fast-ota.ps1 | iex
+```
+
+Or download and double-click: https://files.anki.org.uk/fast-ota.bat
+
+3. Chrome → https://files.anki.org.uk/setup → pair Vector  
+4. Paste the `http://192.168.…:8765/latest.ota` URL into **Fast install** → Install  
+
+Mac/Linux:
+
+```bash
+curl -fsSL https://files.anki.org.uk/fast-ota.sh | bash
+```
+
+## Full local UI
 
 ```bash
 cd seek/websetup
-npm install   # once
-node bin/seek-web-setup.js fast-ota
-```
-
-Windows: double-click `fast-ota.cmd`.
-
-It prints something like `http://192.168.x.x:8765/latest.ota`.
-
-1. Join this PC to the **same hotspot** as Vector
-2. Chrome → https://files.anki.org.uk/setup → pair
-3. Paste that URL into **Fast install** → Install
-
-## Full local UI (also fast)
-
-```bash
-node bin/seek-web-setup.js ota-sync
+npm install
 node bin/seek-web-setup.js serve
 ```
 
-Chrome → http://localhost:8000/
+## Slow path
 
-## Cloudflare-only (slow)
-
-Using Install with `http://files.anki.org.uk/ota/latest` makes Vector
-download ~217 MB via cellular. Expect 20–40 minutes. Prefer Fast install.
+Cloudflare Install without Fast OTA makes Vector pull ~217 MB over cellular (often 20–40 min).
