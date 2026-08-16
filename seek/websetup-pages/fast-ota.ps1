@@ -1,11 +1,7 @@
 # Seek Fast OTA — PC downloads ~217MB, Vector pulls over LAN Wi-Fi (fast).
-# Windows CMD / PowerShell one-liner (copy-paste):
-#   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://files.anki.org.uk/fast-ota.ps1 | iex"
-# Fallback if that 404s:
-#   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/websetup-pages/fast-ota.ps1 | iex"
+#   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.64d/fast-ota.ps1 | iex"
 $ErrorActionPreference = "Stop"
 $Port = 8765
-# PC can use HTTPS — GitHub release is reliable. Robot still uses LAN HTTP below.
 $OtaUrl = "https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.64d/vicos-3.0.1.64d.ota"
 $OtaUrlAlt = "http://files.anki.org.uk/ota/latest"
 $Dir = Join-Path $env:TEMP "seek-fast-ota"
@@ -35,16 +31,120 @@ function Get-LanIPv4 {
     }
   }
   if (-not $candidates.Count) {
-    throw "No LAN IP found. Join this PC to the SAME Wi-Fi as Vector (home Wi-Fi or same phone hotspot), then run again."
+    throw "No LAN IP found. Join this PC to the SAME Wi-Fi as Vector, then run again."
   }
   $pref = $candidates | Where-Object { $_ -like "192.168.*" } | Select-Object -First 1
   if ($pref) { return $pref }
   return $candidates[0]
 }
 
+function Start-PythonServer([string]$root, [int]$port) {
+  $py = $null
+  foreach ($c in @("python", "py", "python3")) {
+    $cmd = Get-Command $c -ErrorAction SilentlyContinue
+    if ($cmd) { $py = $cmd.Source; break }
+  }
+  if (-not $py) { return $null }
+  Write-Host "Serving with Python (no admin needed)..."
+  $p = Start-Process -FilePath $py -ArgumentList @("-m", "http.server", "$port", "--bind", "0.0.0.0") `
+    -WorkingDirectory $root -PassThru -WindowStyle Hidden
+  return $p
+}
+
+# Minimal HTTP file server — no HttpListener URL ACL / admin required.
+function Start-TcpOtaServer([string]$otaPath, [string]$bindIp, [int]$port) {
+  $endpoint = New-Object System.Net.IPEndPoint ([System.Net.IPAddress]::Any, $port)
+  $listener = New-Object System.Net.Sockets.TcpListener $endpoint
+  $listener.Start()
+  Write-Host "Serving with TcpListener on 0.0.0.0:$port (no admin)..."
+  $otaLen = (Get-Item $otaPath).Length
+  $run = $true
+  while ($run) {
+    try {
+      $client = $listener.AcceptTcpClient()
+    } catch {
+      break
+    }
+    try {
+      $stream = $client.GetStream()
+      $reader = New-Object System.IO.StreamReader($stream)
+      $reqLine = $reader.ReadLine()
+      if (-not $reqLine) { $client.Close(); continue }
+      $headers = @{}
+      while ($true) {
+        $h = $reader.ReadLine()
+        if ($null -eq $h -or $h -eq "") { break }
+        $i = $h.IndexOf(":")
+        if ($i -gt 0) {
+          $headers[$h.Substring(0, $i).Trim().ToLower()] = $h.Substring($i + 1).Trim()
+        }
+      }
+      $parts = $reqLine.Split(" ")
+      $method = $parts[0]
+      $path = if ($parts.Length -gt 1) { $parts[1].Split("?")[0] } else { "/" }
+      $ok = @("/", "/latest.ota", "/v.ota", "/firmware/latest.ota", "/ota/latest") -contains $path
+      if (-not $ok) {
+        $body = [Text.Encoding]::ASCII.GetBytes("not found`n")
+        $hdr = "HTTP/1.1 404 Not Found`r`nContent-Length: $($body.Length)`r`nConnection: close`r`n`r`n"
+        $hb = [Text.Encoding]::ASCII.GetBytes($hdr)
+        $stream.Write($hb, 0, $hb.Length)
+        $stream.Write($body, 0, $body.Length)
+        $client.Close()
+        continue
+      }
+
+      $start = [int64]0
+      $end = $otaLen - 1
+      $code = 200
+      $status = "OK"
+      if ($headers.ContainsKey("range") -and $headers["range"] -match "^bytes=(\d*)-(\d*)$") {
+        if ($Matches[1] -ne "") { $start = [int64]$Matches[1] }
+        if ($Matches[2] -ne "") { $end = [int64]$Matches[2] }
+        if ($end -ge $otaLen) { $end = $otaLen - 1 }
+        $code = 206
+        $status = "Partial Content"
+      }
+      $len = $end - $start + 1
+      $resp = "HTTP/1.1 $code $status`r`n"
+      $resp += "Content-Type: application/octet-stream`r`n"
+      $resp += "Accept-Ranges: bytes`r`n"
+      $resp += "Content-Length: $len`r`n"
+      $resp += "Access-Control-Allow-Origin: *`r`n"
+      $resp += "Connection: close`r`n"
+      if ($code -eq 206) {
+        $resp += "Content-Range: bytes $start-$end/$otaLen`r`n"
+      }
+      $resp += "`r`n"
+      $hb = [Text.Encoding]::ASCII.GetBytes($resp)
+      $stream.Write($hb, 0, $hb.Length)
+      if ($method -ne "HEAD") {
+        $fs = [System.IO.File]::OpenRead($otaPath)
+        try {
+          $null = $fs.Seek($start, "Begin")
+          $buf = New-Object byte[] 65536
+          $left = $len
+          while ($left -gt 0) {
+            $n = [Math]::Min($buf.Length, $left)
+            $r = $fs.Read($buf, 0, $n)
+            if ($r -le 0) { break }
+            $stream.Write($buf, 0, $r)
+            $left -= $r
+          }
+        } finally { $fs.Close() }
+      }
+      Write-Host ("{0} {1} -> {2} bytes" -f (Get-Date -Format "HH:mm:ss"), $client.Client.RemoteEndPoint, $len)
+    } catch {
+      # ignore single-request errors
+    } finally {
+      try { $client.Close() } catch {}
+    }
+  }
+  try { $listener.Stop() } catch {}
+}
+
 Write-Host ""
 Write-Host "=== Seek Fast OTA ===" -ForegroundColor Green
-Write-Host "This PC downloads the CFW once; Vector installs over local Wi-Fi (not cellular)."
+Write-Host "This PC downloads the CFW once; Vector installs over local Wi-Fi."
 Write-Host ""
 
 $need = $true
@@ -56,45 +156,24 @@ if (Test-Path $Ota) {
   }
 }
 if ($need) {
-  Write-Host "Downloading Seek OS (~217 MB) to this PC (one time)…"
+  Write-Host "Downloading Seek OS (~217 MB) to this PC (one time)..."
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
   try {
     Write-Host "  $OtaUrl"
     Invoke-WebRequest -Uri $OtaUrl -OutFile $Ota -UseBasicParsing
   } catch {
-    Write-Host "GitHub download failed, trying files.anki.org.uk…"
+    Write-Host "GitHub download failed, trying files.anki.org.uk..."
     Invoke-WebRequest -Uri $OtaUrlAlt -OutFile $Ota -UseBasicParsing
   }
   Write-Host ("Saved {0:N1} MB" -f ((Get-Item $Ota).Length / 1MB))
 }
 
+# Ensure filename Vector will request
+Copy-Item -Force $Ota (Join-Path $Dir "v.ota") -ErrorAction SilentlyContinue
+
 $ip = Get-LanIPv4
 $robotUrl = "http://${ip}:${Port}/latest.ota"
 try { Set-Clipboard -Value $robotUrl } catch {}
-
-$prefix = "http://${ip}:${Port}/"
-$listener = New-Object System.Net.HttpListener
-$bound = $false
-foreach ($p in @($prefix, "http://+:${Port}/", "http://*:${Port}/")) {
-  try {
-    $listener.Prefixes.Clear()
-    [void]$listener.Prefixes.Add($p)
-    $listener.Start()
-    $bound = $true
-    break
-  } catch {
-    try { $listener.Close() } catch {}
-    $listener = New-Object System.Net.HttpListener
-  }
-}
-if (-not $bound) {
-  throw @"
-Could not listen on port $Port.
-Fix: open PowerShell as Administrator once and run:
-  netsh http add urlacl url=http://+:$Port/ user=Everyone
-Then run this command again.
-"@
-}
 
 try {
   $rule = "Seek Fast OTA $Port"
@@ -106,88 +185,39 @@ try {
 Write-Host ""
 Write-Host "READY — leave this window OPEN." -ForegroundColor Green
 Write-Host ""
-Write-Host "1. Put Vector + this PC on the SAME Wi-Fi (home Wi-Fi is best)"
-Write-Host "2. Chrome → your Cloudflare Pages websetup (or files.anki.org.uk/setup)"
-Write-Host "3. Pair Vector over Bluetooth"
-Write-Host "4. On the OTA screen, paste this LAN URL (already copied if possible):"
+Write-Host "1. PC + Vector on the SAME Wi-Fi"
+Write-Host "2. On Vector (SSH), run:"
 Write-Host ""
-Write-Host "   $robotUrl" -ForegroundColor Cyan
+Write-Host "   UPDATE_ENGINE_DEBUG=true UPDATE_ENGINE_ALLOW_DOWNGRADE=True UPDATE_ENGINE_ENABLED=True UPDATE_ENGINE_URL='$robotUrl' /anki/bin/update-engine" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "   Tip: open Chrome with the URL baked in:"
-Write-Host ("   ?otaUrl=" + [uri]::EscapeDataString($robotUrl)) -ForegroundColor DarkGray
-Write-Host ""
-Write-Host "Serving $Ota … Ctrl+C to stop."
+Write-Host "(URL also copied to clipboard if possible)"
+Write-Host "Serving $Ota ... Ctrl+C to stop."
 Write-Host ""
 
-while ($listener.IsListening) {
-  $ctx = $listener.GetContext()
-  $req = $ctx.Request
-  $res = $ctx.Response
-  $fs = $null
+# Prefer TcpListener — no admin URL ACL needed (HttpListener often fails on Win10/11).
+try {
+  Start-TcpOtaServer -otaPath $Ota -bindIp $ip -port $Port
+} catch {
+  Write-Host "TcpListener failed: $_"
+  Write-Host "Trying Python fallback..."
+  $proc = Start-PythonServer -root $Dir -port $Port
+  if (-not $proc) {
+    throw @"
+Could not start a local HTTP server on port $Port.
+
+Option A (Admin PowerShell, once):
+  netsh http add urlacl url=http://+:$Port/ user=Everyone
+  netsh advfirewall firewall add rule name=`"Seek Fast OTA`" dir=in action=allow protocol=TCP localport=$Port
+
+Then re-run the fast-ota command.
+
+Option B: install Python from python.org, re-run this script.
+"@
+  }
+  Write-Host "Python PID $($proc.Id). Press Ctrl+C to stop."
   try {
-    $path = $req.Url.AbsolutePath
-    if ($req.HttpMethod -eq "OPTIONS") {
-      $res.StatusCode = 204
-      $res.Close()
-      continue
-    }
-    $ok =
-      $path -eq "/" -or
-      $path -eq "/latest.ota" -or
-      $path -eq "/firmware/latest.ota" -or
-      $path -eq "/ota/latest"
-    if (-not $ok) {
-      $msg = [Text.Encoding]::UTF8.GetBytes("Seek Fast OTA`n$robotUrl`n")
-      $res.StatusCode = 404
-      $res.ContentType = "text/plain"
-      $res.OutputStream.Write($msg, 0, $msg.Length)
-      $res.Close()
-      continue
-    }
-
-    $fs = [System.IO.File]::OpenRead($Ota)
-    $otaLen = $fs.Length
-    $res.Headers.Add("Accept-Ranges", "bytes")
-    $res.Headers.Add("Access-Control-Allow-Origin", "*")
-    $res.ContentType = "application/octet-stream"
-
-    $range = $req.Headers["Range"]
-    $start = [int64]0
-    $end = $otaLen - 1
-    if ($range -match "^bytes=(\d*)-(\d*)$") {
-      if ($Matches[1] -ne "") { $start = [int64]$Matches[1] }
-      if ($Matches[2] -ne "") { $end = [int64]$Matches[2] }
-      if ($end -ge $otaLen) { $end = $otaLen - 1 }
-      if ($start -lt 0 -or $start -gt $end) {
-        $res.StatusCode = 416
-        $res.Close()
-        continue
-      }
-      $res.StatusCode = 206
-      $res.Headers.Add("Content-Range", "bytes $start-$end/$otaLen")
-    } else {
-      $res.StatusCode = 200
-    }
-
-    $len = $end - $start + 1
-    $res.ContentLength64 = $len
-    if ($req.HttpMethod -ne "HEAD") {
-      $null = $fs.Seek($start, "Begin")
-      $buffer = New-Object byte[] 65536
-      $remaining = $len
-      while ($remaining -gt 0) {
-        $toRead = [Math]::Min($buffer.Length, $remaining)
-        $read = $fs.Read($buffer, 0, $toRead)
-        if ($read -le 0) { break }
-        $res.OutputStream.Write($buffer, 0, $read)
-        $remaining -= $read
-      }
-    }
-    Write-Host ("{0} {1} -> {2} bytes" -f (Get-Date -Format "HH:mm:ss"), $req.RemoteEndPoint.Address, $len)
-  } catch {
-    try { $res.StatusCode = 500 } catch {}
+    Wait-Process -Id $proc.Id
   } finally {
-    if ($fs) { try { $fs.Close() } catch {} }
-    try { $res.Close() } catch {}
+    try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
   }
 }
