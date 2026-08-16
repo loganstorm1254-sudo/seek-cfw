@@ -2,7 +2,7 @@
 # Unlock manual flash — BusyBox-safe for Vector (no GNU head/dd extras).
 # Stay on charger.
 #
-#   sh unlock-manual-flash.sh /data/ota/v.ota
+#   sh unlock-manual-flash-v2.sh /data/ota/v.ota
 set -e
 OTA="${1:-/ota/v.ota}"
 PAS=/anki/etc/ota.pas
