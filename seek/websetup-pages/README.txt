@@ -42,7 +42,7 @@ settings.json:
   "otaListUrl": "https://files.anki.org.uk/api/otas.json"
 
 Upload seek-websetup-pages.zip (index.html at the zip root).
-Hard-refresh Chrome so rts.js?v=seek13 loads.
+Hard-refresh Chrome so rts.js?v=seek14 loads.
 
 Do NOT enable a Cloudflare "Always Use HTTPS" rule on /ota* or /dl*
 or the robot will follow the redirect and 203 again.

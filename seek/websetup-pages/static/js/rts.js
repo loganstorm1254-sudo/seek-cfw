@@ -1414,11 +1414,18 @@ function setPhase(phase) {
   }
 }
 
-function setOtaProgress(percent) {
+function setOtaProgress(percent, opts) {
   if (percent !== percent || percent < 0) return;
   if (percent > 1) percent = 1;
+  // Never paint 100% while an OTA is still in flight — old wrap size guesses
+  // made cur/exp hit 100% long before the real ~217MB file finished.
+  var allowComplete = opts && opts.complete;
+  if (!allowComplete && _seekOtaBusy && percent >= 0.995) {
+    percent = 0.99;
+  }
   if (percent > 0.01) $("#progressBarOta").removeClass("seek-wait");
   var pctInt = Math.round(percent * 100);
+  if (!allowComplete && _seekOtaBusy && pctInt >= 100) pctInt = 99;
   var maskWidth = (1 - percent) * 100;
   var bar = document.getElementById("progressBarOta");
   var mask = bar && bar.querySelector(".vec-progress-bar-mask");
@@ -1496,8 +1503,7 @@ function seekOtaNote(msg) {
   if (el.length) el.text(msg);
 }
 
-// Current Seek OS latest is ~217MB. Older wrap guessed 180MB (~171 MiB) and
-// the UI looked like it "kept going past 100%" while curl finished the real file.
+// Current Seek OS latest is ~217MB. Older wrap guessed 180MB (~171 MiB).
 var SEEK_OTA_SIZE_HINT = 226938880;
 
 function seekOtaStartClock() {
@@ -1519,11 +1525,11 @@ function seekOtaStartClock() {
     var cur = 0;
     var exp = 0;
     var bytesMoving =
-      _seekOtaLastByteAt > 0 && Date.now() - _seekOtaLastByteAt < 45000;
+      _seekOtaLastByteAt > 0 && Date.now() - _seekOtaLastByteAt < 60000;
     if (_seekOtaBytes && _seekOtaBytes.exp > 0) {
-      cur = _seekOtaBytes.cur;
-      // Robot may report a low stale estimate (old wrap used 180000000 ≈ 171MB).
-      exp = Math.max(_seekOtaBytes.exp, SEEK_OTA_SIZE_HINT, cur);
+      cur = Number(_seekOtaBytes.cur) || 0;
+      // Floor expected at real OTA size so 171MB guesses cannot hit "100% done".
+      exp = Math.max(Number(_seekOtaBytes.exp) || 0, SEEK_OTA_SIZE_HINT, cur);
       var curMb = (cur / 1048576).toFixed(1);
       var expMb = (exp / 1048576).toFixed(0);
       bytesNote = "  " + curMb + " / ~" + expMb + " MB";
@@ -1532,13 +1538,15 @@ function seekOtaStartClock() {
       }
     }
     if (!(pct >= 0)) {
-      // Time-based estimate until BLE reports bytes (~217MB / hotspot often 8–15 min).
       pct = Math.min(0.88, 0.03 + s / 900);
     }
+    // Cap while in-flight — 100% only after status=complete.
+    pct = Math.min(0.99, pct);
     setOtaProgress(pct);
     var stalled =
       _seekOtaLastByteAt > 0 && Date.now() - _seekOtaLastByteAt > 180000;
     var noBytes = !(_seekOtaBytes && _seekOtaBytes.exp > 0);
+    var underRealSize = cur > 0 && cur < SEEK_OTA_SIZE_HINT * 0.98;
     var msg;
     if (noBytes && s > 900) {
       seekOtaDone();
@@ -1558,7 +1566,8 @@ function seekOtaStartClock() {
         "Downloading over hotspot (byte counter starts when Vector reports). " +
         "Keep the hotspot on. Do not tap Try Again. elapsed " +
         clock;
-    } else if (bytesMoving && cur > 0) {
+    } else if (bytesMoving || underRealSize) {
+      // Still pulling — never say done/100% here (stale 171MB estimate).
       msg =
         "Still downloading… " +
         Math.round(pct * 100) +
@@ -1566,16 +1575,16 @@ function seekOtaStartClock() {
         bytesNote +
         "  elapsed " +
         clock +
-        ". Past an old size guess is normal — real OTA is ~217MB. Do not retry.";
-    } else if (stalled && cur > 0 && cur >= exp * 0.98) {
+        ". Not done yet — keep the hotspot on. Do not retry.";
+    } else if (stalled && cur >= SEEK_OTA_SIZE_HINT * 0.98) {
       msg =
-        "Download looks complete — flashing on the robot. Wait for reboot (2–5 min). " +
+        "Download finished — flashing on the robot. Wait for reboot (2–5 min). " +
         "Do not retry. elapsed " +
         clock +
         bytesNote;
     } else if (stalled) {
       msg =
-        "Bytes paused — robot may be flashing. Wait for reboot. Do not retry. elapsed " +
+        "Bytes paused — robot may still be working. Wait. Do not retry. elapsed " +
         clock +
         bytesNote;
     } else {
@@ -1680,7 +1689,7 @@ function doOta() {
     function (msg) {
       console.log("ota success", msg);
       seekOtaDone();
-      setOtaProgress(1);
+      setOtaProgress(1, { complete: true });
       toggleIcon("iconOta", true);
       seekOtaNote("Update installed. Vector is rebooting.");
     },
@@ -2157,12 +2166,13 @@ function HandleHandshake(version) {
           _seekOtaLastByteAt = Date.now();
         }
         if (cur > 0) {
-          _seekOtaRealPct = Math.min(0.99, cur / Math.max(exp, cur, 1));
+          _seekOtaRealPct = Math.min(0.99, cur / Math.max(exp, SEEK_OTA_SIZE_HINT, cur, 1));
           setOtaProgress(_seekOtaRealPct);
         }
       }
     } else if (st == 3) {
       seekOtaDone();
+      setOtaProgress(1, { complete: true });
       toggleIcon("iconOta", true);
       $("#otaErrorLabel").addClass("vec-hidden");
       $("#otaUpdate").html(
