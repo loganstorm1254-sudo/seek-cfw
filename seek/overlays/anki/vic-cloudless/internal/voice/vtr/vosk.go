@@ -39,7 +39,7 @@ func InitVosk() {
 		return
 	}
 	rec.SetMaxAlternatives(0)
-	rec.SetEndpointerDelays(3, 0, 0)
+	rec.SetEndpointerDelays(5, 1, 0)
 }
 
 func Process(chunk []byte) string {

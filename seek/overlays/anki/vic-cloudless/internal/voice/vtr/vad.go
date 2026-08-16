@@ -30,10 +30,11 @@ func DetectEndOfSpeech(chunk []byte) (stop bool, isActive bool) {
 			log.Println("VAD init failed:", err)
 			return false, false
 		}
-		VADInst.SetMode(1)
+		VADInst.SetMode(2)
 		VADExists = true
 	}
-	inactiveNumMax := 23
+	// Longer silence before cut-off — closer to stock Vector listen feel.
+	inactiveNumMax := 36
 	for _, chunk := range SplitVAD(chunk) {
 		active, err := VADInst.Process(16000, chunk)
 		OverallFrames++

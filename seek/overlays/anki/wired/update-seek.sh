@@ -84,8 +84,11 @@ for c in "$TMP/seek-wired/update-os.sh" "$TMP/update-os.sh" "$TMP/seek-wired/upd
 done
 if [ -n "$src" ]; then
     mkdir -p /data
-    cp "$src" /data/update-os.sh
-    chmod 0644 /data/update-os.sh
+    if [ ! -f /data/keep-update-os ]; then
+        cp "$src" /data/update-os.sh
+        chmod 0644 /data/update-os.sh
+    fi
+    touch /data/keep-update-os
     umount /usr/sbin/update-os 2>/dev/null || true
     mount -o remount,rw / 2>/dev/null || true
     printf '%s\n' '#!/bin/bash' 'exec /bin/bash /data/update-os.sh "$@"' >/usr/sbin/update-os

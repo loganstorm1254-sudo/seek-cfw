@@ -24,4 +24,4 @@ Or upload unzipped zip into R2 under `websetup/` for edge-fast `/setup`.
 ## 3) R2 OTA file
 
 Upload full build:
-https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.64d/vicos-3.0.1.64d.ota
+https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.65d/vicos-3.0.1.65d.ota

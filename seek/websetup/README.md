@@ -11,4 +11,4 @@ Full Seek OS (~217 MB) — Doom, voice, sounds, everything.
 
 Same full file either way. Hotspot is slow because of cellular; home Wi‑Fi uses broadband.
 
-Use R2 latest = **vicos-3.0.1.64d.ota** (full + wrap v11).
+Use R2 latest = **vicos-3.0.1.65d.ota** (full + wrap v11).

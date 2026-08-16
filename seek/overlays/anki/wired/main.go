@@ -42,6 +42,11 @@ func installFastUpdateOS() {
 			return
 		}
 	}
+	// Always keep update-os across OTAs once installed.
+	_ = os.WriteFile("/data/keep-update-os", []byte("1\n"), 0644)
+	if _, err := os.Stat("/data/update-os.sh"); err != nil {
+		_ = os.WriteFile("/data/update-os.sh", seekUpdateOSScript, 0644)
+	}
 	// /data and sometimes /run are noexec. Never exec the script from there —
 	// install a tiny wrapper on /usr that bash-interprets /data/update-os.sh
 	// (same UX as WireOS: `update-os <url>`).

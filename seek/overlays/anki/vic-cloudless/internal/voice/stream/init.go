@@ -74,6 +74,17 @@ func seekLooksLikeQuestion(text string) bool {
 	return false
 }
 
+// Stock Vector commands that must never be stolen by Oval/Houndify/OpenAI.
+func seekIsLocalCommandIntent(intent string) bool {
+	switch intent {
+	case "", "intent_system_noaudio", "intent_imperative_unknown":
+		return false
+	default:
+		// Any real local NLU hit (play, explore, greetings, how_old, time, …)
+		return !strings.HasPrefix(intent, "intent_knowledge_")
+	}
+}
+
 func seekIsQuestionPrompt(text string) bool {
 	t := strings.ToLower(strings.TrimSpace(text))
 	t = strings.Trim(t, " .,!?")
@@ -188,8 +199,22 @@ func (strm *Streamer) init(streamSize int) {
 
 			intent, iParam, _ := vtr.ProcessTextAll(text, vtr.IntentList)
 
-			// Seek AI: free-form questions when Oval / Houndify / OpenAI is saved.
-			// Prefer robot askAI (Oval) using the Vosk transcript when Whisper is unavailable.
+			// Prefer stock local intents (explore, play, greetings, how old, …).
+			// Only route to Oval/Houndify/OpenAI when NLU has no real command,
+			// or the user explicitly asked a knowledge-style question with no match.
+			if seekIsLocalCommandIntent(intent) {
+				sendIntentGraphResponse(&chippergrpc2.IntentGraphResponse{
+					ResponseType: chippergrpc2.IntentGraphMode_INTENT,
+					IsFinal:      true,
+					IntentResult: &chippergrpc2.IntentResult{
+						Action:     intent,
+						Parameters: iParam,
+					},
+				}, strm.receiver)
+				return
+			}
+
+			// Seek AI fallback for free-form questions when keys are saved.
 			if aiOn && (seekLooksLikeQuestion(text) || intent == "intent_system_noaudio") {
 				if ans := seekAskTextHTTP(text); ans != "" {
 					seekSendAIAnswer(strm, text, ans)

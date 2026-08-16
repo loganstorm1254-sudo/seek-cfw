@@ -21,12 +21,16 @@ elif [ -f ./update-seek.sh ]; then
     chmod 0755 /usr/sbin/update-seek
 fi
 # /data is noexec — install a bash wrapper so `update-os <url>` works like WireOS.
+# Honor /data/keep-update-os so a hand-tuned script survives Seek updates.
 src=""
 if [ -f ./update-os.sh ]; then src=./update-os.sh; elif [ -f ./update-os ]; then src=./update-os; fi
 if [ -n "$src" ]; then
     mkdir -p /data
-    cp "$src" /data/update-os.sh
-    chmod 0644 /data/update-os.sh
+    if [ ! -f /data/keep-update-os ]; then
+        cp "$src" /data/update-os.sh
+        chmod 0644 /data/update-os.sh
+    fi
+    touch /data/keep-update-os
     umount /usr/sbin/update-os 2>/dev/null || true
     mount -o remount,rw / 2>/dev/null || true
     printf '%s\n' '#!/bin/bash' 'exec /bin/bash /data/update-os.sh "$@"' >/usr/sbin/update-os
