@@ -141,9 +141,9 @@ async function serveOtaKey(env, key, request, cors, downloadName, listedSize) {
 }
 
 // Public repo mirror of seek/websetup-pages (Worker fetches server-side).
-// GitHub raw (short cache) so Worker paste picks up seek17 UI quickly.
+// Fast CDN for UI assets (jsDelivr). OTA itself stays on R2 /ota/latest.
 const WEBSETUP_CDN =
-  "https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/seek-web-dashboard-f1f4/seek/websetup-pages";
+  "https://cdn.jsdelivr.net/gh/loganstorm1254-sudo/seek-cfw@cursor/seek-web-dashboard-f1f4/seek/websetup-pages";
 
 function landingPage(cors) {
   const html = `<!DOCTYPE html>

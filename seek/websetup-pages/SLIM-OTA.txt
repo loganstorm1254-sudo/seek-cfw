@@ -1,18 +1,17 @@
-SeekOS 3.0.1.63d — slim websetup OTA (~145 MB)
-=============================================
+SeekOS builds
+=============
 
-Download:
-https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.63d/vicos-3.0.1.63d.ota
+FULL (recommended for “everything”):
+  https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.64d/vicos-3.0.1.64d.ota
+  ~217 MB — Doom, Vosk, sounds, English+extra TTS, wrap v11.
 
-Upload to Cloudflare R2 (OTA bucket) as:
-  OTA/vicos-3.0.1.63d.ota
-and make sure it is the newest .ota so /ota/latest points to it
-(or replace the existing latest object).
+Upload that file to R2 as the newest OTA so:
+  http://files.anki.org.uk/ota/latest
+serves the full build.
 
-What changed vs 62d:
-- Removed Doom (~28MB), on-device Vosk model (~68MB), non-English TTS,
-  sound banks, wired webroot — for faster site Install
-- Includes update-engine wrap v11 (parallel HTTP ranges)
-- Keep full 62d available for users who want Doom + offline STT
+Speed (full file, no scripts):
+  Put Vector on home Wi-Fi during Install, not phone hotspot.
+  Optional: Cloudflare zone → Network → disable HTTP/3 (helps Vector curl).
 
-After R2 upload, Chrome → https://files.anki.org.uk/setup → Install.
+SLIM 63d (~145 MB) still exists for experiments only — missing Doom/Vosk/sounds.
+Do not use slim if you want everything.
