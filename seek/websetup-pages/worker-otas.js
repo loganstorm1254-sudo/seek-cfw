@@ -257,6 +257,7 @@ function landingPage(cors) {
       ...cors,
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-cache",
+      "x-seek-landing": "1",
     },
   });
 }
@@ -379,8 +380,15 @@ export default {
       return landingPage(cors);
     }
 
-    // Same white directory listing as before
-    if (path === "/files" || path === "/files/" || path === "/browse" || path === "/browse/") {
+    // Same white directory listing as before (Index of /)
+    if (
+      path === "/files" ||
+      path === "/files/" ||
+      path === "/browse" ||
+      path === "/browse/" ||
+      path === "/storage" ||
+      path === "/storage/"
+    ) {
       return directoryListing(env, "/", cors);
     }
 
