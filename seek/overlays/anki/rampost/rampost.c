@@ -67,14 +67,11 @@ void set_body_leds(int success, int inRecovery)
   if (!success) {
     ledPayload.ledColors[LED_BACKPACK_FRONT * LED_CHANEL_CT + LED0_RED] = 0xFF;
   }
-  else {   //2 Blues for recovery
+  else {   // Anki DVT/dev: two blues in recovery, three blues on normal boot
     ledPayload.ledColors[LED_BACKPACK_FRONT * LED_CHANEL_CT + LED0_BLUE] = 0xFF;
     ledPayload.ledColors[LED_BACKPACK_MIDDLE * LED_CHANEL_CT + LED0_BLUE] = 0xFF;
-    if (!inRecovery) { // Rainbow lights!
-      ledPayload.ledColors[LED_BACKPACK_FRONT * LED_CHANEL_CT + LED0_RED] = 0xFF;
-      ledPayload.ledColors[LED_BACKPACK_FRONT * LED_CHANEL_CT + LED0_GREEN] = 0xFF;
-      ledPayload.ledColors[LED_BACKPACK_MIDDLE * LED_CHANEL_CT + LED0_RED] = 0xFF;
-      ledPayload.ledColors[LED_BACKPACK_MIDDLE * LED_CHANEL_CT + LED0_GREEN] = 0xFF;
+    if (!inRecovery) {
+      ledPayload.ledColors[LED_BACKPACK_BACK * LED_CHANEL_CT + LED0_BLUE] = 0xFF;
     }
   }
 
