@@ -93,10 +93,10 @@ public:
   // turn mute on or off (reason sent to DAS)
   void ToggleMute(const std::string& reason);
 
-  // SeekOS: triple-click backpack toggles all robot sounds (Wwise master volume)
+  // Triple-click backpack toggles all robot sounds (Wwise master volume)
   void ToggleSoundMute(const std::string& reason);
   bool IsSoundMuted() const { return _soundMuted; }
-  // Draw a small mute glyph into the top-right of a face frame (persistent while muted)
+  // Brief red mute glyph (top-right) for ~1s after mute; not persistent
   void DrawSoundMuteIcon(Vision::ImageRGB565& faceImg) const;
   
   void StartAlexaNotification();
@@ -255,10 +255,12 @@ private:
 
   std::string _sysconVersion = "";
 
-  // SeekOS sound mute (triple-click). Separate from mic mute (double-click).
+  // Sound mute (triple-click). Separate from mic mute (double-click).
   bool _soundMuted = false;
   // Previous Wwise Robot_Vic_Volume state id to restore on unmute (defaults to Medium)
   uint32_t _volumeBeforeSoundMute = 0;
+  // Show mute icon until this timestamp (ms); 0 = hidden
+  u32 _soundMuteIconUntil_ms = 0;
   
   // Reboot Linux
   void Reboot();

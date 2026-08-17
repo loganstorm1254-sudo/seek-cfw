@@ -20,4 +20,10 @@ echo "Applying Seek CFW overlay..."
 # Copy overlay files into the working tree (do not commit submodule dirtiness;
 # branding is owned by this repo under seek/overlays).
 cp -a "${OVERLAY}/." "${ROOT}/"
+
+# Keep DVT confidential splash as the boot movie (replaces stock Anki/WireOS logo).
+if [[ -x "${ROOT}/seek/tools/gen-dvt-boot-anim.py" ]] || [[ -f "${ROOT}/seek/tools/gen-dvt-boot-anim.py" ]]; then
+  python3 "${ROOT}/seek/tools/gen-dvt-boot-anim.py"
+fi
+
 echo "Seek overlay applied."
