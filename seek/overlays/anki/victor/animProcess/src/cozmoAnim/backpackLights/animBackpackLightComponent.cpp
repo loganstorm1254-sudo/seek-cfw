@@ -117,7 +117,15 @@ void BackpackLightComponent::UpdateCriticalBackpackLightConfig(bool isCloudStrea
   {
     trigger = BackpackAnimationTrigger::Off;
   }
-  // If we have been offline for long enough
+  // On charger: stock green pulse until full (priority over offline/muted —
+  // triple-click mute must not hide charging lights on the dock).
+  else if(_isOnChargerContacts &&
+          !_isBatteryFull &&
+          !_isBatteryDisconnected)
+  {
+    trigger = BackpackAnimationTrigger::Charging;
+  }
+  // If we have been offline for long enough (only when not on charger)
   else if(_offlineAtTime_ms > 0 &&
           ((TimeStamp_t)curTime_ms - _offlineAtTime_ms > kOfflineTimeBeforeLights_ms))
   {
@@ -137,14 +145,6 @@ void BackpackLightComponent::UpdateCriticalBackpackLightConfig(bool isCloudStrea
   else if(isNotificationPending)
   {
     trigger = BackpackAnimationTrigger::AlexaNotification;
-  }
-  // If we are on the charger and charging
-  else if(_isOnChargerContacts &&
-          _isBatteryCharging &&
-          !_isBatteryFull &&
-          !_isBatteryDisconnected)
-  {
-    trigger = BackpackAnimationTrigger::Charging;
   }
 
   if(trigger != _internalCriticalLightsTrigger)
@@ -549,11 +549,25 @@ void BackpackLightComponent::UpdateOfflineCheck(bool force)
 
 void BackpackLightComponent::UpdateBatteryStatus(const RobotInterface::BatteryStatus& msg)
 {
+  const bool prevOnCharger = _isOnChargerContacts;
+  const bool prevCharging = _isBatteryCharging;
+  const bool prevFull = _isBatteryFull;
+  const bool prevDisc = _isBatteryDisconnected;
+
   _isBatteryLow = msg.isLow;
   _isBatteryCharging = msg.isCharging;
   _isOnChargerContacts = msg.onChargerContacts;
   _isBatteryFull = msg.isBatteryFull;
   _isBatteryDisconnected = msg.isBatteryDisconnected;
+
+  if (prevOnCharger != _isOnChargerContacts ||
+      prevCharging != _isBatteryCharging ||
+      prevFull != _isBatteryFull ||
+      prevDisc != _isBatteryDisconnected)
+  {
+    // Force Off → Charging transition when dock state changes.
+    _internalCriticalLightsTrigger = BackpackAnimationTrigger::Off;
+  }
 }
 
 }
