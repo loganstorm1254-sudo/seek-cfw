@@ -1,63 +1,36 @@
 # TORRAS Guardian S23 Ultra — replacement buttons
 
-3D-printable replacements for the swappable side buttons on the **TORRAS Guardian Magnetic** case for Galaxy S23 Ultra (Amazon `B0BNNMWCW3`).
+3D-printable replacements for the swappable side buttons on the **TORRAS Guardian Magnetic** case for Galaxy S23 Ultra.
 
-You asked for the volume button. The power button uses the same clip, so that STL is here too.
+The volume rocker is **one pill** with a **center groove** (vol up / vol down), matching the installed original — not two separate buttons.
 
-## Files to print
+## Print this
 
-| File | What it is |
+| File | What |
 | --- | --- |
-| [`torras_s23u_guardian_volume_button.stl`](torras_s23u_guardian_volume_button.stl) | Volume rocker (the long one) |
-| [`torras_s23u_guardian_power_button.stl`](torras_s23u_guardian_power_button.stl) | Power / side key |
-| [`torras_s23u_guardian_volume_button_fitkit.stl`](torras_s23u_guardian_volume_button_fitkit.stl) | Three volume copies at 98 / 100 / 102% XY |
+| [`torras_s23u_guardian_volume_button.stl`](torras_s23u_guardian_volume_button.stl) | Volume rocker |
+| [`torras_s23u_guardian_power_button.stl`](torras_s23u_guardian_power_button.stl) | Power key |
+| [`torras_s23u_guardian_volume_button_fitkit.stl`](torras_s23u_guardian_volume_button_fitkit.stl) | 98 / 100 / 102% XY |
 
-Print the **fit kit** first if your printer tends to run big or small.
+## What it looks like
 
-## Geometry (volume)
+One stadium cap, thin U-groove across the middle, T-slot behind it:
 
-Watertight binary STL, millimeters:
+- Outer cap: **24.40 × 3.80 mm** pill, 1.28 mm thick, edge fillet, groove 0.42 mm deep
+- Stem through the bumper, inner flange **25.20 × 4.70 mm** (the larger side that stays inside)
+- Two pads on the inner face that press the phone’s volume rocker
+- Overall **4.48 mm** tall
 
-- Outer pill: **24.60 × 3.50 × 1.22 mm**
-- Two snap-in legs through the bumper wall, flared barbs on the inside
-- Actuator pads on the inner face that press the phone's volume rocker
-- Overall height **4.39 mm** (outer face to pad tips)
+## Print
 
-The Guardian bumper has a pill-shaped outer pocket and two inner holes split by a TPU bridge. Legs go through those holes; the cap sits in the pocket.
-
-Dimensions are reverse-engineered from the S23 Ultra (163.4 × 78.1 × 8.9 mm), TORRAS product photos, empty-slot photos, and the spare-button card. They are not factory CAD.
-
-## Print settings
-
-- **Orientation:** outer pill face on the bed, legs pointing up
-- **Supports:** none
-- **Layer height:** 0.08–0.12 mm (0.08 extra-fine is ideal for the barbs)
-- **Infill:** 100%
-- **Perimeters:** 3+
-- **Nozzle:** 0.4 mm works; 0.2 mm is nicer
-- **Material:** PETG or tough PLA. TPU 95A also snaps in, closer to a soft original. Avoid brittle PLA — the barbs can snap on first install
-
-Elephant foot on the bed face is fine; it is the outer visible surface. A light brim can help, then peel it.
+- **Orientation:** inner flange on the bed, grooved face pointing **up** (so the split line prints clean)
+- Supports: none
+- Layer height: 0.08–0.12 mm
+- Infill: 100%
+- PETG or tough PLA
 
 ## Install
 
-1. Take the phone out of the case.
-2. From the **outside**, align the two legs with the two holes in the volume pocket.
-3. Press until the barbs click past the bumper (you will feel it).
-4. Put the phone back in. The inner pads should sit on the phone's volume rocker.
+Phone out of the case. The **larger flange goes inside**, small grooved face faces out. Push the outer face through the volume slot from the inside until the flange seats. To remove, push it back out from the inside.
 
-To remove: from the **inside** of the empty case, push the legs outward until the barbs pop through.
-
-## If the fit is wrong
-
-Do **not** scale Z (bumper thickness stays the same). Scale **X and Y only**:
-
-- Too tight / will not click in → 98% XY (already on the fit kit)
-- Rattles or falls out → 102% XY
-
-You can also edit the numbers at the top of `volume_button()` / `power_button()` in [`generate_buttons.py`](generate_buttons.py) and regenerate:
-
-```bash
-pip install trimesh manifold3d numpy
-python3 generate_buttons.py
-```
+If it is tight, use the 98% kit piece and do not scale Z.

@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """Generate printable STLs for TORRAS Guardian Magnetic S23 Ultra replaceable buttons.
 
-The Guardian bumper uses a pill-shaped outer pocket with two inner through-holes
-(volume) or one hole (power), separated by a TPU bridge. The original parts are a
-hard-plastic cap with snap-in legs: insert from the outside, push the extra set
-out from the inside of the empty case.
+Visible face matches the installed volume rocker: one stadium pill with a thin
+center groove (vol up / vol down), slightly proud of the bumper, matte cap.
 
-Dimensions are reverse-engineered from S23 Ultra geometry (163.4 x 78.1 x 8.9 mm),
-product photos of the Magnetic Guardian case (ASIN B0BNNMWCW3), empty-slot photos,
-and the spare-button card. If a print is tight or loose, scale X/Y in the slicer
-by 1–2% (Z stays the same — bumper wall thickness does not change).
+Retention is a T-slot, same as the originals:
+  larger inner flange stays inside the bumper, smaller outer face sits in the
+  pocket. Install from the inside of the empty case; push out from inside to remove.
 
-Units: millimeters. Origin: cap outer-face center, +Z toward the phone.
+Units: millimeters.
+Print orientation: inner flange on the bed, grooved outer face pointing up.
 """
 
 from __future__ import annotations
@@ -24,7 +22,7 @@ import trimesh
 from trimesh.exchange.stl import export_stl
 
 
-SECTIONS = 48
+SECTIONS = 64
 
 
 def _union(meshes: list[trimesh.Trimesh]) -> trimesh.Trimesh:
@@ -34,10 +32,11 @@ def _union(meshes: list[trimesh.Trimesh]) -> trimesh.Trimesh:
     return trimesh.boolean.union(meshes, engine="manifold")
 
 
+def _difference(a: trimesh.Trimesh, b: trimesh.Trimesh) -> trimesh.Trimesh:
+    return trimesh.boolean.difference([a, b], engine="manifold")
+
+
 def stadium_prism(length: float, width: float, height: float, z0: float) -> trimesh.Trimesh:
-    """Extruded stadium (rectangle + semicircle caps) along X, thickness along Z."""
-    if height <= 0 or width <= 0 or length <= 0:
-        raise ValueError("stadium dimensions must be positive")
     radius = width / 2.0
     straight = max(length - width, 0.05)
     box = trimesh.creation.box(extents=[straight, width, height])
@@ -50,30 +49,6 @@ def stadium_prism(length: float, width: float, height: float, z0: float) -> trim
     return mesh
 
 
-def rounded_rect_prism(
-    length: float, width: float, height: float, z0: float, corner_r: float
-) -> trimesh.Trimesh:
-    """Extruded rounded rectangle. Falls back to a stadium if the radius is large."""
-    r = min(corner_r, length / 2.0 - 0.05, width / 2.0 - 0.05)
-    if r <= 0.05:
-        mesh = trimesh.creation.box(extents=[length, width, height])
-        mesh.apply_translation([0.0, 0.0, z0 + height / 2.0])
-        return mesh
-    inner_l = length - 2.0 * r
-    inner_w = width - 2.0 * r
-    x_box = trimesh.creation.box(extents=[length, inner_w, height])
-    y_box = trimesh.creation.box(extents=[inner_l, width, height])
-    corners = []
-    for sx in (-1.0, 1.0):
-        for sy in (-1.0, 1.0):
-            c = trimesh.creation.cylinder(radius=r, height=height, sections=SECTIONS)
-            c.apply_translation([sx * inner_l / 2.0, sy * inner_w / 2.0, 0.0])
-            corners.append(c)
-    mesh = _union([x_box, y_box, *corners])
-    mesh.apply_translation([0.0, 0.0, z0 + height / 2.0])
-    return mesh
-
-
 def frustum_rect(
     length0: float,
     width0: float,
@@ -82,7 +57,6 @@ def frustum_rect(
     height: float,
     z0: float,
 ) -> trimesh.Trimesh:
-    """Convex hull of two rectangles — used for insertion tapers and barbs."""
     z1 = z0 + height
     pts = []
     for z, length, width in ((z0, length0, width0), (z1, length1, width1)):
@@ -98,117 +72,103 @@ def frustum_rect(
     return trimesh.convex.convex_hull(np.array(pts, dtype=float))
 
 
-def snap_leg(
+def grooved_cap(
     *,
-    x: float,
     length: float,
     width: float,
+    height: float,
     z0: float,
-    stem_h: float,
-    barb_overhang: float,
-    barb_h: float,
-    chamfer_h: float,
-    actuator_h: float,
-    actuator_d: float,
+    fillet: float,
+    groove_r: float,
+    groove_depth: float,
 ) -> trimesh.Trimesh:
-    """One snap-in leg: stem through the bumper, flared barb, contact pad."""
-    parts: list[trimesh.Trimesh] = []
-    parts.append(rounded_rect_prism(length, width, stem_h, z0, corner_r=0.45))
-
-    barb_w = width + 2.0 * barb_overhang
-    # Taper in: stem -> full barb (wedges through the TPU hole).
-    parts.append(
-        frustum_rect(
-            length0=length,
-            width0=width,
-            length1=length,
-            width1=barb_w,
-            height=chamfer_h,
-            z0=z0 + stem_h,
-        )
-    )
-    # Short catch shelf that seats on the inside of the bumper.
-    shelf_h = max(barb_h - chamfer_h, 0.18)
-    parts.append(
-        rounded_rect_prism(
-            length, barb_w, shelf_h, z0 + stem_h + chamfer_h, corner_r=0.35
-        )
-    )
-
-    pad_z = z0 + stem_h + barb_h
-    pad = trimesh.creation.cylinder(
-        radius=actuator_d / 2.0, height=actuator_h, sections=SECTIONS
-    )
-    pad.apply_translation([0.0, 0.0, pad_z + actuator_h / 2.0])
-    parts.append(pad)
-
-    leg = _union(parts)
-    leg.apply_translation([x, 0.0, 0.0])
-    return leg
-
-
-def button_cap(length: float, width: float, height: float, chamfer: float) -> trimesh.Trimesh:
-    """Outer pill cap, face at Z=0. Small inner chamfer so it does not print a sharp lip."""
-    body_h = max(height - chamfer, height * 0.7)
-    body = stadium_prism(length, width, body_h, 0.0)
-    if chamfer <= 0.05:
-        return body
-    top = stadium_prism(length - 2.0 * chamfer, width - 2.0 * chamfer, chamfer, body_h)
-    # Chamfer loft between body and inset top.
+    """Outer pill: body + inset top (edge fillet) minus a U-groove across the face."""
+    body_h = max(height - fillet, height * 0.62)
+    body = stadium_prism(length, width, body_h, z0)
     loft = frustum_rect(
         length0=length,
         width0=width,
-        length1=length - 2.0 * chamfer,
-        width1=width - 2.0 * chamfer,
-        height=chamfer,
-        z0=body_h - 0.02,
+        length1=length - 2.0 * fillet,
+        width1=width - 2.0 * fillet,
+        height=fillet + 0.02,
+        z0=z0 + body_h - 0.02,
     )
-    return _union([body, loft, top])
+    top = stadium_prism(
+        length - 2.0 * fillet,
+        width - 2.0 * fillet,
+        max(fillet * 0.35, 0.08),
+        z0 + body_h,
+    )
+    cap = _union([body, loft, top])
+
+    # Cylinder along Y cuts a U-groove at the outer face, full width.
+    face_z = z0 + height
+    cutter = trimesh.creation.cylinder(
+        radius=groove_r, height=width + 1.6, sections=SECTIONS
+    )
+    cutter.apply_transform(
+        trimesh.transformations.rotation_matrix(np.pi / 2.0, [1.0, 0.0, 0.0])
+    )
+    # Sink the cutter so the groove depth is groove_depth at center.
+    cutter.apply_translation([0.0, 0.0, face_z - groove_depth + groove_r])
+    return _difference(cap, cutter)
 
 
 def volume_button() -> trimesh.Trimesh:
-    # Reverse-engineered for TORRAS Guardian Magnetic / Guardian S23 Ultra.
-    cap_l, cap_w, cap_h = 24.60, 3.50, 1.22
-    cap = button_cap(cap_l, cap_w, cap_h, chamfer=0.28)
+    # S23 Ultra volume rocker ~20.5 mm; case cap a bit longer/wider to fill the pocket.
+    cap_l, cap_w, cap_h = 24.40, 3.80, 1.28
+    stem_l, stem_w, stem_h = 23.10, 2.85, 1.95
+    flange_l, flange_w, flange_h = 25.20, 4.70, 0.78
+    nub_h, nub_d = 0.55, 1.90
+    nub_span = 11.20  # center-to-center of vol-up / vol-down pads
 
-    leg_l, leg_w = 8.10, 2.50
-    inset = 1.55  # cap-end to outer end of each leg
-    # Centers of the two legs (volume up / volume down).
-    half_span = (cap_l / 2.0) - inset - (leg_l / 2.0)
-    legs = [
-        snap_leg(
-            x=sx * half_span,
-            length=leg_l,
-            width=leg_w,
-            z0=cap_h - 0.05,
-            stem_h=2.05,
-            barb_overhang=0.42,
-            barb_h=0.62,
-            chamfer_h=0.42,
-            actuator_h=0.55,
-            actuator_d=2.10,
+    flange = stadium_prism(flange_l, flange_w, flange_h, nub_h)
+    stem = stadium_prism(stem_l, stem_w, stem_h, nub_h + flange_h - 0.04)
+    cap_z = nub_h + flange_h + stem_h - 0.08
+    cap = grooved_cap(
+        length=cap_l,
+        width=cap_w,
+        height=cap_h,
+        z0=cap_z,
+        fillet=0.38,
+        groove_r=0.22,
+        groove_depth=0.42,
+    )
+    nubs = []
+    for sx in (-0.5, 0.5):
+        nub = trimesh.creation.cylinder(
+            radius=nub_d / 2.0, height=nub_h + 0.06, sections=SECTIONS
         )
-        for sx in (-1.0, 1.0)
-    ]
-    return _union([cap, *legs])
+        nub.apply_translation([sx * nub_span, 0.0, (nub_h + 0.06) / 2.0])
+        nubs.append(nub)
+    return _union([flange, stem, cap, *nubs])
 
 
 def power_button() -> trimesh.Trimesh:
-    cap_l, cap_w, cap_h = 9.80, 3.50, 1.22
-    cap = button_cap(cap_l, cap_w, cap_h, chamfer=0.28)
-    leg = snap_leg(
-        x=0.0,
-        length=6.20,
-        width=2.50,
-        z0=cap_h - 0.05,
-        stem_h=2.05,
-        barb_overhang=0.42,
-        barb_h=0.62,
-        chamfer_h=0.42,
-        actuator_h=0.55,
-        actuator_d=2.10,
+    cap_l, cap_w, cap_h = 9.70, 3.80, 1.28
+    stem_l, stem_w, stem_h = 8.40, 2.85, 1.95
+    flange_l, flange_w, flange_h = 10.50, 4.70, 0.78
+    nub_h, nub_d = 0.55, 1.90
+
+    flange = stadium_prism(flange_l, flange_w, flange_h, nub_h)
+    stem = stadium_prism(stem_l, stem_w, stem_h, nub_h + flange_h - 0.04)
+    cap_z = nub_h + flange_h + stem_h - 0.08
+    cap = stadium_prism(cap_l, cap_w, cap_h, cap_z)
+    # Small fillet on power cap via inset loft.
+    loft = frustum_rect(
+        length0=cap_l,
+        width0=cap_w,
+        length1=cap_l - 0.76,
+        width1=cap_w - 0.76,
+        height=0.40,
+        z0=cap_z + cap_h - 0.40,
     )
-    return _union([cap, leg])
+    cap = _union([cap, loft])
+    nub = trimesh.creation.cylinder(
+        radius=nub_d / 2.0, height=nub_h + 0.06, sections=SECTIONS
+    )
+    nub.apply_translation([0.0, 0.0, (nub_h + 0.06) / 2.0])
+    return _union([flange, stem, cap, nub])
 
 
 def scaled_xy(mesh: trimesh.Trimesh, factor: float) -> trimesh.Trimesh:
@@ -218,12 +178,10 @@ def scaled_xy(mesh: trimesh.Trimesh, factor: float) -> trimesh.Trimesh:
 
 
 def fit_kit(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
-    """98 / 100 / 102% XY copies, spaced so they slice as three separate parts."""
     copies = []
     for i, factor in enumerate((0.98, 1.00, 1.02)):
         part = scaled_xy(mesh, factor)
-        # Shift along Y so they sit side-by-side on the bed.
-        part.apply_translation([0.0, i * 8.5 - 8.5, 0.0])
+        part.apply_translation([0.0, i * 10.0 - 10.0, 0.0])
         copies.append(part)
     return trimesh.util.concatenate(copies)
 
@@ -243,33 +201,24 @@ def finalize(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
 def write_stl(mesh: trimesh.Trimesh, path: Path) -> None:
     mesh = finalize(mesh)
     path.parent.mkdir(parents=True, exist_ok=True)
-    # numpy-stl / trimesh binary STL
-    data = export_stl(mesh)
-    path.write_bytes(data)
-    extents = mesh.extents
+    path.write_bytes(export_stl(mesh))
+    e = mesh.extents
     print(
         f"wrote {path.name:48s}  "
-        f"{extents[0]:6.2f} x {extents[1]:5.2f} x {extents[2]:5.2f} mm  "
+        f"{e[0]:6.2f} x {e[1]:5.2f} x {e[2]:5.2f} mm  "
         f"watertight={mesh.is_watertight}  volume={mesh.volume:.2f} mm^3"
     )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-o",
-        "--outdir",
-        type=Path,
-        default=Path(__file__).resolve().parent,
-    )
+    parser.add_argument("-o", "--outdir", type=Path, default=Path(__file__).resolve().parent)
     args = parser.parse_args()
-    outdir: Path = args.outdir
-
     volume = volume_button()
     power = power_button()
-    write_stl(volume, outdir / "torras_s23u_guardian_volume_button.stl")
-    write_stl(power, outdir / "torras_s23u_guardian_power_button.stl")
-    write_stl(fit_kit(volume), outdir / "torras_s23u_guardian_volume_button_fitkit.stl")
+    write_stl(volume, args.outdir / "torras_s23u_guardian_volume_button.stl")
+    write_stl(power, args.outdir / "torras_s23u_guardian_power_button.stl")
+    write_stl(fit_kit(volume), args.outdir / "torras_s23u_guardian_volume_button_fitkit.stl")
 
 
 if __name__ == "__main__":
