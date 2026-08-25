@@ -70,8 +70,8 @@
 #include <sys/reboot.h>
 #endif
 
-// Stock Anki-style: no custom OS/creator lines on face menus
-const std::string OSProject = "";
+// Stock Anki-style face menu branding (double-click → lift → Main)
+const std::string OSProject = "Anki";
 const std::string Creator = "";
 const std::string CreatorWebsite = "";
 
@@ -1357,9 +1357,12 @@ void FaceInfoScreenManager::DrawMain()
 
   const std::string hwVer    = "HW: "   + std::to_string(IsXray() ? 8 : Factory::GetEMR()->fields.HW_VER);
 
-  // Always show OS version on Main (double-click CCIS) — stock Anki VER: line.
-  // Prefer ro.anki.version via GetOSBuildVersion(); never hide it behind SHA.
+  // Double-click → lift arm → Main: show OS + version clearly (WireOS used to show OS: WireOS here).
+  const std::string osProject = "OS: " + OSProject;
   std::string osVer = "VER: " + osstate->GetOSBuildVersion();
+  if (osVer == "VER: " || osVer == "VER:") {
+    osVer = "VER: unknown";
+  }
 
   const std::string ssid     = "SSID: " + osstate->GetSSID(true);
 
@@ -1368,9 +1371,9 @@ void FaceInfoScreenManager::DrawMain()
     ip = "XXX.XXX.XXX.XXX";
   }
 
-  // ESN/serialNo and the HW version are drawn on the same line with serialNo default left aligned and
-  // HW version right aligned. No custom OS/project name (stock Anki look).
+  // ESN + HW on one line; then OS / VER / SSID / IP (stock Anki CCIS Main layout).
   ColoredTextLines lines = { { {serialNo}, {hwVer, NamedColors::WHITE, false} },
+                             {osProject},
                              {osVer},
                              {ssid}, 
 #if FACTORY_TEST
@@ -1522,10 +1525,11 @@ void FaceInfoScreenManager::DrawSensorInfo(const RobotState& state)
 
 void FaceInfoScreenManager::DrawBuildInfo() {
   auto *osstate = OSState::getInstance();
-  // Stock-style build screen: version + sha only (no OS name / creator)
+  // Build debug screen: OS name + version (same values as Main)
+  const std::string osProject = "OS: " + OSProject;
   const std::string osVer = "VER: " + osstate->GetOSBuildVersion();
   const std::string sha = "SHA: " + osstate->GetBuildSha();
-  DrawTextOnScreen({osVer, sha});
+  DrawTextOnScreen({osProject, osVer, sha});
 }
 
 void FaceInfoScreenManager::DrawIMUInfo(const RobotState& state)
