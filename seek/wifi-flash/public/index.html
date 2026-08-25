@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Seek Wi‑Fi Flash</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="wrap">
+    <h1>Seek Wi‑Fi Flash</h1>
+    <p class="lede">Your PC → Vector’s Wi‑Fi → SSH → downloads OTA from GitHub. No Cloudflare, no BLE.</p>
+
+    <label>OS release <span id="releaseStatus" class="hint"></span></label>
+    <select id="releaseSelect" disabled><option>Loading GitHub…</option></select>
+
+    <label>Vector IP <span class="hint">same Wi‑Fi as this computer</span></label>
+    <input type="text" id="ip" placeholder="192.168.43.3" autocomplete="off" value="192.168.43.3">
+
+    <label>SSH private key <span class="hint">ssh_root_key from unlock</span></label>
+    <input type="file" id="keyFile" accept=".pem,.key,*">
+
+    <button type="button" id="btnFlash" disabled>Flash from GitHub</button>
+    <button type="button" id="btnRefresh" class="secondary">Refresh releases</button>
+
+    <pre id="log" aria-live="polite"></pre>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
