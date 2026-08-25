@@ -53,9 +53,7 @@ const char* kPathToExternalIndependentSprites = "assets/sprites/independentSprit
 const char* kPathToEngineIndependentSprites = "config/sprites/independentSprites/";
 const char* kPathToExternalSpriteSequences = "assets/sprites/spriteSequences/";
 const char* kPathToEngineSpriteSequences   = "config/sprites/spriteSequences/";
-const char* kPathToEngineBackpackLightsWireOS = "config/engine/lights/backpackLightsWireOS/";
 const char* kPathToEngineBackpackLightsAnki = "config/engine/lights/backpackLightsAnki/";
-const char* kPathToEngineBackpackLightsUser = "../../../../data/data/customBackpackLights/";
 const char* kProceduralAnimName = "_PROCEDURAL_";
 
 }
