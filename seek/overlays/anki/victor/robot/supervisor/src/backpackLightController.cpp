@@ -111,7 +111,7 @@ namespace BackpackLightController {
     const u16 kTimeDiff_ms = 600;
     for(u8 i = 0; i < (u8)LEDId::NUM_BACKPACK_LEDS; i++)
     {
-      const u32 color = 0x80008000; // AARRGGBB soft green
+      const u32 color = 0x008000FF; // RGBA soft green
     
       _ledParams[(int)BackpackLightLayer::BPL_USER].lights[i] = {
         .onColor = color,
