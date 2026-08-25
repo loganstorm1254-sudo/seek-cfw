@@ -4,6 +4,12 @@ Flash SeekOS over **Vector’s Wi‑Fi** from your PC. Upload your SSH key, ente
 
 Runs a tiny **local** server on your machine (SSH from the browser isn’t possible; this handles it for you).
 
+## Download (no git)
+
+**https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.17d-dvt/seek-wifi-flash.zip**
+
+Unzip → `npm install` → `npm start` → http://127.0.0.1:3847
+
 ## Quick start
 
 ```bash
