@@ -70,10 +70,10 @@
 #include <sys/reboot.h>
 #endif
 
-// CHANGE THIS TO BE YOUR PROJECT'S STUFF
-const std::string OSProject = "SeekOS";
-const std::string Creator = "By Logan / Seek CFW";
-const std::string CreatorWebsite = "github.com/loganstorm1254-sudo/seek-cfw";
+// Stock Anki-style face menu branding (double-click → lift → Main)
+const std::string OSProject = "Anki";
+const std::string Creator = "";
+const std::string CreatorWebsite = "";
 
 // Log options
 #define LOG_CHANNEL    "FaceInfoScreenManager"
@@ -1357,24 +1357,21 @@ void FaceInfoScreenManager::DrawMain()
 
   const std::string hwVer    = "HW: "   + std::to_string(IsXray() ? 8 : Factory::GetEMR()->fields.HW_VER);
 
-  const std::string osProject    = "OS: " + OSProject;
-
-  // osVer will be sha if deployed build
+  // Double-click → lift arm → Main: show OS + version clearly (WireOS used to show OS: WireOS here).
+  const std::string osProject = "OS: " + OSProject;
   std::string osVer = "VER: " + osstate->GetOSBuildVersion();
+  if (osVer == "VER: " || osVer == "VER:") {
+    osVer = "VER: unknown";
+  }
 
   const std::string ssid     = "SSID: " + osstate->GetSSID(true);
-
-  if (isDeployed()) {
-    osVer      = "SHA: "  + osstate->GetBuildSha();
-  }
 
   std::string ip             = osstate->GetIPAddress();
   if (ip.empty()) {
     ip = "XXX.XXX.XXX.XXX";
   }
 
-  // ESN/serialNo and the HW version are drawn on the same line with serialNo default left aligned and
-  // HW version right aligned.
+  // ESN + HW on one line; then OS / VER / SSID / IP (stock Anki CCIS Main layout).
   ColoredTextLines lines = { { {serialNo}, {hwVer, NamedColors::WHITE, false} },
                              {osProject},
                              {osVer},
@@ -1528,13 +1525,11 @@ void FaceInfoScreenManager::DrawSensorInfo(const RobotState& state)
 
 void FaceInfoScreenManager::DrawBuildInfo() {
   auto *osstate = OSState::getInstance();
+  // Build debug screen: OS name + version (same values as Main)
   const std::string osProject = "OS: " + OSProject;
-  const std::string branch = "BRANCH: " + osstate->GetBuildBranch();
   const std::string osVer = "VER: " + osstate->GetOSBuildVersion();
   const std::string sha = "SHA: " + osstate->GetBuildSha();
-  const std::string creator = Creator;
-  const std::string creatorWebsite = CreatorWebsite;
-  DrawTextOnScreen({osProject, branch, osVer, sha, creator, creatorWebsite});
+  DrawTextOnScreen({osProject, osVer, sha});
 }
 
 void FaceInfoScreenManager::DrawIMUInfo(const RobotState& state)
@@ -2072,6 +2067,13 @@ void FaceInfoScreenManager::ToggleSoundMute(const std::string& reason)
   _soundMuted = !_soundMuted;
   ApplySoundMuteState();
 
+  // Brief red mute icon for 1s when muting; clear immediately on unmute
+  if (_soundMuted) {
+    _soundMuteIconUntil_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp() + 1000;
+  } else {
+    _soundMuteIconUntil_ms = 0;
+  }
+
   // Persist like mic mute
   std::string persistentFolder;
   if (_context != nullptr) {
@@ -2098,23 +2100,24 @@ void FaceInfoScreenManager::ToggleSoundMute(const std::string& reason)
 
 void FaceInfoScreenManager::DrawSoundMuteIcon(Vision::ImageRGB565& faceImg) const
 {
-  if (!_soundMuted) {
+  if (_soundMuteIconUntil_ms == 0) {
+    return;
+  }
+  const u32 now_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp();
+  if (now_ms > _soundMuteIconUntil_ms) {
     return;
   }
 
-  // Clear, high-contrast mute badge in the top-right
+  // Small red mute badge in the top-right (1 second flash)
   const s32 boxW = 22;
   const s32 boxH = 16;
   const s32 margin = 2;
   const s32 x0 = FACE_DISPLAY_WIDTH - boxW - margin;
   const s32 y0 = margin;
 
-  // Dark backdrop so it reads on bright eyes
   faceImg.DrawFilledRect(Rectangle<s32>(x0, y0, boxW, boxH), ColorRGBA(0.f, 0.f, 0.f));
-  // White speaker
   faceImg.DrawFilledRect(Rectangle<s32>(x0 + 3, y0 + 5, 6, 6), NamedColors::WHITE);
   faceImg.DrawFilledRect(Rectangle<s32>(x0 + 9, y0 + 3, 3, 10), NamedColors::WHITE);
-  // Red mute slash
   faceImg.DrawLine(Point2f((f32)(x0 + 2), (f32)(y0 + boxH - 3)),
                    Point2f((f32)(x0 + boxW - 3), (f32)(y0 + 2)),
                    NamedColors::RED,

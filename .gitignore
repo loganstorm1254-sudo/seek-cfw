@@ -10,3 +10,8 @@ bb-files.txt
 /vm-deps-installed
 /anki-deps
 /old-toolchain
+
+# Generated at apply-overlay time
+seek/overlays/anki/victor/resources/config/engine/animations/boot_anim.raw
+seek/overlays/anki/victor/resources/config/engine/animations/boot_anim_20.raw
+

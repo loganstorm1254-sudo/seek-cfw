@@ -1,0 +1,186 @@
+/* Seek websetup — Cloudflare Pages UI */
+:root {
+  --seek-bg: #0a0a0c;
+  --seek-panel: #121218;
+  --seek-accent: #0097a8;
+  --seek-text: #e8eef2;
+  --seek-muted: #8a939c;
+  --seek-border: #2a2a35;
+  --seek-err: #f87171;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: var(--seek-bg);
+  color: var(--seek-text);
+  min-height: 100vh;
+}
+
+.seek-header {
+  padding: 1.25rem 1.5rem 0;
+  border-bottom: 1px solid var(--seek-border);
+  background: var(--seek-panel);
+}
+
+.seek-header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.seek-header p {
+  margin: 0 0 1rem;
+  color: var(--seek-muted);
+  font-size: 0.92rem;
+}
+
+.seek-tabs {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.seek-tabs button {
+  background: transparent;
+  border: 1px solid var(--seek-border);
+  color: var(--seek-muted);
+  padding: 0.5rem 1rem;
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.seek-tabs button.active {
+  background: var(--seek-bg);
+  color: var(--seek-text);
+  border-bottom-color: var(--seek-bg);
+}
+
+.seek-main { padding: 1.25rem 1.5rem 2rem; max-width: 720px; margin: 0 auto; }
+
+[data-seek-panel] { display: block; }
+[data-seek-panel][hidden] { display: none !important; }
+
+.seek-card {
+  background: var(--seek-panel);
+  border: 1px solid var(--seek-border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.seek-card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
+
+.seek-field {
+  display: block;
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  margin: 0.5rem 0 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--seek-border);
+  background: #0e0e14;
+  color: var(--seek-text);
+  font-size: 1rem;
+}
+
+.seek-btn {
+  display: inline-block;
+  background: var(--seek-accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.65rem 1.25rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.seek-btn.secondary {
+  background: transparent;
+  border: 1px solid var(--seek-border);
+  color: var(--seek-text);
+}
+
+.seek-note {
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+  color: var(--seek-muted);
+  line-height: 1.45;
+}
+
+.seek-note-err { color: var(--seek-err); }
+
+.seek-meta {
+  font-size: 0.85rem;
+  color: var(--seek-muted);
+  word-break: break-all;
+}
+
+.seek-meta code {
+  color: var(--seek-accent);
+}
+
+textarea.seek-field {
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  min-height: 120px;
+  resize: vertical;
+}
+
+progress { width: 100%; height: 8px; margin-top: 0.75rem; }
+
+/* vector-web-setup containers inside BLE tab */
+#panel-ble .vec-panel-container {
+  background: var(--seek-panel);
+  border: 1px solid var(--seek-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+#panel-ble .vec-shell { display: none !important; }
+
+#panel-ble .vec-panel-ui { flex: 1 1 auto !important; min-height: 320px; }
+
+#panel-ble .vec-container { padding: 1rem; }
+
+#panel-ble .vec-btn, #panel-ble .vec-field {
+  border-radius: 8px;
+}
+
+.seek-chrome-warn {
+  padding: 0.75rem 1rem;
+  background: #1a1a24;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  color: var(--seek-muted);
+  margin-bottom: 1rem;
+}
+
+.seek-chrome-warn a { color: var(--seek-accent); }
+
+.seek-footer {
+  text-align: center;
+  padding: 2rem 1rem;
+  font-size: 0.8rem;
+  color: var(--seek-muted);
+}
+
+.seek-footer a { color: var(--seek-accent); }
+
+ol.seek-steps { padding-left: 1.25rem; line-height: 1.6; color: var(--seek-muted); }
+.seek-release-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.seek-release-actions a.seek-btn {
+  text-decoration: none;
+  display: inline-block;
+  text-align: center;
+}

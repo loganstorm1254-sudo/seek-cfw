@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#000000">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <title>Vector Demo</title>
+    <link rel="stylesheet" href="css/anki-demo.css?v=a16d">
+</head>
+<body>
+    <main class="page">
+        <img class="logo" src="images/logo_vectortitle.png" alt="Vector" width="370" height="94">
+        <div class="confidential">DEMO  -  CONFIDENTIAL</div>
+        <hr class="rule">
+
+        <div id="netInfoBox" class="sr-only" aria-hidden="true">
+            <p id="netSsid"></p>
+            <p id="netLanIp" hidden></p>
+            <p id="netPhoneUrl" hidden></p>
+            <p id="netPhoneUrl8080" hidden></p>
+            <p id="netHotspotHint" hidden></p>
+            <ul id="netAddrList"></ul>
+        </div>
+
+        <p id="seekStatus" class="status" hidden></p>
+
+        <!-- Classic demoEngine controls -->
+        <div class="row">
+            <select id="eyePreset" class="listbox" aria-label="Eye Color">
+                <option value="0">Teal</option>
+                <option value="1">Orange</option>
+                <option value="2">Yellow</option>
+                <option value="3">Lime Green</option>
+                <option value="4">Azure Blue</option>
+                <option value="5" selected>Purple</option>
+                <option value="6">Matrix Green</option>
+                <option value="7">Rainbow</option>
+                <option value="8">Robot Red</option>
+            </select>
+            <label for="eyePreset">Eye Color</label>
+        </div>
+
+        <div class="row">
+            <select id="masterVolume" class="listbox" aria-label="Master Volume">
+                <option value="0">Mute</option>
+                <option value="1">Low</option>
+                <option value="2">Medium Low</option>
+                <option value="3">Medium</option>
+                <option value="4">Medium High</option>
+                <option value="5" selected>High</option>
+            </select>
+            <label for="masterVolume">Master Volume</label>
+        </div>
+
+        <div class="row">
+            <select id="eyeMode" class="listbox" hidden aria-hidden="true">
+                <option value="preset" selected>Preset</option>
+                <option value="custom">Custom</option>
+            </select>
+            <div id="eyePresetControls" hidden></div>
+            <div id="eyeCustomControls" hidden>
+                <input type="range" id="eyeHue" min="0" max="1" step="0.01" value="0.35">
+                <b id="eyeHueVal">0.35</b>
+                <input type="range" id="eyeSat" min="0" max="1" step="0.01" value="1">
+                <b id="eyeSatVal">1.00</b>
+            </div>
+            <button type="button" id="btnEye" hidden>Apply eyes</button>
+            <button type="button" id="btnVolume" hidden>Apply volume</button>
+        </div>
+
+        <div class="row">
+            <input type="file" id="eyeOverlayFile" accept="image/*">
+            <button type="button" class="ui-button" id="btnEyeOverlayApply">Apply eye overlay</button>
+            <button type="button" class="ui-button danger" id="btnEyeOverlayClear">Clear eye overlay</button>
+        </div>
+        <canvas id="eyeOverlayPreview" width="184" height="96" class="eye-overlay-preview" hidden></canvas>
+        <p id="eyeOverlayStatus" class="hint"></p>
+
+        <hr class="rule">
+
+        <p class="section-title">Drive</p>
+        <p class="hint">Take control, then hold the pad or WASD. Camera starts automatically.</p>
+        <div id="driveArmed" class="drive-armed">Not armed — tap Take control</div>
+        <div class="drive-layout">
+            <div>
+                <div class="touch-pad" id="touchPad" aria-label="Drive pad">
+                    <button type="button" class="pad-btn pad-n" data-f="1" data-t="0">▲</button>
+                    <button type="button" class="pad-btn pad-w" data-f="0" data-t="1">◀</button>
+                    <button type="button" class="pad-btn pad-s" data-f="-1" data-t="0">▼</button>
+                    <button type="button" class="pad-btn pad-e" data-f="0" data-t="-1">▶</button>
+                    <button type="button" class="pad-btn pad-stop" data-f="0" data-t="0">■</button>
+                </div>
+                <p class="hint">Desktop: WASD · Q/E head · R/F lift · Space stop</p>
+                <div class="row">
+                    <label for="driveSpeed">Speed <b id="driveSpeedVal">60</b> mm/s</label>
+                    <input type="range" id="driveSpeed" min="20" max="120" step="5" value="60">
+                </div>
+                <div class="row">
+                    <button type="button" class="ui-button" id="btnArmDrive">Take control</button>
+                    <button type="button" class="ui-button danger" id="btnRelease">Release</button>
+                    <button type="button" class="ui-button" id="btnCamStart">Camera on</button>
+                    <button type="button" class="ui-button" id="btnCamStop">Camera off</button>
+                </div>
+            </div>
+            <div class="cam-wrap">
+                <img id="cameraView" alt="Vector camera" width="640" height="360">
+            </div>
+        </div>
+
+        <hr class="rule">
+
+        <p class="section-title">Play video on face</p>
+        <p class="hint">Phone-friendly: decode on device, ~5 fps. Keep clips short.</p>
+        <div class="row">
+            <input type="file" id="videoFile" accept=".mp4,video/mp4,video/*">
+        </div>
+        <div class="row">
+            <label for="videoFps">FPS</label>
+            <input type="number" id="videoFps" min="1" max="10" value="5">
+            <label for="videoFit">Fit</label>
+            <select id="videoFit" class="listbox">
+                <option value="cover" selected>Cover</option>
+                <option value="contain">Contain</option>
+            </select>
+            <label for="videoWithAudio">Audio</label>
+            <select id="videoWithAudio" class="listbox">
+                <option value="1" selected>With audio</option>
+                <option value="0">Video only</option>
+            </select>
+        </div>
+        <div class="row">
+            <button type="button" class="ui-button" id="videoPlayBtn">Play video</button>
+            <button type="button" class="ui-button danger" id="btnStopMedia">Stop</button>
+        </div>
+        <canvas id="seekVideoCanvas" width="184" height="96" aria-label="Face preview"></canvas>
+
+        <hr class="rule">
+
+        <div class="row">
+            <button type="button" class="ui-button danger" id="btnStopVector">Stop Vector</button>
+            <button type="button" class="ui-button danger" id="btnRestartVector">Restart Vector Processes</button>
+            <button type="button" class="ui-button danger" id="btnRestartRobot">Restart Robot</button>
+        </div>
+        <div id="disp_stop_message" class="footer-msg"></div>
+
+        <!-- Hidden stubs so seek-dashboard.js bindings stay quiet -->
+        <div hidden aria-hidden="true">
+            <input type="file" id="otaFile">
+            <progress id="otaProgress" max="100" value="0"></progress>
+            <p id="otaStatus"></p>
+            <button type="button" id="btnOtaInstall"></button>
+            <button type="button" id="btnApplyAnkiLights"></button>
+            <button type="button" id="btnApplySeekLights"></button>
+            <p id="seekLightsStatus"></p>
+            <select id="seekVoice"><option value="robot">robot</option></select>
+            <input type="text" id="sayText">
+            <button type="button" id="btnSay"></button>
+            <input type="password" id="ovalKey">
+            <p id="ovalKeyStatus"></p>
+            <button type="button" id="btnSaveOval"></button>
+            <button type="button" id="btnClearOval"></button>
+            <button type="button" id="btnTestOval"></button>
+            <input type="password" id="openaiKey">
+            <p id="openaiKeyStatus"></p>
+            <button type="button" id="btnSaveOpenAI"></button>
+            <button type="button" id="btnClearOpenAI"></button>
+            <button type="button" id="btnTestOpenAI"></button>
+            <input type="text" id="houndifyClientId">
+            <input type="password" id="houndifyClientKey">
+            <p id="houndifyStatus"></p>
+            <button type="button" id="btnSaveHoundify"></button>
+            <button type="button" id="btnClearHoundify"></button>
+            <button type="button" id="btnTestHoundify"></button>
+            <input type="text" id="askAIText">
+            <button type="button" id="btnAskAI"></button>
+            <button type="button" id="btnAskAIMic"></button>
+            <textarea id="askAIAnswer"></textarea>
+            <button type="button" id="btnCopyAIAnswer"></button>
+            <input type="file" id="audioFile">
+            <input type="range" id="audioPlayVolume" min="0" max="100" value="100">
+            <b id="audioPlayVolVal">100</b>
+            <button type="button" id="btnAudio"></button>
+            <input type="checkbox" id="linkMasterToggle">
+            <p id="linkStatus"></p>
+            <div id="linkPeerList"></div>
+            <button type="button" id="btnLinkRefresh"></button>
+            <input type="text" id="linkManualIP">
+            <button type="button" id="btnLinkAddIP"></button>
+            <button type="button" id="btnMacarena"></button>
+            <button type="button" id="btnMacarenaStop"></button>
+            <p id="macarenaSyncHint"></p>
+            <button type="button" id="btnListen"></button>
+            <div id="movesFavorites"></div>
+            <input type="text" id="meetName" value="friend">
+            <button type="button" id="btnMeet"></button>
+            <div id="movesIntents"></div>
+            <div id="movesAnims"></div>
+            <button type="button" id="btnDoomStart"></button>
+            <button type="button" id="btnDoomStop"></button>
+            <input type="checkbox" id="doomSfx">
+            <div id="doomPad"></div>
+        </div>
+    </main>
+    <noscript><p class="status err">JavaScript is required.</p></noscript>
+    <script src="js/seek-dashboard.js?v=a16d" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load dashboard script — hard refresh.';}})();"></script>
+    <script>
+    (function () {
+        function $(id) { return document.getElementById(id); }
+        function api(path) {
+            return fetch('/api/mods/SeekDashboard/' + path, { method: 'POST', credentials: 'same-origin' });
+        }
+        function msg(t) {
+            var el = $('disp_stop_message');
+            if (el) el.textContent = t || '';
+        }
+        function confirmAct(label, fn) {
+            if (!window.confirm(label + '\n\nAre you sure?')) return;
+            fn();
+        }
+        // Demo-style: changing selects applies immediately
+        var eye = $('eyePreset');
+        if (eye) {
+            eye.addEventListener('change', function () {
+                var mode = $('eyeMode');
+                if (mode) mode.value = 'preset';
+                if (typeof seekSetEyeColor === 'function') seekSetEyeColor();
+                else api('setEyeColor?mode=preset&preset=' + encodeURIComponent(eye.value));
+            });
+        }
+        var vol = $('masterVolume');
+        if (vol) {
+            vol.addEventListener('change', function () {
+                if (typeof seekSetVolume === 'function') seekSetVolume();
+                else api('setVolume?volume=' + encodeURIComponent(vol.value));
+            });
+        }
+        var stop = $('btnStopVector');
+        if (stop) stop.addEventListener('click', function () {
+            confirmAct('Stop Vector:', function () {
+                msg('Shutting Vector down; this webpage will no longer be active. You must physically restart Vector, then refresh this page after a few seconds.');
+                api('systemStop');
+            });
+        });
+        var restart = $('btnRestartVector');
+        if (restart) restart.addEventListener('click', function () {
+            confirmAct('Restart Vector:', function () {
+                msg('Restarting Vector processes. After a few seconds, refresh this page.');
+                api('systemRestartProcesses');
+            });
+        });
+        var reboot = $('btnRestartRobot');
+        if (reboot) reboot.addEventListener('click', function () {
+            confirmAct('Restart Robot:', function () {
+                msg('Restarting robot. After several seconds, place robot on charger, and after several more seconds, refresh this page.');
+                api('systemReboot');
+            });
+        });
+        setTimeout(function () {
+            if (!window.__seekLoaded) {
+                var e = $('seekStatus');
+                if (e) {
+                    e.hidden = false;
+                    e.className = 'status err';
+                    e.textContent = 'Script did not run. Hard-refresh on the same Wi‑Fi as Vector.';
+                }
+            }
+        }, 2500);
+    })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,241 @@
+/* Anki Vector Demo — confidential console look (matches :8888/demo.html) */
+
+:root {
+    --bg: #000000;
+    --ink: #ffffff;
+    --muted: #cccccc;
+    --confidential: #0000ff;
+    --salmon: darksalmon;
+    --btn-bg: #555555;
+    --btn-border: #666666;
+    --btn-hover: #0078a3;
+    --field-bg: #555555;
+    --line: #666666;
+    --font: "Segoe UI", Arial, Helvetica, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html {
+    color-scheme: dark;
+    touch-action: manipulation;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    min-height: 100dvh;
+    color: var(--ink);
+    font-family: var(--font);
+    font-size: 1.05em;
+    background: var(--bg);
+    -webkit-tap-highlight-color: transparent;
+}
+
+.page {
+    width: min(1100px, calc(100% - 1.25rem));
+    margin: 0 auto;
+    padding: 0.75rem 0 2.5rem;
+}
+
+.logo {
+    display: block;
+    margin: 0.35rem auto 0.55rem;
+    width: min(370px, 55vw);
+    height: auto;
+}
+
+.confidential {
+    color: var(--confidential);
+    font-size: 18pt;
+    text-align: center;
+    font-weight: 400;
+    margin: 0 0 0.65rem;
+    letter-spacing: 0.02em;
+}
+
+hr.rule {
+    border: 0;
+    border-top: 1px solid var(--line);
+    margin: 0.85rem 0;
+}
+
+.row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.55rem 0.75rem;
+    margin: 0 0 0.85rem;
+}
+
+.row label {
+    color: var(--ink);
+    font-weight: 600;
+}
+
+select.listbox,
+input[type="number"],
+input[type="range"],
+input[type="file"],
+input[type="text"] {
+    font: inherit;
+    color: var(--ink);
+    background: var(--field-bg);
+    border: 1px solid var(--btn-border);
+    border-radius: 6px;
+    padding: 0.45rem 0.65rem;
+    min-height: 2.35rem;
+}
+
+select.listbox {
+    min-width: 9.5rem;
+}
+
+button,
+.ui-button {
+    font: inherit;
+    font-weight: 700;
+    color: var(--ink);
+    background: var(--btn-bg);
+    border: 1px solid var(--btn-border);
+    border-radius: 6px;
+    padding: 0.45rem 0.85rem;
+    min-height: 2.4rem;
+    cursor: pointer;
+}
+
+button:hover,
+.ui-button:hover {
+    background: var(--btn-hover);
+    border-color: #59b4d4;
+    color: #fff;
+}
+
+button.danger,
+.ui-button.danger {
+    color: var(--salmon);
+}
+
+button.danger:hover,
+.ui-button.danger:hover {
+    color: #ffb39a;
+}
+
+.stack { margin: 0 0 1rem; }
+
+.hint {
+    margin: 0.25rem 0 0.65rem;
+    color: var(--muted);
+    font-size: 0.95rem;
+}
+
+.status {
+    margin: 0.5rem 0;
+    padding: 0.45rem 0.65rem;
+    border: 1px solid var(--line);
+    color: var(--muted);
+}
+
+.status.err { color: var(--salmon); border-color: #a55; }
+.status.ok { color: #9d9; }
+
+.section-title {
+    margin: 1rem 0 0.45rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--muted);
+}
+
+.drive-armed {
+    display: inline-block;
+    margin: 0 0 0.65rem;
+    padding: 0.3rem 0.65rem;
+    border: 1px solid var(--line);
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.drive-armed.on {
+    color: #042018;
+    background: #3ecfb2;
+    border-color: #3ecfb2;
+}
+
+.drive-layout {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 1rem;
+    align-items: start;
+}
+
+.touch-pad {
+    display: grid;
+    grid-template-columns: repeat(3, 3.2rem);
+    grid-template-rows: repeat(3, 3.2rem);
+    gap: 0.35rem;
+    width: max-content;
+    margin: 0.35rem 0;
+}
+
+.pad-btn {
+    min-height: 0;
+    padding: 0;
+    font-size: 1.1rem;
+}
+
+.pad-n { grid-column: 2; grid-row: 1; }
+.pad-w { grid-column: 1; grid-row: 2; }
+.pad-stop { grid-column: 2; grid-row: 2; }
+.pad-e { grid-column: 3; grid-row: 2; }
+.pad-s { grid-column: 2; grid-row: 3; }
+
+.cam-wrap img,
+#cameraView {
+    display: block;
+    width: 100%;
+    max-width: 640px;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    background: #111;
+    border: 1px solid var(--line);
+}
+
+#seekVideoCanvas {
+    display: block;
+    width: min(100%, 368px);
+    height: auto;
+    margin-top: 0.5rem;
+    background: #000;
+    border: 1px solid var(--line);
+    image-rendering: pixelated;
+}
+
+.eye-overlay-preview {
+    display: block;
+    margin: 0.5rem 0;
+    background: #111;
+    border: 1px solid var(--line);
+}
+
+.footer-msg {
+    color: var(--salmon);
+    margin-top: 0.75rem;
+    min-height: 1.2em;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+}
+
+@media (max-width: 720px) {
+    .drive-layout { grid-template-columns: 1fr; }
+    .logo { width: min(280px, 70vw); }
+    .confidential { font-size: 14pt; }
+}

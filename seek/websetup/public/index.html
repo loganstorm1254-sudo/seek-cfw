@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0c">
+  <title>SeekOS — Vector DVT Setup</title>
+  <link rel="stylesheet" href="/css/setup.css">
+  <link rel="stylesheet" href="/css/pterm.css">
+  <link rel="stylesheet" href="/css/seek-ui.css">
+</head>
+<body>
+  <header class="seek-header">
+    <h1>SeekOS Setup</h1>
+    <p>Install <strong id="cfgVersion">…</strong> on Vector 1.0 DVT</p>
+
+    <div class="seek-release-bar seek-card" style="margin:0 0 1rem;padding:0.85rem 1rem;">
+      <div class="seek-release-row">
+        <label for="releaseSelect"><strong>OS release</strong></label>
+        <select id="releaseSelect" class="seek-field" style="margin:0.35rem 0 0.5rem;"></select>
+      </div>
+      <p id="releaseNotes" class="seek-meta" style="margin:0 0 0.35rem;"></p>
+      <p id="releaseStatus" class="seek-note" style="margin:0 0 0.5rem;">Checking GitHub…</p>
+      <div class="seek-release-actions">
+        <button type="button" class="seek-btn secondary" id="btnRefreshReleases">Check for updates</button>
+        <a id="websetupDownload" class="seek-btn secondary" href="#" download="seek-websetup.zip" hidden>Download setup folder (.zip)</a>
+      </div>
+    </div>
+
+    <nav class="seek-tabs" role="tablist">
+      <button type="button" class="active" data-seek-tab="ble" role="tab">Bluetooth (Chrome)</button>
+      <button type="button" data-seek-tab="wifi" role="tab">Wi‑Fi upgrade</button>
+      <button type="button" data-seek-tab="ssh" role="tab">SSH one-liner</button>
+    </nav>
+  </header>
+
+  <main class="seek-main">
+    <!-- BLE install (vector-web-setup fork) -->
+    <section id="panel-ble" data-seek-panel="ble" role="tabpanel">
+      <div class="seek-chrome-warn">
+        Web Bluetooth requires <strong>Google Chrome</strong> on desktop or Android.
+        This site must be served over <strong>HTTPS</strong> (Cloudflare Pages works).
+        Based on <a href="https://github.com/digital-dream-labs/vector-web-setup" target="_blank" rel="noopener">vector-web-setup</a> (MIT).
+      </div>
+
+      <div class="vec-panel-container">
+        <div class="vec-panel vec-panel-dud"></div>
+        <div class="vec-panel vec-panel-ui" style="flex: 1 0 auto;">
+          <div class="vec-status">
+            <img id="iconEnv" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%230097a8'%3E%3Cpath d='M12 2L2 7v10l10 5 10-5V7z'/%3E%3C/svg%3E" class="vec-icon-active vec-icon vec-icon-sm" alt="">
+            <img id="iconBle" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%238a939c'%3E%3Cpath d='M12 2a10 10 0 100 20 10 10 0 000-20z'/%3E%3C/svg%3E" class="vec-icon vec-icon-sm" alt="">
+            <img id="iconWifi" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%238a939c'%3E%3Cpath d='M12 18a2 2 0 110-4 2 2 0 010 4z'/%3E%3C/svg%3E" class="vec-icon vec-icon-ota" alt="">
+            <img id="iconOta" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%238a939c'%3E%3Cpath d='M12 4v12m0 0l-4-4m4 4l4-4'/%3E%3C/svg%3E" class="vec-icon vec-icon-ota" alt="">
+          </div>
+
+          <div id="containerIncompatible" class="vec-container vec-current">
+            <p>Use Google Chrome for Bluetooth setup.</p>
+          </div>
+
+          <div id="containerEnvironmentError" class="vec-container">
+            <p>Could not load <code>/config.json</code>. Check deployment.</p>
+          </div>
+
+          <div id="containerDiscover" class="vec-container" icon="iconBle">
+            <div id="discoverFirstTime">
+              <div class="vec-instruction">
+                <img src="/images/onboarding_icon_plugincharger_med.svg" class="vec-card" alt="">
+                <div><span>1. Place Vector on his charger.</span></div>
+              </div>
+              <div class="vec-instruction">
+                <img src="/images/onboarding_icon_pressbackpack_med.svg" class="vec-card" alt="">
+                <div><span>2. Double-press Vector's button, then click Pair.</span></div>
+              </div>
+            </div>
+            <div id="discoverReconnect" class="vec-hidden">
+              <div class="vec-instruction">
+                <img src="/images/nav_icon_backpacklights_sml.svg" class="vec-card" alt="">
+                <div><span>After reboot, double-press the button and Pair again if needed.</span></div>
+              </div>
+            </div>
+            <div class="vec-row">
+              <input type="button" id="btnDiscoverVector" value="Pair with Vector" class="vec-btn">
+            </div>
+          </div>
+
+          <div id="containerLoading" class="vec-container">
+            <div class="vec-spinner-container"><div class="vec-spinner"><div class="vec-spinner-inner"></div></div></div>
+          </div>
+
+          <div id="containerEnterPin" class="vec-container">
+            <p>Enter the 6-digit PIN shown on Vector's face.</p>
+            <input type="text" id="txtPin" class="vec-field" placeholder="000000" maxlength="6"><br>
+            <input type="checkbox" id="checkboxEnableAutoFlow" checked> Auto: Wi‑Fi → flash SeekOS<br>
+            <input type="button" id="btnEnterPin" value="Enter PIN" class="vec-field">
+          </div>
+
+          <div id="containerWifi" class="vec-container" icon="iconWifi">
+            <div id="wifiConnectErrorLabel" class="vec-error vec-hidden">Wi‑Fi connection failed.</div>
+            <div id="wifiScanTable" class="vec-table"></div>
+            <div class="vec-format"><span id="btnCustomWifi" class="vec-link">Join a hidden network</span></div>
+          </div>
+
+          <div id="containerWifiConfig" class="vec-container">
+            <input type="text" id="txtWifiSsid" class="vec-field" placeholder="Wi‑Fi name"><br>
+            <input type="password" id="txtWifiPw" class="vec-field" placeholder="Password"><br>
+            <input type="button" id="btnConnectWifi" value="Connect" class="vec-field">
+          </div>
+
+          <div id="containerOta" class="vec-container" icon="iconOta">
+            <div id="containerOtaSelection"><div id="otaSelection"></div></div>
+            <div id="containerOtaNoImage" class="vec-error vec-hidden">
+              <p>No OTA URL in config.json</p>
+            </div>
+            <div id="otaUpdate" class="vec-hidden">
+              <div id="otaErrorLabel" class="vec-error vec-hidden">Flash error — try again or use SSH tab.</div>
+              <p id="seekOtaLabel">Installing SeekOS…</p>
+              <p class="seek-meta">Source: <span id="cfgOtaUrlBle"></span></p>
+              <div id="progressBarOta" class="vec-progress-bar">
+                <div class="vec-progress-bar-fill"></div>
+                <div class="vec-progress-bar-mask"></div>
+                <div class="vec-progress-bar-border"></div>
+              </div>
+              <input type="button" id="btnTryAgain" value="Try again" class="vec-field vec-hidden">
+            </div>
+          </div>
+
+          <div id="containerOtaComplete" class="vec-container">
+            <img src="/images/statlog_icon_checkmark_success_mini.svg" class="vec-complete" alt=""><br>
+            <p><strong>Update sent.</strong> Vector will reboot (~5–10 min). Green charging pulse when done.</p>
+            <p>Then open <code>http://&lt;vector-ip&gt;:8080/dash.html</code></p>
+            <input type="button" id="btnDiscoverVectorAgain" value="Pair again" class="vec-btn">
+          </div>
+
+          <div id="boxVectorEnv" class="vec-info vec-hidden">
+            <div class="vec-info-box"><span id="vecEnv">SeekOS</span></div>
+          </div>
+          <div id="boxVectorStatus" class="vec-info vec-hidden">
+            <div class="vec-info-box"><span id="vecStatusTitle"></span></div>
+          </div>
+        </div>
+        <div class="vec-shell vec-panel" style="display:none"></div>
+      </div>
+    </section>
+
+    <!-- Wi-Fi upgrade (Seek wired API) -->
+    <section id="panel-wifi" data-seek-panel="wifi" role="tabpanel" hidden>
+      <div class="seek-card">
+        <h2>Flash over Wi‑Fi</h2>
+        <p class="seek-meta">Vector must already run Seek/wired and be on the <strong>same Wi‑Fi</strong> as this device. Downloads OTA from GitHub — no upload.</p>
+        <ol class="seek-steps">
+          <li>Put Vector on charger</li>
+          <li>Phone/PC on same home Wi‑Fi (not Vector hotspot)</li>
+          <li>Enter his IP (e.g. 192.168.43.3)</li>
+        </ol>
+        <label for="wifiRobotIp">Vector IP</label>
+        <input type="text" id="wifiRobotIp" class="seek-field" placeholder="192.168.43.3" autocomplete="off">
+        <p class="seek-meta">OTA: <code id="cfgOtaUrl">…</code></p>
+        <button type="button" class="seek-btn" id="btnWifiFlash">Flash from GitHub</button>
+        <progress id="wifiFlashBar" value="0" max="100" hidden></progress>
+        <p id="wifiFlashStatus" class="seek-note"></p>
+      </div>
+    </section>
+
+    <!-- SSH -->
+    <section id="panel-ssh" data-seek-panel="ssh" role="tabpanel" hidden>
+      <div class="seek-card">
+        <h2>SSH flash (Windows CMD)</h2>
+        <p class="seek-meta">Unlocked Vector on charger, same network, SSH key at <code>%USERPROFILE%\Downloads\ssh_root_key</code></p>
+        <label for="sshRobotIp">Vector IP</label>
+        <input type="text" id="sshRobotIp" class="seek-field" value="192.168.43.3" autocomplete="off">
+        <label for="sshCommand">One-liner</label>
+        <textarea id="sshCommand" class="seek-field" readonly></textarea>
+        <button type="button" class="seek-btn" id="btnCopySsh">Copy command</button>
+        <p class="seek-note">Verifies OTA size <strong id="cfgOtaSize">…</strong> bytes before flash.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="seek-footer">
+    Release: <a id="cfgReleaseLink" href="https://github.com/loganstorm1254-sudo/seek-cfw/releases">GitHub</a>
+    · <a href="https://github.com/loganstorm1254-sudo/seek-cfw">seek-cfw</a>
+    · <a id="websetupDownloadFooter" href="#">Download .zip</a>
+  </footer>
+
+  <script src="/js/seek-releases.js"></script>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
+  <script src="/js/pterm.js"></script>
+  <script src="/js/sodium.js" async></script>
+  <script src="/js/rts.js"></script>
+  <script src="/js/seek-wifi.js"></script>
+</body>
+</html>
