@@ -170,6 +170,7 @@ void BackpackLightComponent::UpdateCriticalBackpackLightConfig(bool isCloudStrea
     if(trigger != BackpackAnimationTrigger::Off)
     {
       // DVT: hard-force Anki green for charging/offline/muted/lowbatt — never red WireOS
+      // DVT_LIGHTS_BUILD_TAG_13
       BackpackLightAnimation::BackpackAnimation forced = *anim;
       if (trigger == BackpackAnimationTrigger::Charging ||
           trigger == BackpackAnimationTrigger::LowBattery ||
@@ -180,7 +181,7 @@ void BackpackLightComponent::UpdateCriticalBackpackLightConfig(bool isCloudStrea
         for (int i = 0; i < (int)LEDId::NUM_BACKPACK_LEDS; ++i)
         {
           // RGBA: soft green matching backpackLightsAnki/charging.json
-          forced.lights.lights[i].onColor  = 0x008000FF;
+          forced.lights.lights[i].onColor  = 0x00FF00FF;
           forced.lights.lights[i].offColor = 0x00000000;
           forced.lights.lights[i].onPeriod_ms = static_cast<u16>(600 * (i + 1));
           forced.lights.lights[i].offPeriod_ms = static_cast<u16>(1200 / (i + 1));
@@ -386,7 +387,7 @@ Result BackpackLightComponent::SendBackpackLights(const BackpackAnimationTrigger
       for (int i = 0; i < (int)LEDId::NUM_BACKPACK_LEDS; ++i)
       {
         // RGBA soft green (matches Anki charging.json 0,0.5,0,1)
-        green.lights.lights[i].onColor  = 0x008000FF;
+        green.lights.lights[i].onColor  = 0x00FF00FF;
         green.lights.lights[i].offColor = 0x00000000;
         green.lights.lights[i].onPeriod_ms = static_cast<u16>(600 * (i + 1));
         green.lights.lights[i].offPeriod_ms = static_cast<u16>(1200 / (i + 1));
