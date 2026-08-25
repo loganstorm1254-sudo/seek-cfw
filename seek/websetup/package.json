@@ -1,0 +1,12 @@
+{
+  "name": "seek-websetup",
+  "private": true,
+  "description": "Static Vector DVT setup for Cloudflare Pages (BLE + Wi-Fi + SSH)",
+  "scripts": {
+    "build": "./build.sh"
+  },
+  "devDependencies": {
+    "browserify": "^17.0.0"
+  },
+  "license": "MIT"
+}

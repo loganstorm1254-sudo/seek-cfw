@@ -25,7 +25,14 @@ This branch ships a **Victor DVT-style** SeekOS build for unlocked Vector 1.0:
 - Pairing face does not show Wire/Seek portal URLs
 - CCIS shows Victor / CONFIDENTIAL (no Seek branding)
 
-## Backpack button
+## Web setup (Cloudflare Pages)
+
+Static installer like [vector-web-setup](https://github.com/digital-dream-labs/vector-web-setup): BLE pair → Wi‑Fi → flash OTA from GitHub.
+
+- **Folder to deploy:** `seek/websetup/public`
+- **Docs:** [seek/websetup/README.md](seek/websetup/README.md)
+- **Config:** `seek/websetup/public/config.json` (OTA URL + size)
+
 
 | Gesture | Action |
 | --- | --- |
