@@ -4,6 +4,22 @@ Browser-based installer for **SeekOS DVT** on Vector 1.0 — like [vector-web-se
 
 Deploy **`public/`** to Cloudflare Pages (or any static HTTPS host).
 
+## Download setup folder (.zip)
+
+**Direct download (Cloudflare / self-host without git):**
+
+https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.17d-dvt/seek-websetup.zip
+
+Unzip and upload the contents to Cloudflare Pages, or open `index.html` via a local HTTPS server (BLE needs Chrome + HTTPS or localhost).
+
+The site also shows this link in the header after load.
+
+## Auto-update releases
+
+On load, the setup page calls the **GitHub Releases API** for tags containing `-dvt`, fills the **OS release** dropdown (latest first), and uses the selected `.ota` for BLE / Wi‑Fi / SSH paths. Click **Check for updates** to refresh.
+
+Edit `public/config.json` only for repo name, tag filter, zip URL, and offline `fallbackRelease`.
+
 ## Cloudflare Pages
 
 1. **Workers & Pages → Create → Pages → Connect to Git** → `loganstorm1254-sudo/seek-cfw`

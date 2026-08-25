@@ -1,12 +1,18 @@
 {
   "channel": "dvt",
-  "version": "3.0.1.17d",
-  "label": "SeekOS DVT 3.0.1.17d",
-  "notes": "Green charging pulse fix + Anki Demo confidential dash",
-  "otaUrl": "https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.17d-dvt/vicos-3.0.1.17d-dvt.ota",
-  "otaSize": 167270400,
-  "otaSha256": "eb7ba0f203ad4d3bdfcfb70688b2d0db36b09ead27cf2e67f20b9907359f2ee8",
-  "flashScriptUrl": "https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.17d-dvt/unlock-manual-flash-v2.sh",
+  "githubRepo": "loganstorm1254-sudo/seek-cfw",
+  "releaseTagFilter": "-dvt",
+  "defaultTag": "v3.0.1.17d-dvt",
+  "websetupZipUrl": "https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.17d-dvt/seek-websetup.zip",
   "repo": "https://github.com/loganstorm1254-sudo/seek-cfw",
-  "releases": "https://github.com/loganstorm1254-sudo/seek-cfw/releases"
+  "releasesPage": "https://github.com/loganstorm1254-sudo/seek-cfw/releases",
+  "fallbackRelease": {
+    "tag": "v3.0.1.17d-dvt",
+    "version": "3.0.1.17d",
+    "label": "DVT 3.0.1.17d — fix charging green pulse on dock",
+    "otaUrl": "https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.17d-dvt/vicos-3.0.1.17d-dvt.ota",
+    "otaSize": 167270400,
+    "flashScriptUrl": "https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.17d-dvt/unlock-manual-flash-v2.sh",
+    "htmlUrl": "https://github.com/loganstorm1254-sudo/seek-cfw/releases/tag/v3.0.1.17d-dvt"
+  }
 }

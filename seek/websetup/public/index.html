@@ -12,7 +12,21 @@
 <body>
   <header class="seek-header">
     <h1>SeekOS Setup</h1>
-    <p>Install <strong id="cfgVersion">…</strong> on Vector 1.0 DVT — OTA hosted on GitHub</p>
+    <p>Install <strong id="cfgVersion">…</strong> on Vector 1.0 DVT</p>
+
+    <div class="seek-release-bar seek-card" style="margin:0 0 1rem;padding:0.85rem 1rem;">
+      <div class="seek-release-row">
+        <label for="releaseSelect"><strong>OS release</strong></label>
+        <select id="releaseSelect" class="seek-field" style="margin:0.35rem 0 0.5rem;"></select>
+      </div>
+      <p id="releaseNotes" class="seek-meta" style="margin:0 0 0.35rem;"></p>
+      <p id="releaseStatus" class="seek-note" style="margin:0 0 0.5rem;">Checking GitHub…</p>
+      <div class="seek-release-actions">
+        <button type="button" class="seek-btn secondary" id="btnRefreshReleases">Check for updates</button>
+        <a id="websetupDownload" class="seek-btn secondary" href="#" download="seek-websetup.zip" hidden>Download setup folder (.zip)</a>
+      </div>
+    </div>
+
     <nav class="seek-tabs" role="tablist">
       <button type="button" class="active" data-seek-tab="ble" role="tab">Bluetooth (Chrome)</button>
       <button type="button" data-seek-tab="wifi" role="tab">Wi‑Fi upgrade</button>
@@ -157,24 +171,18 @@
         <label for="sshCommand">One-liner</label>
         <textarea id="sshCommand" class="seek-field" readonly></textarea>
         <button type="button" class="seek-btn" id="btnCopySsh">Copy command</button>
-        <p class="seek-note">Verifies OTA size <strong>167270400</strong> bytes before flash.</p>
+        <p class="seek-note">Verifies OTA size <strong id="cfgOtaSize">…</strong> bytes before flash.</p>
       </div>
     </section>
   </main>
 
   <footer class="seek-footer">
-    OTA: <a id="cfgReleaseLink" href="https://github.com/loganstorm1254-sudo/seek-cfw/releases/tag/v3.0.1.17d-dvt">GitHub Releases</a>
+    Release: <a id="cfgReleaseLink" href="https://github.com/loganstorm1254-sudo/seek-cfw/releases">GitHub</a>
     · <a href="https://github.com/loganstorm1254-sudo/seek-cfw">seek-cfw</a>
+    · <a id="websetupDownloadFooter" href="#">Download .zip</a>
   </footer>
 
-  <script>
-    fetch('/config.json').then(function(r){return r.json()}).then(function(c){
-      var u=document.getElementById('cfgOtaUrlBle');
-      if(u) u.textContent=c.otaUrl;
-      var l=document.getElementById('cfgReleaseLink');
-      if(l&&c.releases) l.href=c.releases;
-    });
-  </script>
+  <script src="/js/seek-releases.js"></script>
   <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
   <script src="/js/pterm.js"></script>
   <script src="/js/sodium.js" async></script>

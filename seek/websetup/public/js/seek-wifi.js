@@ -1,11 +1,14 @@
-/* Seek websetup — Wi-Fi upgrade path (robot already on network with Seek wired) */
+/* Seek websetup — Wi-Fi upgrade + SSH (uses SeekReleases for OTA URL) */
 (function () {
   'use strict';
 
-  var cfg = null;
   var pollTimer = null;
 
   function $(id) { return document.getElementById(id); }
+
+  function cfg() {
+    return (window.SeekReleases && window.SeekReleases.getConfig()) || window.SEEK_CONFIG || null;
+  }
 
   function note(msg, isErr) {
     var el = $('wifiFlashStatus');
@@ -20,23 +23,9 @@
     return 'http://' + ip + ':8080/api/mods/SeekDashboard';
   }
 
-  function fetchCfg() {
-    return fetch('/config.json', { cache: 'no-store' })
-      .then(function (r) { return r.json(); })
-      .then(function (j) { cfg = j; return j; });
-  }
-
-  function fillMeta() {
-    if (!cfg) return;
-    var v = $('cfgVersion');
-    var u = $('cfgOtaUrl');
-    if (v) v.textContent = cfg.label || cfg.version;
-    if (u) u.textContent = cfg.otaUrl;
-    fillSshCommand();
-  }
-
   function fillSshCommand() {
-    if (!cfg) return;
+    var c = cfg();
+    if (!c || !c.otaUrl) return;
     var el = $('sshCommand');
     if (!el) return;
     var ip = ($('sshRobotIp') && $('sshRobotIp').value.trim()) || '192.168.43.3';
@@ -45,15 +34,16 @@
       '-o PubkeyAcceptedAlgorithms=+ssh-rsa -o HostkeyAlgorithms=+ssh-rsa ' +
       '-o StrictHostKeyChecking=no -t "mount -o remount,rw /; mkdir -p /data/ota; ' +
       '[ -x /usr/bin/curl.anki ]||cp -L /usr/bin/curl /usr/bin/curl.anki; chmod 755 /usr/bin/curl.anki; ' +
-      '/usr/bin/curl.anki -k -L --http1.1 -4 --fail -o /data/ota/v.ota \'' + cfg.otaUrl + '\'; ' +
-      'SZ=$(wc -c </data/ota/v.ota); echo size=$SZ; [ \\\"$SZ\\\" = \\\"' + cfg.otaSize + '\\\" ]||exit 1; ' +
-      '/usr/bin/curl.anki -k -fsSL --http1.1 -4 -o /data/unlock-manual-flash-v2.sh \'' + cfg.flashScriptUrl + '\'; ' +
+      '/usr/bin/curl.anki -k -L --http1.1 -4 --fail -o /data/ota/v.ota \'' + c.otaUrl + '\'; ' +
+      'SZ=$(wc -c </data/ota/v.ota); echo size=$SZ; [ \\\"$SZ\\\" = \\\"' + c.otaSize + '\\\" ]||exit 1; ' +
+      '/usr/bin/curl.anki -k -fsSL --http1.1 -4 -o /data/unlock-manual-flash-v2.sh \'' + c.flashScriptUrl + '\'; ' +
       'sh /data/unlock-manual-flash-v2.sh /data/ota/v.ota"';
+    var sizeNote = $('sshSizeNote');
+    if (sizeNote) sizeNote.textContent = 'Verifies OTA size ' + c.otaSize + ' bytes before flash.';
   }
 
   function pollOta(ip) {
-    var base = robotBase(ip);
-    fetch(base + '/otaStatus', { cache: 'no-store' })
+    fetch(robotBase(ip) + '/otaStatus', { cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         if (j.error || j.engineError) {
@@ -88,20 +78,21 @@
 
   function startWifiFlash() {
     var ip = ($('wifiRobotIp') && $('wifiRobotIp').value.trim()) || '';
+    var c = cfg();
     if (!ip) {
       note('Enter Vector\'s Wi‑Fi IP (same network as this phone/PC).', true);
       return;
     }
-    if (!cfg || !cfg.otaUrl) {
-      note('config.json missing otaUrl', true);
+    if (!c || !c.otaUrl) {
+      note('Pick a release first (or wait for GitHub check).', true);
       return;
     }
     stopPoll();
-    note('Starting flash from GitHub… eyes may go dark.');
+    note('Flashing ' + (c.label || c.version) + ' from GitHub…');
     var bar = $('wifiFlashBar');
     if (bar) { bar.hidden = false; bar.value = 0; }
 
-    fetch(robotBase(ip) + '/otaFromUrl?url=' + encodeURIComponent(cfg.otaUrl), {
+    fetch(robotBase(ip) + '/otaFromUrl?url=' + encodeURIComponent(c.otaUrl), {
       method: 'POST',
       cache: 'no-store'
     })
@@ -116,8 +107,7 @@
         pollOta(ip);
       })
       .catch(function (e) {
-        note('Could not reach Vector at ' + ip + ':8080 — ' + e.message +
-          '. Use BLE tab or SSH if wired API is unavailable.', true);
+        note('Could not reach Vector at ' + ip + ':8080 — ' + e.message, true);
       });
   }
 
@@ -132,7 +122,7 @@
       note('SSH one-liner copied.');
     } catch (e) {
       document.execCommand('copy');
-      note('Copied (legacy).');
+      note('Copied.');
     }
   }
 
@@ -146,10 +136,6 @@
   }
 
   document.addEventListener('DOMContentLoaded', function () {
-    fetchCfg().then(fillMeta).catch(function () {
-      note('Could not load config.json', true);
-    });
-
     document.querySelectorAll('[data-seek-tab]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         showTab(btn.getAttribute('data-seek-tab'));
@@ -164,5 +150,11 @@
 
     var sshIp = $('sshRobotIp');
     if (sshIp) sshIp.addEventListener('input', fillSshCommand);
+
+    document.addEventListener('seek-release-changed', fillSshCommand);
+
+    if (window.SeekReleases && window.SeekReleases.ready) {
+      window.SeekReleases.ready.then(fillSshCommand);
+    }
   });
 })();

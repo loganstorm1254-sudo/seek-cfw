@@ -403,8 +403,8 @@ $(document).ready(function () {
   // process url params
   parseParams();
 
-  // Seek: load release manifest + skip cloud env picker
-  $.getJSON("/config.json", function (cfg) {
+  // Seek: wait for GitHub release picker, then start BLE setup
+  function bootSeekSetup(cfg) {
     window.SEEK_CONFIG = cfg;
     _settings = new Settings({ stacks: { seek: {} } });
     _stack = _settings.getStack("seek");
@@ -412,9 +412,19 @@ $(document).ready(function () {
     setPhase("containerDiscover");
     $("#boxVectorEnv").removeClass("vec-hidden");
     $("#vecEnv").html(cfg.label || cfg.version || "SeekOS");
-  }).fail(function () {
-    setPhase("containerEnvironmentError");
-  });
+  }
+
+  if (window.SeekReleases && window.SeekReleases.ready) {
+    window.SeekReleases.ready.then(bootSeekSetup).catch(function () {
+      $.getJSON("/config.json", bootSeekSetup).fail(function () {
+        setPhase("containerEnvironmentError");
+      });
+    });
+  } else {
+    $.getJSON("/config.json", bootSeekSetup).fail(function () {
+      setPhase("containerEnvironmentError");
+    });
+  }
 
   _serverIp = "127.0.0.1";
   _networkIp = "127.0.0.1";

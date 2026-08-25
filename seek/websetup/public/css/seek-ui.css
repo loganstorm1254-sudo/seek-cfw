@@ -172,4 +172,15 @@ progress { width: 100%; height: 8px; margin-top: 0.75rem; }
 .seek-footer a { color: var(--seek-accent); }
 
 ol.seek-steps { padding-left: 1.25rem; line-height: 1.6; color: var(--seek-muted); }
-ol.seek-steps li { margin-bottom: 0.35rem; }
+.seek-release-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.seek-release-actions a.seek-btn {
+  text-decoration: none;
+  display: inline-block;
+  text-align: center;
+}
