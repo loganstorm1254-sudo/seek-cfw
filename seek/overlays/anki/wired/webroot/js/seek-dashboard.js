@@ -1912,7 +1912,8 @@ async function armDrive() {
             return;
         }
         setArmedUI(true);
-        setSeekStatus('Armed. Hold WASD to drive.');
+        setSeekStatus('Armed. Hold WASD to drive — camera on.');
+        startCamera();
         startDriveHeartbeat();
         window.focus();
     } catch (e) {

@@ -458,8 +458,8 @@ void BackpackLightComponent::UpdateSystemLightState(bool isCloudStreamOpen)
       
       case SystemLightState::Off:
       {
-        light.onColor = 0x00FF0000;
-        light.offColor = 0x00FF0000;
+        light.onColor = 0x00000000;
+        light.offColor = 0x00000000;
         light.onPeriod_ms = 960;
         light.offPeriod_ms = 960;
         light.transitionOnPeriod_ms = 0;
@@ -470,9 +470,9 @@ void BackpackLightComponent::UpdateSystemLightState(bool isCloudStreamOpen)
 
       case SystemLightState::Pairing:
       {
-        // DVT: pulsing green (stock Anki-ish), never red/yellow WireOS look
-        light.onColor = 0x00FF0000;
-        light.offColor = 0x00000000;
+        // Pulsing yellow (stock Anki)
+        light.onColor = 0xFFFF0000;
+        light.offColor = 0x00FF0000;
         light.onPeriod_ms = 960;
         light.offPeriod_ms = 960;
         light.transitionOnPeriod_ms = 0;

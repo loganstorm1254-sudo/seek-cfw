@@ -4,11 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="theme-color" content="#eef3f7">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#07131a">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
     <title>Vector</title>
-    <link rel="stylesheet" href="css/anki-dash.css?v=9d1">
+    <link rel="stylesheet" href="css/seek.css?v=a14d">
 </head>
 <body>
     <div class="bg" aria-hidden="true"></div>
@@ -16,7 +16,7 @@
         <header class="hero">
             <p class="brand">VECTOR</p>
             <h1>Control</h1>
-            <p class="lede">Same Wi‑Fi as Vector. Eye overlay, volume, and drive.</p>
+            <p class="lede">Same Wi‑Fi as Vector. Eyes, volume, drive, and video.</p>
             <div id="netInfoBox" class="sr-only" aria-hidden="true">
                 <p id="netSsid"></p>
                 <p id="netLanIp" hidden></p>
@@ -31,6 +31,7 @@
             <button type="button" class="tab active" data-tab="look" role="tab">Eyes</button>
             <button type="button" class="tab" data-tab="volume" role="tab">Volume</button>
             <button type="button" class="tab" data-tab="drive" role="tab">Drive</button>
+            <button type="button" class="tab" data-tab="media" role="tab">Video</button>
         </nav>
 
         <p id="seekStatus" class="status" hidden></p>
@@ -105,7 +106,7 @@
 
         <section id="tab-drive" class="panel" role="tabpanel" hidden>
             <h2>Drive</h2>
-            <p class="hint">1) Take control · 2) Hold the pad or WASD · Camera optional</p>
+            <p class="hint">1) Take control · 2) Hold the pad or WASD · Camera starts automatically</p>
             <div id="driveArmed" class="drive-armed">Not armed — tap Take control</div>
             <div class="drive-layout">
                 <div class="drive-pads">
@@ -118,22 +119,58 @@
                     </div>
                     <p class="hint">Desktop: WASD · Q/E head · R/F lift · Space stop</p>
                 </div>
-                <label class="field">
-                    <span>Speed <b id="driveSpeedVal">60</b> mm/s</span>
-                    <input type="range" id="driveSpeed" min="20" max="120" step="5" value="60">
-                </label>
-                <div class="actions">
-                    <button type="button" class="primary" id="btnArmDrive">Take control</button>
-                    <button type="button" class="ghost danger" id="btnRelease">Release</button>
-                </div>
-                <div class="cam-box">
-                    <img id="cameraView" alt="Vector camera" width="640" height="360">
+                <div class="drive-controls">
+                    <label class="field">
+                        <span>Speed <b id="driveSpeedVal">60</b> mm/s</span>
+                        <input type="range" id="driveSpeed" min="20" max="120" step="5" value="60">
+                    </label>
                     <div class="actions">
-                        <button type="button" class="ghost" id="btnCamStart">Camera on</button>
-                        <button type="button" class="ghost" id="btnCamStop">Camera off</button>
+                        <button type="button" class="primary" id="btnArmDrive">Take control</button>
+                        <button type="button" class="ghost danger" id="btnRelease">Release</button>
+                    </div>
+                    <div class="cam-wrap">
+                        <img id="cameraView" alt="Vector camera" width="640" height="360">
+                        <div class="actions">
+                            <button type="button" class="ghost" id="btnCamStart">Camera on</button>
+                            <button type="button" class="ghost" id="btnCamStop">Camera off</button>
+                        </div>
                     </div>
                 </div>
             </div>
+        </section>
+
+        <section id="tab-media" class="panel" role="tabpanel" hidden>
+            <h2>Play video on face</h2>
+            <p class="hint">Phone-friendly: decode on device, ~5 fps. Keep clips short.</p>
+            <label class="field">
+                <span>File</span>
+                <input type="file" id="videoFile" accept=".mp4,video/mp4,video/*">
+            </label>
+            <div class="grid3">
+                <label class="field">
+                    <span>FPS</span>
+                    <input type="number" id="videoFps" min="1" max="10" value="5">
+                </label>
+                <label class="field">
+                    <span>Fit</span>
+                    <select id="videoFit">
+                        <option value="cover" selected>Cover</option>
+                        <option value="contain">Contain</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span>Audio</span>
+                    <select id="videoWithAudio">
+                        <option value="1" selected>With audio</option>
+                        <option value="0">Video only</option>
+                    </select>
+                </label>
+            </div>
+            <div class="actions">
+                <button type="button" class="primary" id="videoPlayBtn">Play video</button>
+                <button type="button" class="ghost" id="btnStopMedia">Stop</button>
+            </div>
+            <canvas id="seekVideoCanvas" width="184" height="96" aria-label="Face preview"></canvas>
         </section>
 
         <!-- Hidden stubs so existing seek-dashboard.js bindings stay quiet -->
@@ -173,13 +210,6 @@
             <input type="range" id="audioPlayVolume" min="0" max="100" value="100">
             <b id="audioPlayVolVal">100</b>
             <button type="button" id="btnAudio"></button>
-            <input type="file" id="videoFile">
-            <input type="number" id="videoFps" value="5">
-            <select id="videoFit"><option value="cover">cover</option></select>
-            <select id="videoWithAudio"><option value="1">1</option></select>
-            <button type="button" id="videoPlayBtn"></button>
-            <button type="button" id="btnStopMedia"></button>
-            <canvas id="seekVideoCanvas" width="184" height="96"></canvas>
             <input type="checkbox" id="linkMasterToggle">
             <p id="linkStatus"></p>
             <div id="linkPeerList"></div>
@@ -202,7 +232,7 @@
         </div>
     </main>
     <noscript><p class="status err">JavaScript is required.</p></noscript>
-    <script src="js/seek-dashboard.js?v=9d1" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load dashboard script — hard refresh.';}})();"></script>
+    <script src="js/seek-dashboard.js?v=a14d" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load dashboard script — hard refresh.';}})();"></script>
     <script>
     setTimeout(function () {
         if (!window.__seekLoaded) {
