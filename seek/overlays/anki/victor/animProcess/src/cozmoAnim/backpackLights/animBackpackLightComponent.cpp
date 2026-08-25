@@ -135,13 +135,6 @@ void BackpackLightComponent::UpdateCriticalBackpackLightConfig(bool isCloudStrea
   {
     trigger = BackpackAnimationTrigger::Muted;
   }
-  else if ( IsBehaviorBackpackLightActive() )
-  {
-    // if the engine is playing a "behavior light", then we want to slide that priority in right here
-    // turn off the critical lights since the engine light will take priority over everything after this point
-    // once it stops, critical lights will be re-started
-    trigger = BackpackAnimationTrigger::Off;
-  }
   else if(isNotificationPending)
   {
     trigger = BackpackAnimationTrigger::AlexaNotification;
@@ -226,74 +219,33 @@ void BackpackLightComponent::Update()
   }
 }
 
-// behavior lights are triggered from the engine and show the state for an active behavior.
-// we want these specific behavior lights to take precedence over some of the critical lights, but the way the system
-// was setup, all critical lights take precedence over all engine lights.  This is a little workaround for that so we
-// can determine if a higher priority "behavior light" (which is triggered from the engine) should take precedence
-// over the current critical light ... see UpdateCriticalBackpackLightConfig(...) for how this is used
-// ** a more robust solution will follow when we refactor the (many) light components once anim/engine processes are merged **
+// Kept for API compat; DVT suppresses all engine behavior lights (see SetBackpackAnimation).
 bool BackpackLightComponent::IsBehaviorBackpackLightActive() const
 {
-  bool isAnyBehaviorLightActive = false;
-
-  // _mostRecentTrigger tracks the last trigger that was requested from the engine
-  switch ( _mostRecentTrigger )
-  {
-    case BackpackAnimationTrigger::WorkingOnIt:
-    case BackpackAnimationTrigger::SpinnerBlueCelebration:
-    case BackpackAnimationTrigger::SpinnerBlueHoldTarget:
-    case BackpackAnimationTrigger::SpinnerBlueSelectTarget:
-    case BackpackAnimationTrigger::SpinnerGreenCelebration:
-    case BackpackAnimationTrigger::SpinnerGreenHoldTarget:
-    case BackpackAnimationTrigger::SpinnerGreenSelectTarget:
-    case BackpackAnimationTrigger::SpinnerPurpleCelebration:
-    case BackpackAnimationTrigger::SpinnerPurpleHoldTarget:
-    case BackpackAnimationTrigger::SpinnerPurpleSelectTarget:
-    case BackpackAnimationTrigger::SpinnerRedCelebration:
-    case BackpackAnimationTrigger::SpinnerRedHoldTarget:
-    case BackpackAnimationTrigger::SpinnerRedSelectTarget:
-    case BackpackAnimationTrigger::SpinnerYellowCelebration:
-    case BackpackAnimationTrigger::SpinnerYellowHoldTarget:
-    case BackpackAnimationTrigger::SpinnerYellowSelectTarget:
-    case BackpackAnimationTrigger::DanceToTheBeat:
-    case BackpackAnimationTrigger::MeetVictor:
-      isAnyBehaviorLightActive = true;
-      break;
-
-    default:
-      break;
-  }
-
-  return isAnyBehaviorLightActive;
+  return false;
 }
 
 void BackpackLightComponent::SetBackpackAnimation(const BackpackLightAnimation::BackpackAnimation& lights)
 {
-  // if we're forcing a manual light, reset our most recent trigger
+  // DVT stock: only critical lights (charging/offline/etc.) — ignore engine/manual overrides.
   _mostRecentTrigger = BackpackAnimationTrigger::Off;
-  StartBackpackAnimationInternal(lights,
-                                 Util::EnumToUnderlying(BackpackLightSourcePrivate::Engine),
-                                 _engineLightConfig);
+  StopBackpackAnimationInternal(_engineLightConfig);
+  (void)lights;
 }
 
 void BackpackLightComponent::SetBackpackAnimation(const BackpackAnimationTrigger& trigger)
 {
-  auto animName = _backpackTriggerToNameMap->GetValue(trigger);
-  auto anim = _backpackLightContainer->GetAnimation(animName);
-
-  if(anim == nullptr)
+  if(trigger == BackpackAnimationTrigger::Off)
   {
-    PRINT_NAMED_ERROR("BackpackLightComponent.SetBackpackAnimation.NoAnimForTrigger",
-                      "Could not find animation for trigger %s name %s",
-                      EnumToString(trigger), animName.c_str());
+    _mostRecentTrigger = BackpackAnimationTrigger::Off;
+    StopBackpackAnimationInternal(_engineLightConfig);
     return;
   }
 
-  // keep track of what trigger is currently active (from the engine)
-  _mostRecentTrigger = trigger;
-  StartBackpackAnimationInternal(*anim,
-                                 Util::EnumToUnderlying(BackpackLightSourcePrivate::Engine),
-                                 _engineLightConfig);
+  // DVT stock: suppress engine behavior lights (WorkingOnIt orange, SpinnerRed, etc.).
+  // These were the source of intermittent red/orange backpack glow during idle/voice/cube play.
+  _mostRecentTrigger = BackpackAnimationTrigger::Off;
+  StopBackpackAnimationInternal(_engineLightConfig);
 }
  
 void BackpackLightComponent::StartBackpackAnimationInternal(const BackpackLightAnimation::BackpackAnimation& lights,
@@ -536,6 +488,8 @@ void BackpackLightComponent::UpdateOfflineCheck(bool force)
     const std::string& ip = OSState::getInstance()->GetIPAddress(true);
     const bool isValidIP = OSState::getInstance()->IsValidIPAddress(ip);
 
+    const bool wasOffline = (_offlineAtTime_ms > 0);
+
     if(_offlineAtTime_ms == 0 && !isValidIP)
     {
       _offlineAtTime_ms = (TimeStamp_t)curTime_ms;
@@ -543,6 +497,11 @@ void BackpackLightComponent::UpdateOfflineCheck(bool force)
     else if(_offlineAtTime_ms > 0 && isValidIP)
     {
       _offlineAtTime_ms = 0;
+    }
+
+    if(wasOffline != (_offlineAtTime_ms > 0))
+    {
+      _internalCriticalLightsTrigger = BackpackAnimationTrigger::Off;
     }
   }
 }
