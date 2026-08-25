@@ -331,6 +331,25 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case "controlEnd":
 		m.controlEnd()
+	case "systemStop":
+		go func() {
+			_ = exec.Command("systemctl", "stop", "anki-robot.target").Run()
+		}()
+		vars.HTTPSuccess(w, r)
+		return
+	case "systemRestartProcesses":
+		go func() {
+			_ = exec.Command("systemctl", "restart", "anki-robot.target").Run()
+		}()
+		vars.HTTPSuccess(w, r)
+		return
+	case "systemReboot":
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			_ = exec.Command("reboot").Run()
+		}()
+		vars.HTTPSuccess(w, r)
+		return
 	case "stopMedia":
 		// Master stop also stops linked bots.
 		if m.isLinkMaster() && len(m.linkedPeers()) > 0 {
