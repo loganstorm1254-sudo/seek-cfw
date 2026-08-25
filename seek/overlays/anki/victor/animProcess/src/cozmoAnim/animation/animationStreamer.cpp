@@ -888,6 +888,7 @@ namespace Anim {
 
       // If we get to KeepFaceAlive with this flag set, we'll stream neutral face for safety.
       _wasAnimationInterruptedWithNothing = true;
+      UnlockTrack(AnimTrackFlag::FACE_TRACK);
     }
     _relativeStreamTime_ms = 0;
     _lockFaceTrackAtEndOfStreamingAnimation = false;
@@ -1685,6 +1686,10 @@ namespace Anim {
           }
 
           _streamingAnimation = nullptr;
+          // Animation ended with no follow-up — restore neutral after idle timeout
+          // (especially when keepalive was disabled during the behavior).
+          _wasAnimationInterruptedWithNothing = true;
+          _lastAnimationStreamTime = BaseStationTimer::getInstance()->GetCurrentTimeInSeconds();
         }
 
       } // if (IsStreamingAnimFinished())
@@ -1736,7 +1741,12 @@ namespace Anim {
     //       first animation of any kind is sent.
     const bool haveStreamingAnimation = _streamingAnimation != nullptr;
     const bool haveStreamedAnything   = _lastAnimationStreamTime > 0.f;
-    const bool longEnoughSinceStream  = (BaseStationTimer::getInstance()->GetCurrentTimeInSeconds() - _lastAnimationStreamTime) > _longEnoughSinceLastStreamTimeout_s;
+    // When keepalive is off (petting, pairing screens, SDK anims), wait a bit longer
+    // before forcing neutral so back-to-back behavior anims don't flash idle eyes.
+    const f32 idleBeforeNeutral_s = s_enableKeepFaceAlive
+      ? _longEnoughSinceLastStreamTimeout_s
+      : 2.0f;
+    const bool longEnoughSinceStream  = (BaseStationTimer::getInstance()->GetCurrentTimeInSeconds() - _lastAnimationStreamTime) > idleBeforeNeutral_s;
     if (!haveStreamingAnimation &&
          haveStreamedAnything &&
          longEnoughSinceStream)
@@ -1750,11 +1760,20 @@ namespace Anim {
           // got neutral face back on the screen
           if (_wasAnimationInterruptedWithNothing)
           {
+            UnlockTrack(AnimTrackFlag::FACE_TRACK);
             SetStreamingAnimation(_neutralFaceAnimation, kNotAnimatingTag);
             _wasAnimationInterruptedWithNothing = false;
           }
 
           _proceduralTrackComponent->KeepFaceAlive(_relativeStreamTime_ms);
+        }
+        else if (_wasAnimationInterruptedWithNothing)
+        {
+          // Keepalive disabled: KeepFaceTheSame() froze the last keyframe (happy/squint
+          // eyes stuck at top). Always fall back to neutral once idle.
+          UnlockTrack(AnimTrackFlag::FACE_TRACK);
+          SetStreamingAnimation(_neutralFaceAnimation, kNotAnimatingTag);
+          _wasAnimationInterruptedWithNothing = false;
         }
         else
         {
@@ -1765,6 +1784,7 @@ namespace Anim {
       {
         if (_wasAnimationInterruptedWithNothing)
         {
+          UnlockTrack(AnimTrackFlag::FACE_TRACK);
           SetStreamingAnimation(_neutralFaceAnimation, kNotAnimatingTag);
           _wasAnimationInterruptedWithNothing = false;
         }
@@ -1904,6 +1924,7 @@ namespace Anim {
       {
         // The last animation ended without a replacement, but neutral eyes weren't inserted because
         // keepalive was disabled. Now that they're re-enabled, set the neutral eyes.
+        UnlockTrack(AnimTrackFlag::FACE_TRACK);
         SetStreamingAnimation(_neutralFaceAnimation, kNotAnimatingTag);
         _wasAnimationInterruptedWithNothing = false;
       }

@@ -269,6 +269,7 @@ void UpdateConnectionFlow(const SwitchboardInterface::SetConnectionStatus& msg,
       if(s_enteredAnyScreen)
       {
         animStreamer->Abort();
+        animStreamer->EnableKeepFaceAlive(true, 0);
       }
       s_enteredAnyScreen = false;
       
