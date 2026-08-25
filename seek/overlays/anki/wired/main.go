@@ -192,26 +192,25 @@ func startweb() {
 		case "/favicon.ico":
 			w.WriteHeader(http.StatusNoContent)
 			return
-		case "/", "/seek", "/seek/", "/dash", "/dash/", "/dash.html":
-			// Phone-friendly: bare IP:8080 opens Seek (avoids "404" confusion).
-			// /dash.html is the requested DVT control UI alias.
-			serveFile(w, r, "seek.html")
+		case "/", "/seek", "/seek/", "/dash", "/dash/", "/dash.html", "/seek.html":
+			// Anki-style control UI (eye overlay, volume, drive).
+			serveFile(w, r, "dash.html")
 			return
 		case "/settings", "/settings/", "/wired", "/wired/":
 			serveFile(w, r, "index.html")
 			return
 		}
 
-		// If someone requests a missing path, send Seek instead of a bare 404 page.
+		// If someone requests a missing path, send dash instead of a bare 404 page.
 		full := path.Join("/etc/wired/webroot", strings.TrimPrefix(p, "/"))
 		if !strings.HasPrefix(full, "/etc/wired/webroot") {
-			serveFile(w, r, "seek.html")
+			serveFile(w, r, "dash.html")
 			return
 		}
 		if st, err := os.Stat(full); err != nil || st.IsDir() {
 			// Don't mask real asset 404s for css/js — only HTML-ish navigations.
 			if path.Ext(p) == "" || path.Ext(p) == ".html" {
-				serveFile(w, r, "seek.html")
+				serveFile(w, r, "dash.html")
 				return
 			}
 			http.NotFound(w, r)

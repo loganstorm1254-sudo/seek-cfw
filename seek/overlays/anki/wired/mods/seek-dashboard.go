@@ -101,6 +101,8 @@ func (modu *SeekDashboard) Description() string {
 func (m *SeekDashboard) Load() error {
 	m.touchActivity()
 	m.initLink()
+	// Stock Anki backpack lights on every boot (clear WireOS/Seek red pack overrides).
+	_ = m.ensureAnkiLightsQuiet()
 	m.idleOnce.Do(func() {
 		go m.idleWatch()
 	})
@@ -156,23 +158,25 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 	case "getSeekLights":
 		_, errOff := os.Stat(filepath.Join(seekCustomLightsDir, "off.json"))
 		_, errAnki := os.Stat(seekAnkiLightsFlag)
-		mode := "seek"
-		if errAnki == nil {
-			mode = "anki"
-		} else if errOff == nil {
+		// DVT: always report Anki stock; Seek/WireOS red pack is disabled.
+		mode := "anki"
+		if errOff == nil {
 			mode = "custom"
+		} else if errAnki != nil {
+			mode = "anki"
 		}
 		out, _ := json.Marshal(map[string]any{
 			"mode":         mode,
 			"customActive": errOff == nil,
-			"ankiLights":   errAnki == nil,
+			"ankiLights":   true,
 			"path":         seekCustomLightsDir,
 		})
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(out)
 		return
 	case "applySeekLights":
-		if err := m.handleApplySeekLights(); err != nil {
+		// No WireOS/Seek orange-red pack on DVT — force Anki stock instead.
+		if err := m.handleApplyAnkiLights(); err != nil {
 			vars.HTTPError(w, r, err.Error())
 			return
 		}
@@ -589,31 +593,29 @@ func softRestartLights() {
 	}()
 }
 
-// handleApplySeekLights removes LD/other custom backpack light packs under /data
-// so anim loads Seek WireOS orange/red from the OTA.
-func (m *SeekDashboard) handleApplySeekLights() error {
-	_ = os.RemoveAll(seekCustomLightsDir)
-	_ = os.Remove(seekAnkiLightsFlag)
-	if err := os.MkdirAll(filepath.Dir(seekLightsClearedMark), 0755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(seekLightsClearedMark, []byte("1\n"), 0644); err != nil {
-		return err
-	}
-	softRestartLights()
-	return nil
-}
-
-// handleApplyAnkiLights enables stock Vector/Anki backpack lights (blue-style pack)
-// via /data/data/enableankilights, clears custom overrides.
-func (m *SeekDashboard) handleApplyAnkiLights() error {
+// ensureAnkiLightsQuiet clears custom/WireOS overrides and stamps Anki lights
+// without restarting anim (used on wired Load).
+func (m *SeekDashboard) ensureAnkiLightsQuiet() error {
 	_ = os.RemoveAll(seekCustomLightsDir)
 	if err := os.MkdirAll(filepath.Dir(seekAnkiLightsFlag), 0755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(seekAnkiLightsFlag, []byte("1\n"), 0644); err != nil {
+	return os.WriteFile(seekAnkiLightsFlag, []byte("1\n"), 0644)
+}
+
+// handleApplySeekLights kept for API compat — DVT maps it to Anki stock.
+func (m *SeekDashboard) handleApplySeekLights() error {
+	return m.handleApplyAnkiLights()
+}
+
+// handleApplyAnkiLights enables stock Vector/Anki backpack lights (green charging)
+// via /data/data/enableankilights, clears custom overrides.
+func (m *SeekDashboard) handleApplyAnkiLights() error {
+	if err := m.ensureAnkiLightsQuiet(); err != nil {
 		return err
 	}
+	_ = os.MkdirAll(filepath.Dir(seekLightsClearedMark), 0755)
+	_ = os.WriteFile(seekLightsClearedMark, []byte("anki\n"), 0644)
 	softRestartLights()
 	return nil
 }

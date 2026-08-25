@@ -1,0 +1,291 @@
+@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Source+Sans+3:wght@400;600;700&display=swap");
+
+:root {
+    --bg0: #eef3f7;
+    --bg1: #f7fafc;
+    --ink: #12171c;
+    --muted: #5a6874;
+    --accent: #0097a8;
+    --accent-ink: #ffffff;
+    --line: rgba(18, 23, 28, 0.12);
+    --ok: #1a7f4b;
+    --err: #b42318;
+    --panel: #ffffff;
+    --font: "Source Sans 3", "Segoe UI", sans-serif;
+    --display: "Outfit", "Avenir Next", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html {
+    color-scheme: light;
+    touch-action: manipulation;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    min-height: 100dvh;
+    color: var(--ink);
+    font-family: var(--font);
+    background: var(--bg0);
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: contain;
+}
+
+.bg {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+        radial-gradient(900px 480px at 8% -10%, rgba(0, 151, 168, 0.14), transparent 55%),
+        radial-gradient(700px 420px at 100% 0%, rgba(18, 23, 28, 0.05), transparent 50%),
+        linear-gradient(180deg, #f4f8fb 0%, #e8eef3 55%, #e4ebf1 100%);
+}
+
+.page {
+    width: min(720px, calc(100% - 1.5rem));
+    margin: 0 auto;
+    padding: 1.75rem 0 3.5rem;
+}
+
+.hero { margin-bottom: 1.25rem; }
+
+.brand {
+    margin: 0;
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: clamp(2.6rem, 9vw, 3.6rem);
+    letter-spacing: -0.05em;
+    line-height: 0.92;
+    color: var(--ink);
+}
+
+h1 {
+    margin: 0.4rem 0 0.5rem;
+    font-family: var(--display);
+    font-size: clamp(1.05rem, 3.2vw, 1.35rem);
+    font-weight: 600;
+    color: var(--muted);
+}
+
+.lede, .hint, .meta { color: var(--muted); margin: 0; }
+.hint { margin: 0 0 0.85rem; font-size: 0.95rem; line-height: 1.4; }
+.meta { margin-top: 0.75rem; font-size: 0.9rem; }
+.meta a { color: var(--accent); text-decoration: none; font-weight: 700; }
+
+.tabs {
+    display: flex;
+    gap: 0.4rem;
+    margin: 1.1rem 0 1rem;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    padding: 0.4rem 0;
+    background: linear-gradient(var(--bg0) 75%, transparent);
+}
+
+.tab {
+    flex: 1;
+    min-height: 2.9rem;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid var(--line);
+    border-radius: 0.55rem;
+    background: var(--panel);
+    color: var(--muted);
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.tab.active {
+    color: var(--accent-ink);
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.status {
+    margin: 0 0 0.9rem;
+    padding: 0.65rem 0.85rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(26, 127, 75, 0.25);
+    background: #eef8f1;
+    color: var(--ok);
+    font-weight: 600;
+}
+
+.status.err {
+    border-color: rgba(180, 35, 24, 0.25);
+    background: #fdf0ee;
+    color: var(--err);
+}
+
+.panel {
+    display: none;
+    padding: 1.15rem 1.2rem 1.35rem;
+    border: 1px solid var(--line);
+    border-radius: 0.85rem;
+    background: var(--panel);
+    box-shadow: 0 10px 30px rgba(18, 23, 28, 0.04);
+}
+
+.panel.active { display: block; }
+
+h2 {
+    margin: 0 0 0.75rem;
+    font-family: var(--display);
+    font-size: 1.15rem;
+    font-weight: 700;
+}
+
+h2.spaced { margin-top: 1.4rem; }
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin: 0 0 0.85rem;
+    font-size: 0.95rem;
+}
+
+.field span { color: var(--muted); font-weight: 600; }
+.field b { color: var(--ink); font-weight: 700; }
+
+input[type="text"],
+input[type="password"],
+input[type="number"],
+input[type="file"],
+select,
+textarea {
+    width: 100%;
+    min-height: 2.7rem;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 0.5rem;
+    background: var(--bg1);
+    color: var(--ink);
+    font: inherit;
+}
+
+input[type="range"] { width: 100%; }
+
+.stack { display: flex; flex-direction: column; gap: 0.15rem; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+@media (max-width: 560px) { .grid2 { grid-template-columns: 1fr; } }
+
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0.35rem 0 0.5rem;
+}
+
+button.primary,
+button.ghost {
+    min-height: 2.85rem;
+    padding: 0.65rem 1rem;
+    border-radius: 0.55rem;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+button.primary {
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--accent-ink);
+}
+
+button.ghost {
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--ink);
+}
+
+button.ghost.danger { color: var(--err); border-color: rgba(180, 35, 24, 0.35); }
+
+.eye-overlay-preview {
+    width: 100%;
+    max-width: 368px;
+    height: auto;
+    image-rendering: pixelated;
+    border-radius: 0.4rem;
+    border: 1px solid var(--line);
+    background: #000;
+    margin: 0.4rem 0 0.75rem;
+}
+
+.drive-armed {
+    margin: 0 0 0.85rem;
+    padding: 0.65rem 0.8rem;
+    border-radius: 0.5rem;
+    background: #f3f6f8;
+    border: 1px solid var(--line);
+    font-weight: 700;
+    color: var(--muted);
+}
+
+.drive-armed.on {
+    background: #e7f7f9;
+    border-color: rgba(0, 151, 168, 0.35);
+    color: var(--accent);
+}
+
+.drive-layout {
+    display: grid;
+    gap: 1rem;
+}
+
+.touch-pad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.4rem;
+    max-width: 240px;
+}
+
+.pad-btn {
+    min-height: 3.2rem;
+    border: 1px solid var(--line);
+    border-radius: 0.55rem;
+    background: var(--bg1);
+    color: var(--ink);
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.pad-n { grid-column: 2; }
+.pad-w { grid-column: 1; }
+.pad-s { grid-column: 2; }
+.pad-e { grid-column: 3; grid-row: 2; }
+.pad-stop { grid-column: 1 / -1; }
+
+.head-lift {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    max-width: 320px;
+}
+
+.cam-box {
+    margin-top: 0.75rem;
+    border-radius: 0.55rem;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    background: #0b0f12;
+    min-height: 120px;
+}
+
+.cam-box img { width: 100%; display: block; }
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+}

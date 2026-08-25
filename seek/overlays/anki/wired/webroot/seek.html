@@ -4,53 +4,32 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="theme-color" content="#07131a">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#eef3f7">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="mobile-web-app-capable" content="yes">
-    <title>Seek Dashboard</title>
-    <link rel="stylesheet" href="css/seek.css?v=41d1">
+    <title>Vector</title>
+    <link rel="stylesheet" href="css/anki-dash.css?v=9d1">
 </head>
 <body>
     <div class="bg" aria-hidden="true"></div>
     <main class="page">
         <header class="hero">
-            <p class="brand">SeekAra</p>
-            <h1>Seek Dashboard</h1>
-            <p class="lede">Phone and Vector must be on the <b>same home Wi‑Fi</b>. Not cellular, not a guest network, not Vector’s pairing hotspot.</p>
-            <p class="hint">Turn off VPN and iCloud Private Relay on the phone or the IP looks unreachable.</p>
-            <p class="hint">Thermometer = stock safety (~90°C). Use <b>Regular</b> in <a href="/settings">wired settings</a>, camera off, Release when idle.</p>
-            <div id="netInfoBox" class="net-box">
-                <p class="hint">On the phone, join Wi‑Fi named:</p>
-                <p id="netSsid" class="net-ip">checking…</p>
-                <p class="hint">Then type this in Safari or Chrome (not a chat preview):</p>
-                <p id="netLanIp" class="net-ip" hidden></p>
-                <p id="netPhoneUrl" class="net-url" hidden></p>
-                <p id="netPhoneUrl8080" class="net-url" hidden></p>
-                <p id="netHotspotHint" class="hint" hidden></p>
-                <ul id="netAddrList" class="net-list"></ul>
+            <p class="brand">VECTOR</p>
+            <h1>Control</h1>
+            <p class="lede">Same Wi‑Fi as Vector. Eye overlay, volume, and drive.</p>
+            <div id="netInfoBox" class="sr-only" aria-hidden="true">
+                <p id="netSsid"></p>
+                <p id="netLanIp" hidden></p>
+                <p id="netPhoneUrl" hidden></p>
+                <p id="netPhoneUrl8080" hidden></p>
+                <p id="netHotspotHint" hidden></p>
+                <ul id="netAddrList"></ul>
             </div>
-            <div class="ota-card">
-                <h2>Install SeekOS (fast)</h2>
-                <p class="hint">Download the <code>.ota</code> on the phone (cellular is fine). Switch the phone to the <b>same home Wi‑Fi as Vector</b>, pick the file, tap Install. Flash is local on the robot — a cloud with <b>!</b> on his face means the flash failed; the status line below shows why.</p>
-                <label class="field">
-                    <span>OTA file</span>
-                    <input type="file" id="otaFile" accept=".ota,application/octet-stream,*/*">
-                </label>
-                <progress id="otaProgress" max="100" value="0" hidden></progress>
-                <p id="otaStatus" class="hint"></p>
-                <div class="actions">
-                    <button type="button" class="primary" id="btnOtaInstall">Install on Vector</button>
-                </div>
-            </div>
-            <p class="meta"><a href="/settings">wired settings</a></p>
         </header>
 
         <nav class="tabs" role="tablist">
-            <button type="button" class="tab active" data-tab="look" role="tab">Look</button>
-            <button type="button" class="tab" data-tab="speak" role="tab">Speak</button>
-            <button type="button" class="tab" data-tab="media" role="tab">Media</button>
-            <button type="button" class="tab" data-tab="moves" role="tab">Moves</button>
-            <button type="button" class="tab" data-tab="doom" role="tab">Doom</button>
+            <button type="button" class="tab active" data-tab="look" role="tab">Eyes</button>
+            <button type="button" class="tab" data-tab="volume" role="tab">Volume</button>
             <button type="button" class="tab" data-tab="drive" role="tab">Drive</button>
         </nav>
 
@@ -93,8 +72,8 @@
             </div>
             <button type="button" class="primary" id="btnEye">Apply eyes</button>
 
-            <h2 class="spaced">Eye texture</h2>
-            <p class="hint">Pick any image — it is resized to Vector’s face and painted onto his eye shapes (blinks still work).</p>
+            <h2 class="spaced">Eye overlay</h2>
+            <p class="hint">Any image — resized to the face and painted on his eyes (blinks still work).</p>
             <label class="field">
                 <span>Image</span>
                 <input type="file" id="eyeOverlayFile" accept="image/*">
@@ -102,19 +81,13 @@
             <canvas id="eyeOverlayPreview" width="184" height="96" class="eye-overlay-preview" hidden></canvas>
             <p id="eyeOverlayStatus" class="hint"></p>
             <div class="actions">
-                <button type="button" class="primary" id="btnEyeOverlayApply">Apply texture</button>
-                <button type="button" class="ghost danger" id="btnEyeOverlayClear">Clear texture</button>
+                <button type="button" class="primary" id="btnEyeOverlayApply">Apply overlay</button>
+                <button type="button" class="ghost danger" id="btnEyeOverlayClear">Clear</button>
             </div>
+        </section>
 
-            <h2 class="spaced">Backpack lights</h2>
-            <p class="hint"><b>Standard Vector</b> uses the classic Anki pack. <b>Seek</b> uses orange·orange·red. Custom LD lights under <code>/data</code> override both until cleared.</p>
-            <p id="seekLightsStatus" class="hint"></p>
-            <div class="actions">
-                <button type="button" class="primary" id="btnApplyAnkiLights">Standard Vector lights</button>
-                <button type="button" class="primary" id="btnApplySeekLights">Seek lights</button>
-            </div>
-
-            <h2 class="spaced">Volume</h2>
+        <section id="tab-volume" class="panel" role="tabpanel" hidden>
+            <h2>Volume</h2>
             <label class="field">
                 <span>Master volume</span>
                 <select id="masterVolume">
@@ -127,219 +100,12 @@
                 </select>
             </label>
             <button type="button" class="primary" id="btnVolume">Apply volume</button>
-        </section>
-
-        <section id="tab-speak" class="panel" role="tabpanel" hidden>
-            <h2>Voice</h2>
-            <p class="hint">Used for <b>Say something</b> and ChatGPT answers. <b>Robot</b> / <b>Male</b> use Vector’s built-in TTS. <b>Female</b> / <b>ChatGPT</b> use OpenAI TTS through his speaker (needs an API key).</p>
-            <label class="field">
-                <span>Speak as</span>
-                <select id="seekVoice">
-                    <option value="robot" selected>Vector robot</option>
-                    <option value="male">Male (default TTS)</option>
-                    <option value="female">Female (OpenAI)</option>
-                    <option value="chatgpt">ChatGPT (OpenAI)</option>
-                </select>
-            </label>
-
-            <h2 class="spaced">Say something</h2>
-            <label class="field">
-                <span>Text</span>
-                <input type="text" id="sayText" placeholder="Hello from SeekOS" autocomplete="off">
-            </label>
-            <button type="button" class="primary" id="btnSay">Say it</button>
-
-            <h2 class="spaced">ChatGPT / Oval</h2>
-            <p class="hint"><b>On Vector:</b> say <b>Hey Vector, I have a question</b> (or ask a question directly). Prefer <b>Oval</b> (<code>vector-engine</code> at oval.drpug.shop). Houndify or OpenAI are fallbacks. Dashboard text Ask uses your phone/PC when a key is saved here. Voice STT on classic KG turns needs OpenAI Whisper or Houndify if Oval alone cannot hear the follow-up.</p>
-
-            <h2 class="spaced">Oval AI</h2>
-            <p class="hint">OpenAI-compatible API at <code>https://oval.drpug.shop/v1</code>, model <code>vector-engine</code>. Paste your Oval API key.</p>
-            <label class="field">
-                <span>Oval API key</span>
-                <input type="password" id="ovalKey" placeholder="Your Oval API key" autocomplete="off">
-            </label>
-            <p id="ovalKeyStatus" class="hint"></p>
-            <div class="actions">
-                <button type="button" class="primary" id="btnSaveOval">Save Oval key</button>
-                <button type="button" class="ghost danger" id="btnClearOval">Clear Oval</button>
-                <button type="button" class="ghost" id="btnTestOval">Test Oval</button>
-            </div>
-
-            <h2 class="spaced">OpenAI (optional)</h2>
-            <p class="hint">Needed for Whisper voice transcription and OpenAI TTS voices. Text Ask can use Oval alone.</p>
-            <label class="field">
-                <span>OpenAI API key</span>
-                <input type="password" id="openaiKey" placeholder="sk-… or sk-proj-…" autocomplete="off">
-            </label>
-            <p id="openaiKeyStatus" class="hint"></p>
-            <div class="actions">
-                <button type="button" class="primary" id="btnSaveOpenAI">Save key</button>
-                <button type="button" class="ghost danger" id="btnClearOpenAI">Clear key</button>
-                <button type="button" class="ghost" id="btnTestOpenAI">Test key</button>
-            </div>
-
-            <h2 class="spaced">Houndify (questions)</h2>
-            <p class="hint">SoundHound Houndify can answer <b>Hey Vector, question</b> on the robot (no OpenAI). Create a free client at <a href="https://www.houndify.com/" target="_blank" rel="noopener">houndify.com</a>.</p>
-            <label class="field">
-                <span>Houndify Client ID</span>
-                <input type="text" id="houndifyClientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off">
-            </label>
-            <label class="field">
-                <span>Houndify Client Key</span>
-                <input type="password" id="houndifyClientKey" placeholder="Client Key from Houndify dashboard" autocomplete="off">
-            </label>
-            <p id="houndifyStatus" class="hint"></p>
-            <div class="actions">
-                <button type="button" class="primary" id="btnSaveHoundify">Save Houndify</button>
-                <button type="button" class="ghost danger" id="btnClearHoundify">Clear Houndify</button>
-                <button type="button" class="ghost" id="btnTestHoundify">Test Houndify</button>
-            </div>
-            <label class="field spaced">
-                <span>Ask AI</span>
-                <input type="text" id="askAIText" placeholder="What is the capital of France?" autocomplete="off">
-            </label>
-            <div class="actions">
-                <button type="button" class="primary" id="btnAskAI">Ask &amp; speak</button>
-                <button type="button" class="ghost" id="btnAskAIMic">Hold to talk</button>
-            </div>
-            <label class="field spaced">
-                <span>GPT response</span>
-                <textarea id="askAIAnswer" rows="4" readonly placeholder="Answer appears here…"></textarea>
-            </label>
-            <button type="button" class="ghost" id="btnCopyAIAnswer">Copy answer</button>
-
-            <h2 class="spaced">Play MP3 / WAV</h2>
-            <label class="field">
-                <span>File</span>
-                <input type="file" id="audioFile" accept=".mp3,.wav,audio/mpeg,audio/wav,audio/*">
-            </label>
-            <label class="field">
-                <span>Stream volume <b id="audioPlayVolVal">100</b></span>
-                <input type="range" id="audioPlayVolume" min="0" max="100" value="100">
-            </label>
-            <button type="button" class="primary" id="btnAudio">Play audio</button>
-        </section>
-
-        <section id="tab-media" class="panel" role="tabpanel" hidden>
-            <h2>Play video on face</h2>
-            <p class="hint">Phone-friendly: decode on device, ~5 fps, fast color convert. Keep clips short.</p>
-            <label class="field">
-                <span>File</span>
-                <input type="file" id="videoFile" accept=".mp4,video/mp4,video/*">
-            </label>
-            <div class="grid3">
-                <label class="field">
-                    <span>FPS</span>
-                    <input type="number" id="videoFps" min="1" max="10" value="5">
-                </label>
-                <label class="field">
-                    <span>Fit</span>
-                    <select id="videoFit">
-                        <option value="cover" selected>Cover</option>
-                        <option value="contain">Contain</option>
-                    </select>
-                </label>
-                <label class="field">
-                    <span>Audio</span>
-                    <select id="videoWithAudio">
-                        <option value="1" selected>With audio</option>
-                        <option value="0">Video only</option>
-                    </select>
-                </label>
-            </div>
-            <div class="actions">
-                <button type="button" class="primary" id="videoPlayBtn">Play video</button>
-                <button type="button" class="ghost" id="btnStopMedia">Stop</button>
-            </div>
-            <canvas id="seekVideoCanvas" width="184" height="96" aria-label="Face preview"></canvas>
-        </section>
-
-        <section id="tab-moves" class="panel" role="tabpanel" hidden>
-            <h2>Link Vectors</h2>
-            <p class="hint">Put every Vector on the same Wi‑Fi with SeekOS. Choose one as <b>master</b>, link the others, then Macarena plays on all of them in sync. (Vector Bluetooth stays with the app/cubes — Seek links over Wi‑Fi.)</p>
-            <div class="link-card">
-                <label class="master-toggle">
-                    <input type="checkbox" id="linkMasterToggle">
-                    <span>Choose this Vector as master</span>
-                </label>
-                <p id="linkStatus" class="hint">Scanning for nearby Vectors…</p>
-                <div id="linkPeerList" class="link-peer-list"></div>
-                <div class="actions">
-                    <button type="button" class="ghost" id="btnLinkRefresh">Refresh scan</button>
-                </div>
-                <label class="field spaced">
-                    <span>Add by IP (if scan misses one)</span>
-                    <input type="text" id="linkManualIP" placeholder="192.168.42.210" autocomplete="off">
-                </label>
-                <button type="button" class="ghost" id="btnLinkAddIP">Link IP</button>
-            </div>
-
-            <h2 class="spaced">Macarena</h2>
-            <p class="hint">Plays <b>Los del Río — Macarena</b> on <b>every linked Vector</b> — same music and dance beat. Master arms the group (~3 s countdown), then all start together. Clear the floor.</p>
-            <div class="macarena-card">
-                <p class="macarena-title">Dale a tu cuerpo alegría</p>
-                <div class="actions">
-                    <button type="button" class="primary" id="btnMacarena">Dance Macarena</button>
-                    <button type="button" class="ghost danger" id="btnMacarenaStop">Stop</button>
-                </div>
-                <p id="macarenaSyncHint" class="hint">Give him clear floor space. ~4 minutes. Hit Stop anytime.</p>
-            </div>
-
-            <h2 class="spaced">Voice &amp; listen</h2>
-            <p class="hint">Frees SDK control so Vector can hear you. Then say <b>Hey Vector</b> or press his backpack.</p>
-            <div class="actions">
-                <button type="button" class="primary" id="btnListen">Activate voice</button>
-            </div>
-
-            <h2 class="spaced">Favorites</h2>
-            <div class="move-grid favorites" id="movesFavorites"></div>
-
-            <h2 class="spaced">Meet Vector</h2>
-            <p class="hint">Name for Vector to learn (works on phones — no popup).</p>
-            <label class="field">
-                <span>Name</span>
-                <input type="text" id="meetName" maxlength="32" placeholder="friend" value="friend" autocomplete="name">
-            </label>
-            <button type="button" class="ghost" id="btnMeet">Meet Vector</button>
-
-            <h2 class="spaced">Behaviors</h2>
-            <p class="hint">Fist bump, dance, sleep, and more. Releases Drive control first.</p>
-            <div id="movesIntents" class="move-grid"></div>
-
-            <h2 class="spaced">Animations</h2>
-            <p class="hint">Short animation clips (does not run full games).</p>
-            <div id="movesAnims" class="move-grid"></div>
-        </section>
-
-        <section id="tab-doom" class="panel" role="tabpanel" hidden>
-            <h2>Doom</h2>
-            <p class="hint">Freedoom on Vector’s face — start/stop/play only from this page. Starts in E1M1. Sound is optional (can be heavy on the robot).</p>
-            <div class="actions">
-                <button type="button" class="primary" id="btnDoomStart">Play Doom</button>
-                <button type="button" class="ghost danger" id="btnDoomStop">Quit</button>
-            </div>
-            <label class="field checkbox">
-                <input type="checkbox" id="doomSfx">
-                <span>Enable SFX (can restart some units — leave off if he reboots)</span>
-            </label>
-            <p class="hint">Hold: W/S move · A/D turn · Q/E strafe · Space/F fire · U use · Enter menu · Esc</p>
-            <div class="doom-pad" id="doomPad" aria-label="Doom controls">
-                <button type="button" class="pad-btn" data-doom="forward">▲</button>
-                <button type="button" class="pad-btn" data-doom="left">◀</button>
-                <button type="button" class="pad-btn" data-doom="back">▼</button>
-                <button type="button" class="pad-btn" data-doom="right">▶</button>
-                <button type="button" class="pad-btn pad-fire" data-doom="fire">FIRE</button>
-                <button type="button" class="pad-btn" data-doom="use">USE</button>
-                <button type="button" class="pad-btn" data-doom="enter">ENTER</button>
-                <button type="button" class="pad-btn" data-doom="strafeL">SL</button>
-                <button type="button" class="pad-btn" data-doom="strafeR">SR</button>
-                <button type="button" class="pad-btn" data-doom="esc">ESC</button>
-            </div>
+            <p class="hint">Triple‑click the backpack to mute/unmute sounds on the robot.</p>
         </section>
 
         <section id="tab-drive" class="panel" role="tabpanel" hidden>
             <h2>Drive</h2>
-            <p class="hint">1) <b>Take control</b> · 2) Hold the pad (phone) or WASD · Camera optional</p>
+            <p class="hint">1) Take control · 2) Hold the pad or WASD · Camera optional</p>
             <div id="driveArmed" class="drive-armed">Not armed — tap Take control</div>
             <div class="drive-layout">
                 <div class="drive-pads">
@@ -350,38 +116,93 @@
                         <button type="button" class="pad-btn pad-e" data-f="0" data-t="-1">▶</button>
                         <button type="button" class="pad-btn pad-stop" data-f="0" data-t="0">■</button>
                     </div>
-                    <div class="wasd-board" aria-hidden="true">
-                        <div class="wasd-row"><span class="key" data-k="w">W</span></div>
-                        <div class="wasd-row">
-                            <span class="key" data-k="a">A</span>
-                            <span class="key" data-k="s">S</span>
-                            <span class="key" data-k="d">D</span>
-                        </div>
-                        <p class="hint">Desktop: WASD · Q/E head · R/F lift · Space stop</p>
-                    </div>
+                    <p class="hint">Desktop: WASD · Q/E head · R/F lift · Space stop</p>
                 </div>
-                <div class="drive-controls">
-                    <label class="field">
-                        <span>Speed <b id="driveSpeedVal">60</b> mm/s</span>
-                        <input type="range" id="driveSpeed" min="20" max="120" step="5" value="60">
-                    </label>
+                <label class="field">
+                    <span>Speed <b id="driveSpeedVal">60</b> mm/s</span>
+                    <input type="range" id="driveSpeed" min="20" max="120" step="5" value="60">
+                </label>
+                <div class="actions">
+                    <button type="button" class="primary" id="btnArmDrive">Take control</button>
+                    <button type="button" class="ghost danger" id="btnRelease">Release</button>
+                </div>
+                <div class="cam-box">
+                    <img id="cameraView" alt="Vector camera" width="640" height="360">
                     <div class="actions">
-                        <button type="button" class="primary" id="btnArmDrive">Take control</button>
-                        <button type="button" class="ghost danger" id="btnRelease">Release</button>
-                    </div>
-                    <div class="cam-wrap">
-                        <img id="cameraView" alt="Vector camera" width="640" height="360">
-                        <div class="actions">
-                            <button type="button" class="ghost" id="btnCamStart">Camera on</button>
-                            <button type="button" class="ghost" id="btnCamStop">Camera off</button>
-                        </div>
+                        <button type="button" class="ghost" id="btnCamStart">Camera on</button>
+                        <button type="button" class="ghost" id="btnCamStop">Camera off</button>
                     </div>
                 </div>
             </div>
         </section>
+
+        <!-- Hidden stubs so existing seek-dashboard.js bindings stay quiet -->
+        <div hidden aria-hidden="true">
+            <input type="file" id="otaFile">
+            <progress id="otaProgress" max="100" value="0"></progress>
+            <p id="otaStatus"></p>
+            <button type="button" id="btnOtaInstall"></button>
+            <button type="button" id="btnApplyAnkiLights"></button>
+            <button type="button" id="btnApplySeekLights"></button>
+            <p id="seekLightsStatus"></p>
+            <select id="seekVoice"><option value="robot">robot</option></select>
+            <input type="text" id="sayText">
+            <button type="button" id="btnSay"></button>
+            <input type="password" id="ovalKey">
+            <p id="ovalKeyStatus"></p>
+            <button type="button" id="btnSaveOval"></button>
+            <button type="button" id="btnClearOval"></button>
+            <button type="button" id="btnTestOval"></button>
+            <input type="password" id="openaiKey">
+            <p id="openaiKeyStatus"></p>
+            <button type="button" id="btnSaveOpenAI"></button>
+            <button type="button" id="btnClearOpenAI"></button>
+            <button type="button" id="btnTestOpenAI"></button>
+            <input type="text" id="houndifyClientId">
+            <input type="password" id="houndifyClientKey">
+            <p id="houndifyStatus"></p>
+            <button type="button" id="btnSaveHoundify"></button>
+            <button type="button" id="btnClearHoundify"></button>
+            <button type="button" id="btnTestHoundify"></button>
+            <input type="text" id="askAIText">
+            <button type="button" id="btnAskAI"></button>
+            <button type="button" id="btnAskAIMic"></button>
+            <textarea id="askAIAnswer"></textarea>
+            <button type="button" id="btnCopyAIAnswer"></button>
+            <input type="file" id="audioFile">
+            <input type="range" id="audioPlayVolume" min="0" max="100" value="100">
+            <b id="audioPlayVolVal">100</b>
+            <button type="button" id="btnAudio"></button>
+            <input type="file" id="videoFile">
+            <input type="number" id="videoFps" value="5">
+            <select id="videoFit"><option value="cover">cover</option></select>
+            <select id="videoWithAudio"><option value="1">1</option></select>
+            <button type="button" id="videoPlayBtn"></button>
+            <button type="button" id="btnStopMedia"></button>
+            <canvas id="seekVideoCanvas" width="184" height="96"></canvas>
+            <input type="checkbox" id="linkMasterToggle">
+            <p id="linkStatus"></p>
+            <div id="linkPeerList"></div>
+            <button type="button" id="btnLinkRefresh"></button>
+            <input type="text" id="linkManualIP">
+            <button type="button" id="btnLinkAddIP"></button>
+            <button type="button" id="btnMacarena"></button>
+            <button type="button" id="btnMacarenaStop"></button>
+            <p id="macarenaSyncHint"></p>
+            <button type="button" id="btnListen"></button>
+            <div id="movesFavorites"></div>
+            <input type="text" id="meetName" value="friend">
+            <button type="button" id="btnMeet"></button>
+            <div id="movesIntents"></div>
+            <div id="movesAnims"></div>
+            <button type="button" id="btnDoomStart"></button>
+            <button type="button" id="btnDoomStop"></button>
+            <input type="checkbox" id="doomSfx">
+            <div id="doomPad"></div>
+        </div>
     </main>
-    <noscript><p class="status err">JavaScript is required for Seek Dashboard.</p></noscript>
-    <script src="js/seek-dashboard.js?v=42h1" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load seek-dashboard.js — hard refresh.';}})();"></script>
+    <noscript><p class="status err">JavaScript is required.</p></noscript>
+    <script src="js/seek-dashboard.js?v=9d1" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load dashboard script — hard refresh.';}})();"></script>
     <script>
     setTimeout(function () {
         if (!window.__seekLoaded) {
@@ -389,7 +210,7 @@
             if (e) {
                 e.hidden = false;
                 e.className = 'status err';
-                e.textContent = 'Script did not run. Hard-refresh, and use the Wi‑Fi URL shown at the top (same network as Vector).';
+                e.textContent = 'Script did not run. Hard-refresh on the same Wi‑Fi as Vector.';
             }
         }
     }, 2500);

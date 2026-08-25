@@ -1357,14 +1357,11 @@ void FaceInfoScreenManager::DrawMain()
 
   const std::string hwVer    = "HW: "   + std::to_string(IsXray() ? 8 : Factory::GetEMR()->fields.HW_VER);
 
-  // osVer will be sha if deployed build
+  // Always show OS version on Main (double-click CCIS) — stock Anki VER: line.
+  // Prefer ro.anki.version via GetOSBuildVersion(); never hide it behind SHA.
   std::string osVer = "VER: " + osstate->GetOSBuildVersion();
 
   const std::string ssid     = "SSID: " + osstate->GetSSID(true);
-
-  if (isDeployed()) {
-    osVer      = "SHA: "  + osstate->GetBuildSha();
-  }
 
   std::string ip             = osstate->GetIPAddress();
   if (ip.empty()) {
