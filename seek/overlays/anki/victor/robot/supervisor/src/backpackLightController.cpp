@@ -105,28 +105,10 @@ namespace BackpackLightController {
 
   Result Init()
   {
+    // Stock: backpack off at idle. Charging/etc. come from Anki light packs via vic-anim.
     memset(&_ledParams[(int)BackpackLightLayer::BPL_USER], 0, sizeof(_ledParams[(int)BackpackLightLayer::BPL_USER]));
-
-    // DVT: default backpack = soft Anki green pulse (never WireOS RGB/red)
-    const u16 kTimeDiff_ms = 600;
-    for(u8 i = 0; i < (u8)LEDId::NUM_BACKPACK_LEDS; i++)
-    {
-      const u32 color = 0x00FF00FF; // RGBA soft green
-    
-      _ledParams[(int)BackpackLightLayer::BPL_USER].lights[i] = {
-        .onColor = color,
-        .offColor = 0,
-        .onPeriod_ms = static_cast<u16>(kTimeDiff_ms * (i+1)),
-        .offPeriod_ms = static_cast<u16>(kTimeDiff_ms * ((u8)LEDId::NUM_BACKPACK_LEDS - 1 - i)),
-        .transitionOnPeriod_ms = 300,
-        .transitionOffPeriod_ms = 300,
-        .offset_ms = static_cast<s16>(kTimeDiff_ms * ((u8)LEDId::NUM_BACKPACK_LEDS - 1 - i))
-      };
-    }
-    
+    memset(&_ledParams[(int)BackpackLightLayer::BPL_ANIMATION], 0, sizeof(_ledParams[(int)BackpackLightLayer::BPL_ANIMATION]));
     EnableLayer(BackpackLightLayer::BPL_USER, true);
-    
-    
     return RESULT_OK;
   }
 

@@ -44,20 +44,40 @@ namespace {
 u32 _pin = 123456;
 
 const f32 kRobotNameScale = 0.7f;
-// Middle line on double-click pairing / code screen
-const std::string kURL = "victor";
 const ColorRGBA   kColor(1.f, 1.f, 1.f, 1.f);
 
 const char* kShowPinScreenSpriteName = "pairing_icon_key";
 
 bool s_enteredAnyScreen = false;
+
+// Display name: Vector-XXXX → Victor-XXXX (keep suffix)
+std::string DisplayRobotName()
+{
+  std::string name = OSState::getInstance()->GetRobotName();
+  const std::string from = "Vector";
+  const std::string to = "Victor";
+  size_t pos = 0;
+  while ((pos = name.find(from, pos)) != std::string::npos) {
+    name.replace(pos, from.size(), to);
+    pos += to.size();
+  }
+  // also handle lowercase prefix if present
+  const std::string from2 = "vector";
+  const std::string to2 = "victor";
+  pos = 0;
+  while ((pos = name.find(from2, pos)) != std::string::npos) {
+    name.replace(pos, from2.size(), to2);
+    pos += to2.size();
+  }
+  return name;
+}
 }
 
 // Draws BLE name and url to screen
 bool DrawStartPairingScreen(Anim::AnimationStreamer* animStreamer)
 {
   // Robot name will be empty until switchboard has set the property
-  std::string robotName = OSState::getInstance()->GetRobotName();
+  std::string robotName = DisplayRobotName();
   if(robotName == "")
   {
     return false;
@@ -68,17 +88,8 @@ bool DrawStartPairingScreen(Anim::AnimationStreamer* animStreamer)
   auto* img = new Vision::ImageRGBA(FACE_DISPLAY_HEIGHT, FACE_DISPLAY_WIDTH);
   img->FillWith(Vision::PixelRGBA(0, 0));
 
+  // Top line only: Victor-XXXX (no portal URL)
   img->DrawTextCenteredHorizontally(robotName, cv::QT_FONT_NORMAL, kRobotNameScale, 1, kColor, 15, false);
-
-  // Always show DVT middle line on the code / pairing screen
-  {
-    cv::Size textSize;
-    float scale = 0;
-    Vision::Image::MakeTextFillImageWidth(kURL, cv::QT_FONT_NORMAL, 1, img->GetNumCols(), textSize, scale);
-    // Keep readable on 184px face — don't let scale blow past ~0.55
-    if (scale > 0.55f) { scale = 0.55f; }
-    img->DrawTextCenteredHorizontally(kURL, cv::QT_FONT_NORMAL, scale, 1, kColor, (FACE_DISPLAY_HEIGHT + textSize.height)/2, true);
-  }
 
   auto handle = std::make_shared<Vision::SpriteWrapper>(img);
   const bool overrideAllSpritesToEyeHue = false;
@@ -105,10 +116,8 @@ void DrawShowPinScreen(Anim::AnimationStreamer* animStreamer, const Anim::AnimCo
             (FACE_DISPLAY_HEIGHT - key.GetNumRows())/2);
   img->DrawSubImage(key, p);
 
-  img->DrawTextCenteredHorizontally(OSState::getInstance()->GetRobotName(), cv::QT_FONT_NORMAL, kRobotNameScale, 1, kColor, 15, false);
-
-  // Also show "victor" under the name on the PIN/code screen
-  img->DrawTextCenteredHorizontally(kURL, cv::QT_FONT_NORMAL, 0.4f, 1, kColor, 28, false);
+  // Top line: Victor-XXXX (replace Vector→Victor), then key icon, then PIN
+  img->DrawTextCenteredHorizontally(DisplayRobotName(), cv::QT_FONT_NORMAL, kRobotNameScale, 1, kColor, 15, false);
 
   img->DrawTextCenteredHorizontally(pin, cv::QT_FONT_NORMAL, 0.8f, 1, kColor, FACE_DISPLAY_HEIGHT-5, false);
 

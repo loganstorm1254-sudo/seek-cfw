@@ -169,28 +169,8 @@ void BackpackLightComponent::UpdateCriticalBackpackLightConfig(bool isCloudStrea
     // under the "critical" backpack light source
     if(trigger != BackpackAnimationTrigger::Off)
     {
-      // DVT: hard-force Anki green for charging/offline/muted/lowbatt — never red WireOS
-      // DVT_LIGHTS_BUILD_TAG_13
-      BackpackLightAnimation::BackpackAnimation forced = *anim;
-      if (trigger == BackpackAnimationTrigger::Charging ||
-          trigger == BackpackAnimationTrigger::LowBattery ||
-          trigger == BackpackAnimationTrigger::Offline ||
-          trigger == BackpackAnimationTrigger::Muted ||
-          trigger == BackpackAnimationTrigger::Offline_Off)
-      {
-        for (int i = 0; i < (int)LEDId::NUM_BACKPACK_LEDS; ++i)
-        {
-          // RGBA: soft green matching backpackLightsAnki/charging.json
-          forced.lights.lights[i].onColor  = 0x00FF00FF;
-          forced.lights.lights[i].offColor = 0x00000000;
-          forced.lights.lights[i].onPeriod_ms = static_cast<u16>(600 * (i + 1));
-          forced.lights.lights[i].offPeriod_ms = static_cast<u16>(1200 / (i + 1));
-          forced.lights.lights[i].transitionOnPeriod_ms = 300;
-          forced.lights.lights[i].transitionOffPeriod_ms = 300;
-          forced.lights.lights[i].offset_ms = static_cast<s16>(600 * (2 - i));
-        }
-      }
-      StartBackpackAnimationInternal(forced,
+      // Stock Anki packs only (loaded via robotDataLoader) — idle Off, charging green pulse, etc.
+      StartBackpackAnimationInternal(*anim,
                                      Util::EnumToUnderlying(BackpackLightSourcePrivate::Critical),
                                      _criticalLightConfig);
     }
@@ -373,34 +353,6 @@ Result BackpackLightComponent::SendBackpackLights(const BackpackLightAnimation::
 
 Result BackpackLightComponent::SendBackpackLights(const BackpackAnimationTrigger& trigger)
 {
-  // DVT: never play WireOS-style RGB/red packs — force stock Anki green pulse
-  // for the common critical states users notice on the backpack.
-  switch (trigger)
-  {
-    case BackpackAnimationTrigger::Charging:
-    case BackpackAnimationTrigger::LowBattery:
-    case BackpackAnimationTrigger::Offline:
-    case BackpackAnimationTrigger::Muted:
-    case BackpackAnimationTrigger::Offline_Off:
-    {
-      BackpackLightAnimation::BackpackAnimation green{};
-      for (int i = 0; i < (int)LEDId::NUM_BACKPACK_LEDS; ++i)
-      {
-        // RGBA soft green (matches Anki charging.json 0,0.5,0,1)
-        green.lights.lights[i].onColor  = 0x00FF00FF;
-        green.lights.lights[i].offColor = 0x00000000;
-        green.lights.lights[i].onPeriod_ms = static_cast<u16>(600 * (i + 1));
-        green.lights.lights[i].offPeriod_ms = static_cast<u16>(1200 / (i + 1));
-        green.lights.lights[i].transitionOnPeriod_ms = 300;
-        green.lights.lights[i].transitionOffPeriod_ms = 300;
-        green.lights.lights[i].offset_ms = static_cast<s16>(600 * (2 - i));
-      }
-      return SendBackpackLights(green);
-    }
-    default:
-      break;
-  }
-
   auto animName = _backpackTriggerToNameMap->GetValue(trigger);
   auto anim = _backpackLightContainer->GetAnimation(animName);
 
