@@ -26,6 +26,16 @@ Source of truth: `seek/overlays/anki/victor/animProcess/src/cozmoAnim/faceDispla
 | Double click (off charger) | Mic mute/unmute |
 | **Triple click** (3 quick taps) | **Mute/unmute all sounds** + mute icon top-right |
 
+## Flash over Wi‑Fi (SSH)
+
+Local tool — upload SSH key, enter Vector IP, flash latest DVT from GitHub:
+
+```bash
+cd seek/wifi-flash && npm install && npm start
+```
+
+Open http://127.0.0.1:3847 (PC must be on same Wi‑Fi as Vector). See [seek/wifi-flash/README.md](seek/wifi-flash/README.md).
+
 ## Boot splash
 
 The first static early-boot screen (rampost `anki_dev_unit`) is the **SeekAra** wordmark.
