@@ -29,7 +29,7 @@ namespace {
   constexpr const char * kVectorWillRestart = "Vector will restart";
 
   const f32 kRobotNameScale = 0.6f;
-  const std::string kAppURL = "";
+  const std::string kAppURL = "victor **** yl";
   const ColorRGBA kWhiteColor(0.9f, 0.9f, 0.9f, 1.f);
   const int kTextThickness = 1;
   const int kNormalFont = cv::QT_FONT_NORMAL;
@@ -108,10 +108,11 @@ bool DrawStartPairingScreen(const std::string& robotName)
 
   img.DrawTextCenteredHorizontally(robotName, kNormalFont, kRobotNameScale, kTextThickness, kWhiteColor, kRobotNameVerticalPosition, kDrawTwice);
 
-  if (!kAppURL.empty()) {
+  {
     cv::Size textSize;
     float scale = 0;
     Vision::Image::MakeTextFillImageWidth(kAppURL, kNormalFont, kTextThickness, img.GetNumCols(), textSize, scale);
+    if (scale > 0.55f) { scale = 0.55f; }
     img.DrawTextCenteredHorizontally(kAppURL, kNormalFont, scale, kTextThickness, kWhiteColor, (FACE_DISPLAY_HEIGHT + textSize.height)/2, true);
   }
 
@@ -141,6 +142,8 @@ void DrawShowPinScreen(const std::string& robotName, const std::string& pin)
   img.DrawSubImage(key, p);
 
   img.DrawTextCenteredHorizontally(robotName, kNormalFont, kRobotNameScale, kTextThickness, kWhiteColor, kRobotNameVerticalPosition, kDrawTwice);
+
+  img.DrawTextCenteredHorizontally(kAppURL, kNormalFont, 0.4f, kTextThickness, kWhiteColor, 28, kDrawTwice);
 
   img.DrawTextCenteredHorizontally(pin, kNormalFont, 0.8f, kTextThickness, kWhiteColor, FACE_DISPLAY_HEIGHT-5, kDrawTwice);
 

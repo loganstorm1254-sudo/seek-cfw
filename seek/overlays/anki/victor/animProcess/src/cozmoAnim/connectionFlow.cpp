@@ -44,9 +44,9 @@ namespace {
 u32 _pin = 123456;
 
 const f32 kRobotNameScale = 0.7f;
-// DVT build: never send users to Wire activation portals
-const std::string kURL = "";
-const ColorRGBA   kColor(0.9f, 0.5f, 0.9f, 1.f);
+// Middle line on double-click pairing / code screen (replaces WireOS portal URL)
+const std::string kURL = "victor **** yl";
+const ColorRGBA   kColor(1.f, 1.f, 1.f, 1.f);
 
 const char* kShowPinScreenSpriteName = "pairing_icon_key";
 
@@ -70,10 +70,13 @@ bool DrawStartPairingScreen(Anim::AnimationStreamer* animStreamer)
 
   img->DrawTextCenteredHorizontally(robotName, cv::QT_FONT_NORMAL, kRobotNameScale, 1, kColor, 15, false);
 
-  if (!kURL.empty()) {
+  // Always show DVT middle line on the code / pairing screen
+  {
     cv::Size textSize;
     float scale = 0;
     Vision::Image::MakeTextFillImageWidth(kURL, cv::QT_FONT_NORMAL, 1, img->GetNumCols(), textSize, scale);
+    // Keep readable on 184px face — don't let scale blow past ~0.55
+    if (scale > 0.55f) { scale = 0.55f; }
     img->DrawTextCenteredHorizontally(kURL, cv::QT_FONT_NORMAL, scale, 1, kColor, (FACE_DISPLAY_HEIGHT + textSize.height)/2, true);
   }
 
@@ -103,6 +106,9 @@ void DrawShowPinScreen(Anim::AnimationStreamer* animStreamer, const Anim::AnimCo
   img->DrawSubImage(key, p);
 
   img->DrawTextCenteredHorizontally(OSState::getInstance()->GetRobotName(), cv::QT_FONT_NORMAL, kRobotNameScale, 1, kColor, 15, false);
+
+  // Also show "victor **** yl" under the name on the PIN/code screen
+  img->DrawTextCenteredHorizontally(kURL, cv::QT_FONT_NORMAL, 0.4f, 1, kColor, 28, false);
 
   img->DrawTextCenteredHorizontally(pin, cv::QT_FONT_NORMAL, 0.8f, 1, kColor, FACE_DISPLAY_HEIGHT-5, false);
 
