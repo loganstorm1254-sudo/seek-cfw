@@ -138,10 +138,36 @@ func seekSendAIAnswer(strm *Streamer, query, answer string) {
 	}, strm.receiver, true)
 }
 
-// seekFinishOK stops the Timeout→NoCloud path. cancelResponse() fires
-// OnError(Timeout) unless we claim respOnce and cancel with closed=true.
+// seekFinishOK stops further responses and tears down the stream context.
+// Prefer seekSendSilence / seekSendIntent — finishing with no intent still
+// maps to NoIntentHeard → NoCloud (cloud-with-X) in the engine.
 func (strm *Streamer) seekFinishOK() {
 	strm.respOnce.Do(func() {})
+	if strm.cancel != nil {
+		strm.cancel()
+	}
+}
+
+// seekSendSilence tells the engine we heard nothing useful. That is
+// EIntentStatus::SilenceTimeout — confused/neutral get-out, NOT NoCloud.
+func (strm *Streamer) seekSendSilence() {
+	strm.seekSendIntent("intent_system_noaudio", nil)
+}
+
+// seekCancelSoft replaces cancelResponse for local Seek streams.
+// Stock cancelResponse calls OnError(Timeout) when the 9s deadline hits;
+// with Wi‑Fi up the engine maps that to the cloud-with-X face. Houndify
+// answers often take longer than 9s, so we must never emit Timeout here.
+func (strm *Streamer) seekCancelSoft() {
+	done := strm.ctx.Done()
+	if done == nil {
+		return
+	}
+	<-done
+	if strm.closed {
+		return
+	}
+	log.Println("Seek cloudless: soft close (no Timeout/OnError → no cloud-with-X)")
 	if strm.cancel != nil {
 		strm.cancel()
 	}
@@ -194,7 +220,7 @@ func (strm *Streamer) seekAnswerOrFallback(pcm []byte, textHint string) {
 // Never dials remote Chipper — that is what caused the cloud-with-X face
 // when fistbump / social voice commands failed against vicapi.pvic.xyz.
 func (strm *Streamer) init(streamSize int) {
-	go strm.cancelResponse()
+	go strm.seekCancelSoft()
 	go strm.bufferRoutine(streamSize)
 
 	sessionID := "seek-local-" + uuid.New().String()[:8]
@@ -289,18 +315,21 @@ func (strm *Streamer) init(streamSize int) {
 			return
 		}
 
-		// End of audio (AudioDone closed the channel).
+		// End of audio (AudioDone / soft close closed the channel).
 		if kgMode {
 			log.Println("Seek cloudless: KG follow-up → Houndify/voiceAsk")
 			strm.seekAnswerOrFallback(pcm, lastText)
 			return
 		}
 		if aiOn && len(pcm) > 3200 {
+			// Free-form / empty ASR: still try Houndify on PCM (soft-cancel
+			// already prevents Timeout→cloud-with-X while voiceAsk runs).
 			strm.seekAnswerOrFallback(pcm, lastText)
 			return
 		}
-		// Nothing useful — finish cleanly so Timeout does not paint cloud-with-X.
-		strm.seekFinishOK()
+		// No match / empty ASR — silence intent, never bare finish (NoCloud).
+		log.Println("Seek cloudless: no match → silence (avoid cloud-with-X)")
+		strm.seekSendSilence()
 	}()
 }
 
