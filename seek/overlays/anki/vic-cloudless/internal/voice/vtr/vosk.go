@@ -53,14 +53,34 @@ func Process(chunk []byte) string {
 	stop, _ := DetectEndOfSpeech(chunk)
 	rec.AcceptWaveform(chunk)
 	if stop {
-		var jres map[string]interface{}
-		json.Unmarshal([]byte(rec.FinalResult()), &jres)
-		transcribedText, _ := jres["text"].(string)
-		fmt.Println("transcribed text: " + transcribedText)
-		go rec.Reset()
-		return transcribedText
+		return flushRecognizer()
 	}
 	return ""
+}
+
+// Flush forces a final transcript when the mic ends before VAD end-of-speech
+// (AudioDone). Without this, "I have a question" often yields empty text.
+func Flush() string {
+	if rec == nil {
+		return ""
+	}
+	return flushRecognizer()
+}
+
+func flushRecognizer() string {
+	var jres map[string]interface{}
+	json.Unmarshal([]byte(rec.FinalResult()), &jres)
+	transcribedText, _ := jres["text"].(string)
+	transcribedText = strings.TrimSpace(transcribedText)
+	fmt.Println("transcribed text: " + transcribedText)
+	go rec.Reset()
+	// Reset VAD so the next utterance starts clean.
+	InactiveFrames = 0
+	ActiveFrames = 0
+	OverallFrames = 0
+	VADExists = false
+	VADInst = nil
+	return transcribedText
 }
 
 func GetFreq() string {

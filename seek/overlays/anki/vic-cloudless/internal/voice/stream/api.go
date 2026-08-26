@@ -12,8 +12,9 @@ import (
 
 func NewStreamer(ctx context.Context, receiver Receiver, streamSize int, opts ...Option) *Streamer {
 	strm := &Streamer{
-		byteChan:    make(chan []byte),
+		byteChan:    make(chan []byte, 32),
 		audioStream: make(chan []byte, 10),
+		micDone:     make(chan struct{}),
 		receiver:    receiver}
 
 	// set default connector before applying options
@@ -57,6 +58,7 @@ func (strm *Streamer) AddBytes(bytes []byte) {
 }
 
 func (strm *Streamer) Close() error {
+	strm.signalMicDone()
 	strm.cancel()
 	var err util.Errors
 	if strm.conn != nil {
@@ -65,16 +67,24 @@ func (strm *Streamer) Close() error {
 	return err.Error()
 }
 
+func (strm *Streamer) signalMicDone() {
+	if strm.micDone == nil {
+		return
+	}
+	strm.micDoneOnce.Do(func() {
+		close(strm.micDone)
+	})
+}
+
 func (strm *Streamer) CloseSend() error {
 	if strm.conn != nil {
 		return strm.conn.CloseSend()
 	}
-	// Seek/local cloudless: there is no gRPC stream. AudioDone must still
-	// end the buffer routine so ASR can finalize — without waiting for the
-	// 9s context Timeout (which used to paint cloud-with-X).
-	if strm.cancel != nil {
-		strm.cancel()
-	}
+	// Seek/local: mic finished. Drain buffered audio into the listen loop
+	// WITHOUT canceling the stream context (cancel closes channels while the
+	// mic may still push samples, and it skips Vosk FinalResult — which broke
+	// "I have a question").
+	strm.signalMicDone()
 	return nil
 }
 

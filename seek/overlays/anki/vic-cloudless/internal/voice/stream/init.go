@@ -93,7 +93,9 @@ func seekIsQuestionPrompt(text string) bool {
 	t = strings.Trim(t, " .,!?")
 	switch t {
 	case "question", "a question", "i have a question", "i've a question",
-		"look up a question", "look up a question for me":
+		"i have question", "have a question",
+		"look up a question", "look up a question for me",
+		"lets talk", "let's talk", "conversation":
 		return true
 	default:
 		return false
@@ -273,6 +275,37 @@ func (strm *Streamer) init(streamSize int) {
 		var pcm []byte
 		var lastText string
 
+		handleText := func(text string) bool {
+			text = strings.TrimSpace(text)
+			if text == "" {
+				return false
+			}
+			lastText = text
+			intent, iParam, _ := vtr.ProcessTextAll(text, vtr.IntentList)
+
+			// "I have a question" → open stock follow-up listen (second stream is kgMode).
+			if seekIsQuestionPrompt(text) || intent == "intent_knowledge_promptquestion" {
+				log.Println("Seek cloudless: question prompt → open KG follow-up:", text)
+				strm.seekSendIntent("intent_knowledge_promptquestion", iParam)
+				return true
+			}
+
+			// Prefer stock local intents (explore, play, greetings, how old, …).
+			if seekIsLocalCommandIntent(intent) {
+				strm.seekSendIntent(intent, iParam)
+				return true
+			}
+
+			// Free-form question on the first listen (no separate "I have a question").
+			if aiOn && (seekLooksLikeQuestion(text) || intent == "intent_system_noaudio" || seekIsKnowledgeIntent(intent)) {
+				strm.seekAnswerOrFallback(pcm, text)
+				return true
+			}
+
+			strm.seekSendIntent(intent, iParam)
+			return true
+		}
+
 		for data := range strm.audioStream {
 			if len(pcm) < seekMaxPCMBytes {
 				pcm = append(pcm, data...)
@@ -284,35 +317,16 @@ func (strm *Streamer) init(streamSize int) {
 				continue
 			}
 
-			text := vtr.Process(data)
-			if text == "" {
-				continue
-			}
-			lastText = text
-
-			intent, iParam, _ := vtr.ProcessTextAll(text, vtr.IntentList)
-
-			// "I have a question" → open stock follow-up listen (second stream is kgMode).
-			if seekIsQuestionPrompt(text) || intent == "intent_knowledge_promptquestion" {
-				log.Println("Seek cloudless: question prompt → open KG follow-up")
-				strm.seekSendIntent("intent_knowledge_promptquestion", iParam)
+			if handleText(vtr.Process(data)) {
 				return
 			}
+		}
 
-			// Prefer stock local intents (explore, play, greetings, how old, …).
-			if seekIsLocalCommandIntent(intent) {
-				strm.seekSendIntent(intent, iParam)
+		// End of audio (AudioDone drained the buffer). Flush ASR if VAD never fired.
+		if !kgMode && strings.TrimSpace(lastText) == "" {
+			if flushed := vtr.Flush(); handleText(flushed) {
 				return
 			}
-
-			// Free-form question on the first listen (no separate "I have a question").
-			if aiOn && (seekLooksLikeQuestion(text) || intent == "intent_system_noaudio" || seekIsKnowledgeIntent(intent)) {
-				strm.seekAnswerOrFallback(pcm, text)
-				return
-			}
-
-			strm.seekSendIntent(intent, iParam)
-			return
 		}
 
 		// End of audio (AudioDone / soft close closed the channel).
