@@ -28,14 +28,14 @@ Source of truth: `seek/overlays/anki/victor/animProcess/src/cozmoAnim/faceDispla
 
 **The published `v3.0.1.20d-dvt` GitHub OTA does not include this.** That is stock SeekOS DVT. Head-only lives on this branch and needs its own OTA (or a `vic-robot` hotfix) built from it.
 
-To **always** use dummy sensors (still tries lift + backpack button + lights if the UART opens):
+Only force dummy sensors if you need to (keeps head/lift/backpack when UART opens; blocks normal SyncRobot until spine recovers):
 
 ```sh
 mkdir -p /data/seek
 touch /data/seek/head_only
 ```
 
-Remove that file and reboot to try full body sensors/motors again.
+Default install does **not** create that file. Remove it and restart `vic-robot` if eyes are frozen idle.
 
 
 ## Install / update on the robot

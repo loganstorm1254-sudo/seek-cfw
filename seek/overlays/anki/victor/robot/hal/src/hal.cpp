@@ -218,9 +218,26 @@ BodyToHead BootBodyData_{
     dummyBodyData_.motor[MOTOR_RIGHT] = {};
   }
 
-  // Set when the last dummy-mode spine poll got a fresh DATA_FRAME.
-  // Head/lift must not be driven open-loop on stale encoders (arm chatter).
-  bool dummyHaveFreshEncoders_ = false;
+  // Last time dummy-mode spine poll got a DATA_FRAME (ms).
+  // Head/lift may keep power briefly after a drop so calibration can finish.
+  TimeStamp_t dummyLastEncoder_ms_ = 0;
+  static const TimeStamp_t kDummyEncoderHold_ms = 100;
+
+  bool dummy_encoders_ok()
+  {
+    return dummyLastEncoder_ms_ != 0 &&
+           (HAL::GetTimeStamp() - dummyLastEncoder_ms_) <= kDummyEncoderHold_ms;
+  }
+
+  void leave_dummy_body_mode(const char* reason)
+  {
+    if (!dummyBodyMode_ || should_force_head_only()) {
+      return;
+    }
+    AnkiInfo("HAL.DummyBody.Disable", "%s", reason ? reason : "spine recovered");
+    dummyBodyMode_ = false;
+    maxNumSelectTimeoutsReached_ = false;
+  }
 
   void merge_backpack_from_boot(const struct SpineMessageHeader* hdr)
   {
@@ -399,7 +416,6 @@ void handle_syscon_version(const VersionInfo* versionInfo)
 // Wait up to one robot tick for B2H so encoders stay fresh; never fault.
 void poll_spine_backpack()
 {
-  dummyHaveFreshEncoders_ = false;
   if (!spineOpened_) {
     return;
   }
@@ -425,6 +441,7 @@ void poll_spine_backpack()
 
   uint8_t frame_buffer[SPINE_B2H_FRAME_LEN];
   int parsed = 0;
+  int dataFrames = 0;
   while (parsed < 8) {
     const ssize_t r = spine_parse_frame(&spine_, frame_buffer, sizeof(frame_buffer), NULL);
     if (r <= 0) {
@@ -436,12 +453,27 @@ void poll_spine_backpack()
       const struct spine_frame_b2h* frame = (const struct spine_frame_b2h*)frame_buffer;
       merge_backpack_from_live(&frame->payload);
       haveValidSyscon_ = true;
-      dummyHaveFreshEncoders_ = true;
+      dummyLastEncoder_ms_ = HAL::GetTimeStamp();
+      dataFrames++;
     } else if (hdr->payload_type == PAYLOAD_BOOT_FRAME) {
       merge_backpack_from_boot(hdr);
     } else if (hdr->payload_type == PAYLOAD_VERSION) {
       handle_syscon_version((const VersionInfo*)(hdr + 1));
     }
+  }
+
+  // Spine is healthy again — return to the normal HAL path so engine
+  // SyncRobot / behaviors run like a stock robot.
+  static TimeStamp_t goodSince_ms = 0;
+  if (dataFrames > 0) {
+    if (goodSince_ms == 0) {
+      goodSince_ms = HAL::GetTimeStamp();
+    } else if (HAL::GetTimeStamp() - goodSince_ms > 1000) {
+      leave_dummy_body_mode("sustained B2H frames");
+      goodSince_ms = 0;
+    }
+  } else {
+    goodSince_ms = 0;
   }
 }
 
@@ -451,11 +483,11 @@ void send_dummy_backpack_outputs(uint32_t now, uint32_t& last_packet_send)
     return;
   }
 
-  // Never drive the wheels. Only command head/lift when encoders were
-  // refreshed last tick — stale-encoder open-loop makes the arm chatter.
+  // Never drive the wheels. Hold head/lift only if encoders went stale
+  // for >100ms so brief UART gaps do not freeze calibration / idle face.
   headData_.motorPower[MOTOR_LEFT] = 0;
   headData_.motorPower[MOTOR_RIGHT] = 0;
-  if (!dummyHaveFreshEncoders_) {
+  if (!dummy_encoders_ok()) {
     headData_.motorPower[MOTOR_LIFT] = 0;
     headData_.motorPower[MOTOR_HEAD] = 0;
   }
