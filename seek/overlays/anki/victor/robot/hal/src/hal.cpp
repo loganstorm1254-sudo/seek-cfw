@@ -203,12 +203,13 @@ BodyToHead BootBodyData_{
     if (live == nullptr) {
       return;
     }
-    // Keep the real B2H (head, lift, mics, button, battery) so engine/audio
-    // do not see a hollow dummy packet. Then neutralize body faults/cliffs
-    // that would kill vic-robot + vic-engine via fault-code-handler.
+    // Keep the real B2H (head, lift, mics, button, battery, audio).
+    // Neutralize body faults/cliffs/wheels that would kill services or drive.
     dummyBodyData_ = *live;
     dummyBodyData_.failureCode = BOOT_FAIL_NONE;
-    dummyBodyData_.flags = static_cast<uint8_t>(dummyBodyData_.flags | RUNNING_FLAGS_SENSORS_VALID);
+    dummyBodyData_.flags = static_cast<uint8_t>(
+        (dummyBodyData_.flags | RUNNING_FLAGS_SENSORS_VALID) &
+        static_cast<uint8_t>(~(ENCODERS_DISABLED | ENCODER_HEAD_INVALID | ENCODER_LIFT_INVALID)));
     dummyBodyData_.cliffSense[0] = 800;
     dummyBodyData_.cliffSense[1] = 800;
     dummyBodyData_.cliffSense[2] = 800;
@@ -216,6 +217,10 @@ BodyToHead BootBodyData_{
     dummyBodyData_.motor[MOTOR_LEFT] = {};
     dummyBodyData_.motor[MOTOR_RIGHT] = {};
   }
+
+  // Set when the last dummy-mode spine poll got a fresh DATA_FRAME.
+  // Head/lift must not be driven open-loop on stale encoders (arm chatter).
+  bool dummyHaveFreshEncoders_ = false;
 
   void merge_backpack_from_boot(const struct SpineMessageHeader* hdr)
   {
@@ -390,10 +395,11 @@ void handle_syscon_version(const VersionInfo* versionInfo)
   }
 }
 
-// Dummy-body keep-alive: never block, never fault. Steal backpack button
-// from any live B2H frame so the back button still works.
+// Dummy-body keep-alive: closed-loop head/lift when UART is up.
+// Wait up to one robot tick for B2H so encoders stay fresh; never fault.
 void poll_spine_backpack()
 {
+  dummyHaveFreshEncoders_ = false;
   if (!spineOpened_) {
     return;
   }
@@ -408,7 +414,7 @@ void poll_spine_backpack()
   FD_SET(fd, &fdSet);
   timeval timeout;
   timeout.tv_sec = 0;
-  timeout.tv_usec = 0;
+  timeout.tv_usec = static_cast<suseconds_t>(ROBOT_TIME_STEP_MS) * 1000;
   const ssize_t nfds = select(FD_SETSIZE, &fdSet, NULL, NULL, &timeout);
   if (nfds > 0) {
     const ssize_t n = read(fd, readBuffer_, sizeof(readBuffer_));
@@ -430,6 +436,7 @@ void poll_spine_backpack()
       const struct spine_frame_b2h* frame = (const struct spine_frame_b2h*)frame_buffer;
       merge_backpack_from_live(&frame->payload);
       haveValidSyscon_ = true;
+      dummyHaveFreshEncoders_ = true;
     } else if (hdr->payload_type == PAYLOAD_BOOT_FRAME) {
       merge_backpack_from_boot(hdr);
     } else if (hdr->payload_type == PAYLOAD_VERSION) {
@@ -444,19 +451,20 @@ void send_dummy_backpack_outputs(uint32_t now, uint32_t& last_packet_send)
     return;
   }
 
-  // Dummy wheels only. Head + lift must keep running so they calibrate
-  // (idle face/sounds) and the CCIS lift-confirm gesture still works.
+  // Never drive the wheels. Only command head/lift when encoders were
+  // refreshed last tick — stale-encoder open-loop makes the arm chatter.
   headData_.motorPower[MOTOR_LEFT] = 0;
   headData_.motorPower[MOTOR_RIGHT] = 0;
+  if (!dummyHaveFreshEncoders_) {
+    headData_.motorPower[MOTOR_LIFT] = 0;
+    headData_.motorPower[MOTOR_HEAD] = 0;
+  }
   headData_.framecounter++;
 
   if (now - last_packet_send < 5000u) {
     return;
   }
 
-  // Full H2B keeps syscon in RUN (button + head + lift + backpack LEDs).
-  // Do not also send PAYLOAD_LIGHT_STATE — that extra UART traffic desyncs
-  // a flaky spine and the fault handler then kills vic-robot/vic-engine.
   spine_write_h2b_frame(&spine_, &headData_);
   last_packet_send = now;
   lastH2BSendTime_ms_ = HAL::GetTimeStamp();
@@ -740,7 +748,9 @@ void ReportRecentInvalidProxDataReadings()
 }
 
 extern "C"  ssize_t spine_write_ccc_frame(spine_ctx_t spine, const struct ContactData* ccc_payload);
+#ifndef MIN_CCC_XMIT_SPACING_US
 #define MIN_CCC_XMIT_SPACING_US 5000
+#endif
 
 Result HAL::Step(void)
 {
@@ -754,14 +764,19 @@ Result HAL::Step(void)
   bool commander_is_active = false;
 
   if (dummyBodyMode_) {
-    poll_spine_backpack();
-    tick_dummy_body_data();
-    send_dummy_backpack_outputs(now, last_packet_send);
+    if (spineOpened_) {
+      // Write then wait for B2H (select paces ~5ms). No extra sleep —
+      // that was doubling the period and making the lift chatter.
+      send_dummy_backpack_outputs(now, last_packet_send);
+      poll_spine_backpack();
+      tick_dummy_body_data();
+    } else {
+      tick_dummy_body_data();
+      std::this_thread::sleep_for(std::chrono::milliseconds(ROBOT_TIME_STEP_MS));
+    }
 #if !PROCESS_IMU_ON_THREAD
     ProcessIMUEvents();
 #endif
-    // Spine I/O used to pace the robot loop at ~5ms.
-    std::this_thread::sleep_for(std::chrono::milliseconds(ROBOT_TIME_STEP_MS));
   } else {
 
 #ifndef HAL_DUMMY_BODY
