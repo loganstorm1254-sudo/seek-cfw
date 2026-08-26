@@ -10,13 +10,20 @@ CCIS face-info strings (guide step in `faceInfoScreenManager.cpp`):
 
 | Field | Value |
 | --- | --- |
-| OSProject | `SeekOS` |
-| Creator | `By Logan / Seek CFW` |
-| CreatorWebsite | `github.com/loganstorm1254-sudo/seek-cfw` |
+| OSProject | `Victor` |
+| Creator | `CONFIDENTIAL` |
+| CreatorWebsite | *(blank)* |
 
 Source of truth: `seek/overlays/anki/victor/animProcess/src/cozmoAnim/faceDisplay/faceInfoScreenManager.cpp`
 
+## DVT theme (Vector 1.0)
 
+This branch ships a **Victor DVT-style** SeekOS build for unlocked Vector 1.0:
+
+- Early rampost splash matches classic Anki confidential test-unit text (`PROPERTY OF ANKI` / `security@anki.com`)
+- Onboarding defaults to **Complete** — no `v.pvic.xyz` activation screen
+- Pairing face does not show Wire/Seek portal URLs
+- CCIS shows Victor / CONFIDENTIAL (no Seek branding)
 
 ## Backpack button
 
@@ -28,9 +35,9 @@ Source of truth: `seek/overlays/anki/victor/animProcess/src/cozmoAnim/faceDispla
 
 ## Boot splash
 
-The first static early-boot screen (rampost `anki_dev_unit`) is the **SeekAra** wordmark.
+The first static early-boot screen (rampost `anki_dev_unit`) is the classic **Anki confidential test-unit** splash.
 
-- Source: `seek/assets/seekara-boot-184x96.png`
+- Source: `seek/assets/dvt3-boot-184x96.png`
 - Overlay: `seek/overlays/anki/rampost/anki_dev_unit.h` (184×96 RGB565)
 - Applied automatically by `seek/apply-overlay.sh` before `./build/build.sh`
 

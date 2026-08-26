@@ -173,6 +173,14 @@ if [[ "$BOT_TYPE" != "oskr" && "$BOT_TYPE" != "dev" && "$BOT_TYPE" != "prod" && 
     usage "BOT_TYPE (-bt) should be 'oskr' or 'dev', got: $BOT_TYPE"
 fi
 
+# Seek DVT: -bt dev ships vic-cloudless (on-robot Vosk + Houndify via wired).
+# No WirePod / remote Chipper — fistbump & friends work locally; free-form
+# questions use Houndify when Client ID/Key are saved on the dash.
+if [[ "$BOT_TYPE" == "dev" ]]; then
+    echo "SeekOS: using cloudless voice stack (local intents + on-robot Houndify)"
+    BOT_TYPE=devcloudless
+fi
+
 if [[ "$DO_SIGN" == 1 && "$OTA_SIGNING_KEY_PASSWORD" == "" ]]; then
     usage "-s was given, but no OTA password was given"
 fi
