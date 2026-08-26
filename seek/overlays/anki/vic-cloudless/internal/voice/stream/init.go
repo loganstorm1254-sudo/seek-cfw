@@ -30,8 +30,8 @@ const (
 	seekHoundifyIDPath  = "/data/data/com.anki.victor/persistent/seek/houndify_client_id"
 	seekHoundifyKeyPath = "/data/data/com.anki.victor/persistent/seek/houndify_client_key"
 	seekVoiceAskURL     = "http://127.0.0.1:8080/api/mods/SeekDashboard/voiceAsk"
-	// ~5s of 16 kHz mono s16le
-	seekMaxPCMBytes = 16000 * 2 * 5
+	// ~8s of 16 kHz mono s16le (KG follow-up listens a bit longer)
+	seekMaxPCMBytes = 16000 * 2 * 8
 )
 
 func seekAIKeyPresent() bool {
@@ -53,8 +53,7 @@ func seekLooksLikeQuestion(text string) bool {
 	if t == "" {
 		return false
 	}
-	// Bare "question" / "I have a question" should pass through as the stock
-	// knowledge-prompt intent so the engine opens a follow-up KG listen.
+	// Bare prompt phrases are handled separately (open follow-up listen).
 	if seekIsQuestionPrompt(t) {
 		return false
 	}
@@ -79,8 +78,10 @@ func seekIsLocalCommandIntent(intent string) bool {
 	switch intent {
 	case "", "intent_system_noaudio", "intent_imperative_unknown":
 		return false
+	case "intent_knowledge_promptquestion":
+		// Handled by Seek: open follow-up listen; answer via Houndify, never Chipper.
+		return false
 	default:
-		// Any real local NLU hit (play, explore, greetings, how_old, time, …)
 		return !strings.HasPrefix(intent, "intent_knowledge_")
 	}
 }
@@ -97,6 +98,10 @@ func seekIsQuestionPrompt(text string) bool {
 	default:
 		return false
 	}
+}
+
+func seekIsKnowledgeIntent(intent string) bool {
+	return strings.HasPrefix(intent, "intent_knowledge_")
 }
 
 func seekCallVoiceAsk(pcm []byte) (transcript, answer string, err error) {
@@ -133,6 +138,58 @@ func seekSendAIAnswer(strm *Streamer, query, answer string) {
 	}, strm.receiver, true)
 }
 
+// seekFinishOK stops the Timeout→NoCloud path. cancelResponse() fires
+// OnError(Timeout) unless we claim respOnce and cancel with closed=true.
+func (strm *Streamer) seekFinishOK() {
+	strm.respOnce.Do(func() {})
+	if strm.cancel != nil {
+		strm.cancel()
+	}
+}
+
+func (strm *Streamer) seekSendIntent(intent string, params map[string]string) {
+	sendIntentGraphResponse(&chippergrpc2.IntentGraphResponse{
+		ResponseType: chippergrpc2.IntentGraphMode_INTENT,
+		IsFinal:      true,
+		IntentResult: &chippergrpc2.IntentResult{
+			Action:     intent,
+			Parameters: params,
+		},
+	}, strm.receiver)
+	strm.seekFinishOK()
+}
+
+func (strm *Streamer) seekAnswerOrFallback(pcm []byte, textHint string) {
+	q := strings.TrimSpace(textHint)
+	if q == "" {
+		q = "question"
+	}
+	if !seekAIKeyPresent() {
+		seekSendAIAnswer(strm, q, "Save a Houndify Client ID and Key on my dash to answer questions.")
+		strm.seekFinishOK()
+		return
+	}
+	if ans := seekAskTextHTTP(q); ans != "" && !seekIsQuestionPrompt(q) {
+		seekSendAIAnswer(strm, q, ans)
+		strm.seekFinishOK()
+		return
+	}
+	if len(pcm) > 3200 {
+		if tr, ans, err := seekCallVoiceAsk(pcm); err == nil && ans != "" {
+			if strings.TrimSpace(tr) != "" {
+				q = tr
+			}
+			seekSendAIAnswer(strm, q, ans)
+			strm.seekFinishOK()
+			return
+		} else if err != nil {
+			log.Println("Seek voiceAsk error:", err)
+		}
+	}
+	seekSendAIAnswer(strm, q, "I couldn't reach Houndify. Check Wi-Fi and your Client ID and Key on the dash.")
+	strm.seekFinishOK()
+}
+
 // Seek cloudless: Vector hosts his own voice NLU (Vosk + local intents).
 // Never dials remote Chipper — that is what caused the cloud-with-X face
 // when fistbump / social voice commands failed against vicapi.pvic.xyz.
@@ -157,13 +214,15 @@ func (strm *Streamer) init(streamSize int) {
 				ExpectedPackets: exp,
 			})
 			log.Println("Seek cloudless: connection check → Available (local)")
+			strm.seekFinishOK()
 		}()
 		return
 	}
 
 	// Tell the engine the "cloud" stream opened so it does not treat silence as a server timeout.
 	strm.receiver.OnStreamOpen(sessionID)
-	log.Println("Seek cloudless: local voice stream", sessionID)
+	kgMode := strm.opts.kgOpts != nil
+	log.Println("Seek cloudless: local voice stream", sessionID, "kg=", kgMode)
 
 	go func() {
 		var curFreq string
@@ -186,72 +245,62 @@ func (strm *Streamer) init(streamSize int) {
 
 		aiOn := seekAIKeyPresent()
 		var pcm []byte
+		var lastText string
 
 		for data := range strm.audioStream {
-			if aiOn && len(pcm) < seekMaxPCMBytes {
+			if len(pcm) < seekMaxPCMBytes {
 				pcm = append(pcm, data...)
+			}
+
+			// Knowledge Graph follow-up ("Go ahead…"): free speech — don't force
+			// Vosk grammar matches; buffer PCM and answer via Houndify at end.
+			if kgMode {
+				continue
 			}
 
 			text := vtr.Process(data)
 			if text == "" {
 				continue
 			}
+			lastText = text
 
 			intent, iParam, _ := vtr.ProcessTextAll(text, vtr.IntentList)
 
-			// Prefer stock local intents (explore, play, greetings, how old, …).
-			// Only route to Oval/Houndify/OpenAI when NLU has no real command,
-			// or the user explicitly asked a knowledge-style question with no match.
-			if seekIsLocalCommandIntent(intent) {
-				sendIntentGraphResponse(&chippergrpc2.IntentGraphResponse{
-					ResponseType: chippergrpc2.IntentGraphMode_INTENT,
-					IsFinal:      true,
-					IntentResult: &chippergrpc2.IntentResult{
-						Action:     intent,
-						Parameters: iParam,
-					},
-				}, strm.receiver)
+			// "I have a question" → open stock follow-up listen (second stream is kgMode).
+			if seekIsQuestionPrompt(text) || intent == "intent_knowledge_promptquestion" {
+				log.Println("Seek cloudless: question prompt → open KG follow-up")
+				strm.seekSendIntent("intent_knowledge_promptquestion", iParam)
 				return
 			}
 
-			// Seek AI fallback for free-form questions when keys are saved.
-			if aiOn && (seekLooksLikeQuestion(text) || intent == "intent_system_noaudio") {
-				if ans := seekAskTextHTTP(text); ans != "" {
-					seekSendAIAnswer(strm, text, ans)
-					return
-				}
-				if len(pcm) > 3200 {
-					if tr, ans, err := seekCallVoiceAsk(pcm); err == nil && ans != "" {
-						q := tr
-						if q == "" {
-							q = text
-						}
-						seekSendAIAnswer(strm, q, ans)
-						return
-					}
-				}
+			// Prefer stock local intents (explore, play, greetings, how old, …).
+			if seekIsLocalCommandIntent(intent) {
+				strm.seekSendIntent(intent, iParam)
+				return
 			}
 
-			sendIntentGraphResponse(&chippergrpc2.IntentGraphResponse{
-				ResponseType: chippergrpc2.IntentGraphMode_INTENT,
-				IsFinal:      true,
-				IntentResult: &chippergrpc2.IntentResult{
-					Action:     intent,
-					Parameters: iParam,
-				},
-			}, strm.receiver)
+			// Free-form question on the first listen (no separate "I have a question").
+			if aiOn && (seekLooksLikeQuestion(text) || intent == "intent_system_noaudio" || seekIsKnowledgeIntent(intent)) {
+				strm.seekAnswerOrFallback(pcm, text)
+				return
+			}
+
+			strm.seekSendIntent(intent, iParam)
 			return
 		}
 
-		if aiOn && len(pcm) > 3200 {
-			if tr, ans, err := seekCallVoiceAsk(pcm); err == nil && ans != "" {
-				q := tr
-				if q == "" {
-					q = "question"
-				}
-				seekSendAIAnswer(strm, q, ans)
-			}
+		// End of audio (AudioDone closed the channel).
+		if kgMode {
+			log.Println("Seek cloudless: KG follow-up → Houndify/voiceAsk")
+			strm.seekAnswerOrFallback(pcm, lastText)
+			return
 		}
+		if aiOn && len(pcm) > 3200 {
+			strm.seekAnswerOrFallback(pcm, lastText)
+			return
+		}
+		// Nothing useful — finish cleanly so Timeout does not paint cloud-with-X.
+		strm.seekFinishOK()
 	}()
 }
 
