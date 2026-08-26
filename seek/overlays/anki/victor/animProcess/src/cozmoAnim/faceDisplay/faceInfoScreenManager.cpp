@@ -115,6 +115,8 @@ namespace {
   const f32 kWheelMotionThresh_mmps = 3.f;
 
   const f32 kMenuLiftRange_rad = DEG_TO_RAD(45);
+  // Pairing-screen lift confirm uses a smaller sweep so menu entry is easier.
+  const f32 kPairingMenuLiftRange_rad = DEG_TO_RAD(20);
   f32 _liftLowestAngle_rad;
   f32 _liftHighestAngle_rad;
 
@@ -953,6 +955,9 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
   static u32  pressCount         = 0;
   static bool waitingConfirm     = false;
   static bool buttonWasPressed   = false;
+  static bool pendingDouble      = false;
+  static u32  pendingDoubleAt_ms = 0;
+  static u32  suppressSingleUntil_ms = 0;
 
   // Whether or not the shutdown message was already sent
   static bool shutdownSent       = false;
@@ -966,13 +971,19 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
   triplePressDetected = false;
 
   // Max gap between releases that still counts as one multi-press gesture
-  static const u32 kMultiPressWindow_ms = 900;
+  static const u32 kMultiPressWindow_ms = 1500;
+  // Short delay before confirming double so a fast 3rd press can cancel it
+  static const u32 kDoubleConfirmDelay_ms = 300;
 
   const u32 curTime_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp();
 
   if (buttonPressedEvent) {
     holdStartTime_ms = curTime_ms;
     shutdownSent = false;
+    // A press after two quick releases means the user may be triple-clicking.
+    if (pendingDouble) {
+      pendingDouble = false;
+    }
   } else if (buttonReleasedEvent) {
     if ((pressCount > 0) && (curTime_ms - lastReleaseTime_ms < kMultiPressWindow_ms)) {
       ++pressCount;
@@ -981,26 +992,37 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
     }
     lastReleaseTime_ms = curTime_ms;
 
-    // Double/triple fire immediately on release so lift-raise for the CCIS menu
-    // is not lost to a long post-release confirm window.
     if (pressCount >= 3) {
       triplePressDetected = true;
+      pendingDouble = false;
       pressCount = 0;
       waitingConfirm = false;
       lastReleaseTime_ms = 0;
+      suppressSingleUntil_ms = curTime_ms + 600;
     } else if (pressCount == 2) {
-      doublePressDetected = true;
-      pressCount = 0;
+      pendingDouble = true;
+      pendingDoubleAt_ms = curTime_ms;
       waitingConfirm = false;
-      lastReleaseTime_ms = 0;
     } else {
       waitingConfirm = true;
     }
     holdStartTime_ms = 0;
   }
 
-  // Confirm single press after the window expires (double/triple already handled above)
-  if (waitingConfirm && (curTime_ms - lastReleaseTime_ms >= kMultiPressWindow_ms)) {
+  if (pendingDouble && (curTime_ms - pendingDoubleAt_ms >= kDoubleConfirmDelay_ms)) {
+    doublePressDetected = true;
+    pendingDouble = false;
+    pressCount = 0;
+    waitingConfirm = false;
+    lastReleaseTime_ms = 0;
+    suppressSingleUntil_ms = curTime_ms + 600;
+  }
+
+  // Confirm single press after the window expires
+  if (waitingConfirm &&
+      !pendingDouble &&
+      (curTime_ms - lastReleaseTime_ms >= kMultiPressWindow_ms) &&
+      (curTime_ms >= suppressSingleUntil_ms)) {
     if (pressCount == 1) {
       singlePressDetected = true;
     }
@@ -1021,6 +1043,7 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
     waitingConfirm = false;
     lastReleaseTime_ms = 0;
     holdStartTime_ms = 0;
+    pendingDouble = false;
     singlePressDetected = false;
     doublePressDetected = false;
     triplePressDetected = false;
@@ -1048,6 +1071,16 @@ void FaceInfoScreenManager::ResetObservedHeadAndLiftAngles()
 
   _headLowestAngle_rad = std::numeric_limits<f32>::max();
   _headHighestAngle_rad = std::numeric_limits<f32>::lowest();
+}
+
+void FaceInfoScreenManager::EnterCCISMainMenu(const char* reason)
+{
+  LOG_INFO("FaceInfoScreenManager.EnterCCISMainMenu", "%s", reason);
+  SetScreen(ScreenName::Main);
+
+  DASMSG(robot_cc_screen_enter, "robot.cc_screen_enter", "Entered customer care screen");
+  DASMSG_SET(i1, _debugInfoScreensUnlocked ? 1 : 0, "Debug info screens unlocked");
+  DASMSG_SEND();
 }
 
 void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
@@ -1083,16 +1116,11 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
     }
   }
 
-  // Double-press opens CCIS: Pairing screen, then raise lift for Main menu.
+  // Double-press opens CCIS main menu directly (no lift gesture required).
   if (doublePressDetected &&
       _engineLoaded &&
       CanEnterPairingFromScreen(currScreenName)) {
-    LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotDoublePress", "Entering pairing");
-    RobotInterface::SendAnimToEngine(SwitchboardInterface::EnterPairing());
-
-    if (FORCE_TRANSITION_TO_PAIRING) {
-      SetScreen(ScreenName::Pairing);
-    }
+    EnterCCISMainMenu("DOUBLE_PRESS");
   }
   else if(triplePressDetected &&
           _engineLoaded &&
@@ -1162,7 +1190,7 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
     }
   }
 
-  if (_currScreen->HasMenu() || currScreenName == ScreenName::Pairing) {
+  if (_currScreen->HasMenu() || GetCurrScreenName() == ScreenName::Pairing) {
     // Process lift motion for confirming current menu selection
 
     // Update min/max lift angles and the current range observed
@@ -1174,8 +1202,11 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
       _liftLowestAngle_rad = liftAngle;
     }
     const float liftRange_rad = _liftHighestAngle_rad - _liftLowestAngle_rad;
+    const f32 liftConfirmRange_rad = (GetCurrScreenName() == ScreenName::Pairing)
+      ? kPairingMenuLiftRange_rad
+      : kMenuLiftRange_rad;
 
-    if (!_liftTriggerReady && (liftRange_rad > kMenuLiftRange_rad)) {
+    if (!_liftTriggerReady && (liftRange_rad > liftConfirmRange_rad)) {
       _liftTriggerReady = true;
     } else if (_liftTriggerReady && 
                (Util::Abs(liftAngle - _liftLowestAngle_rad) < kMenuAngularTriggerThresh_rad)) {
@@ -1186,15 +1217,7 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
         SetScreen(_currScreen->ConfirmMenuItemAndGetNextScreen());
       } else if (GetCurrScreenName() == ScreenName::Pairing) {
         LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.ExitPairing", "Going to Customer Service Main from Pairing");
-        RobotInterface::SendAnimToEngine(SwitchboardInterface::ExitPairing());
-        SetScreen(ScreenName::Main);
-
-        // DAS msg for entering customer care screen
-        // Note: The debug info screens will only be reported unlocked here if they 
-        //       were unlocked the previous time the customer care screen was entered.
-        DASMSG(robot_cc_screen_enter, "robot.cc_screen_enter", "Entered customer care screen");
-        DASMSG_SET(i1, _debugInfoScreensUnlocked ? 1 : 0, "Debug info screens unlocked");
-        DASMSG_SEND();
+        EnterCCISMainMenu("LIFT_CONFIRM");
       }
     }
   }

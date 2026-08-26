@@ -148,9 +148,9 @@ private:
   void ResetObservedHeadAndLiftAngles();
 
   // Detects various button events
-  // Beyond return pressed and released events it also detects when a single button press
-  // is detected vs. a double/triple button press. Multi-presses are confirmed after the
-  // inter-press window expires so double and triple don't collide.
+  // Single press is confirmed after the inter-press window. Double/triple use a
+  // short confirm delay on the 2nd release so lift/menu gestures stay responsive
+  // while triple-click can still cancel an pending double.
   void CheckForButtonEvent(const bool buttonPressed, 
                            bool& buttonPressedEvent,
                            bool& buttonReleasedEvent,
@@ -159,6 +159,8 @@ private:
                            bool& triplePressDetected);
 
   void ApplySoundMuteState();
+
+  void EnterCCISMainMenu(const char* reason);
   
   // Returns true if screenName is one of the screens that allow the user to enter pairing when
   // double pressing the backpack and on the charger
