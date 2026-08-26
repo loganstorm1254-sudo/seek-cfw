@@ -23,17 +23,36 @@ Source of truth: `seek/overlays/anki/victor/animProcess/src/cozmoAnim/faceDispla
 **898** (`SPINE_SELECT_TIMEOUT`) and **899** (`NO_BODY`) mean the head board cannot talk to the body board (flaky spine cable, body MCU, etc.). SeekOS does **not** show those faults.
 
 - If the body answers, Vector still drives and uses sensors as usual.
-- If spine comms fail at boot or drop out later, `vic-robot` switches to a dummy body: **face and eyes still power up**, motors/backpack are ignored.
+- If spine comms fail at boot or drop out later, `vic-robot` switches to a dummy body so **face and eyes still power up**. It **keeps talking to the body for the backpack button and backpack lights** (motors/cliffs stay ignored so 898/899 cannot come back).
 - Early boot (`rampost`) also continues when syscon/DFU does not answer, so 801/802 no longer block the LCD.
 
-To **always** ignore the body (never try spine, even on a good boot):
+To **always** use dummy sensors (still tries backpack button + lights if the UART opens):
 
 ```sh
 mkdir -p /data/seek
 touch /data/seek/head_only
 ```
 
-Remove that file and reboot to try the body again.
+Remove that file and reboot to try full body sensors/motors again.
+
+
+## Install / update on the robot
+
+SSH in (or BLE shell) and run:
+
+```sh
+update-os http://files.anki.org.uk/ota/latest
+```
+
+Eyes go dark while it downloads, then Vector reboots onto the new OTA.
+
+GitHub release (same idea, pick the `.ota` you want):
+
+```sh
+update-os https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.20d-dvt/vicos-3.0.1.20d.ota
+```
+
+This head-only / backpack keep-alive build needs a new OTA built from this branch, then uploaded to `files.anki.org.uk` (or a GitHub release) before that URL contains the fix.
 
 
 ## Backpack button

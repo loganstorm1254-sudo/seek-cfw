@@ -32,6 +32,8 @@
 #include "clad/types/proxMessages.h"
 
 #include <errno.h>
+#include <sys/select.h>
+#include <sys/time.h>
 
 // will log all the touch sensor data to /data/misc/touch.csv
 // disable when you aren't trying to debug the touch sensor
@@ -189,8 +191,25 @@ BodyToHead BootBodyData_{
     fill_dummy_body_data();
     bodyData_ = &dummyBodyData_;
     dummyBodyMode_ = true;
-    haveValidSyscon_ = false;
+    // Keep talking to syscon so backpack button + LEDs still work.
     maxNumSelectTimeoutsReached_ = false;
+  }
+
+  void merge_backpack_from_live(const BodyToHead* live)
+  {
+    if (live == nullptr) {
+      return;
+    }
+    dummyBodyData_.touchLevel[0] = live->touchLevel[0];
+    dummyBodyData_.touchLevel[1] = live->touchLevel[1];
+    dummyBodyData_.touchHires[0] = live->touchHires[0];
+    dummyBodyData_.touchHires[1] = live->touchHires[1];
+  }
+
+  void merge_backpack_from_boot(const struct SpineMessageHeader* hdr)
+  {
+    const uint8_t button_pressed = ((const struct MicroBodyToHead*)(hdr + 1))->buttonPressed;
+    dummyBodyData_.touchLevel[1] = button_pressed ? 0xFFFF : 0x0000;
   }
 
 } // "private" namespace
@@ -226,14 +245,16 @@ extern "C" {
 // connection
 bool check_spine_readable(spine_ctx_t spine)
 {
+  static u8 selectTimeoutCount = 0;
   if (dummyBodyMode_) {
+    // Dummy mode polls with a 0-timeout select in poll_spine_backpack().
     return false;
   }
 
-  static u8 selectTimeoutCount = 0;
   if (selectTimeoutCount >= SELECT_TIMEOUT_ATTEMPTS) {
     AnkiError("HAL.check_spine_readable.timeoutCountReached","");
     enter_dummy_body_mode("spine select timeout (SeekOS: skip 898)");
+    selectTimeoutCount = 0;
     return false;
   }
 
@@ -358,6 +379,74 @@ void handle_syscon_version(const VersionInfo* versionInfo)
   }
 }
 
+// Dummy-body keep-alive: never block, never fault. Steal backpack button
+// from any live B2H frame so the back button still works.
+void poll_spine_backpack()
+{
+  if (!spineOpened_) {
+    return;
+  }
+
+  const int fd = spine_get_fd(&spine_);
+  if (fd < 0) {
+    return;
+  }
+
+  fd_set fdSet;
+  FD_ZERO(&fdSet);
+  FD_SET(fd, &fdSet);
+  timeval timeout;
+  timeout.tv_sec = 0;
+  timeout.tv_usec = 0;
+  const ssize_t nfds = select(FD_SETSIZE, &fdSet, NULL, NULL, &timeout);
+  if (nfds > 0) {
+    const ssize_t n = read(fd, readBuffer_, sizeof(readBuffer_));
+    if (n > 0) {
+      spine_receive_data(&spine_, readBuffer_, static_cast<size_t>(n));
+    }
+  }
+
+  uint8_t frame_buffer[SPINE_B2H_FRAME_LEN];
+  while (true) {
+    const ssize_t r = spine_parse_frame(&spine_, frame_buffer, sizeof(frame_buffer), NULL);
+    if (r <= 0) {
+      break;
+    }
+    const struct SpineMessageHeader* hdr = (const struct SpineMessageHeader*)frame_buffer;
+    if (hdr->payload_type == PAYLOAD_DATA_FRAME) {
+      const struct spine_frame_b2h* frame = (const struct spine_frame_b2h*)frame_buffer;
+      merge_backpack_from_live(&frame->payload);
+      haveValidSyscon_ = true;
+    } else if (hdr->payload_type == PAYLOAD_BOOT_FRAME) {
+      merge_backpack_from_boot(hdr);
+    } else if (hdr->payload_type == PAYLOAD_VERSION) {
+      handle_syscon_version((const VersionInfo*)(hdr + 1));
+    }
+  }
+}
+
+void send_dummy_backpack_outputs(uint32_t now, uint32_t& last_packet_send)
+{
+  if (!spineOpened_) {
+    return;
+  }
+
+  // Fake cliffs/battery — do not command wheels/lift/head.
+  memset(headData_.motorPower, 0, sizeof(headData_.motorPower));
+  headData_.framecounter++;
+
+  if (now - last_packet_send < 5000u) {
+    return;
+  }
+
+  // Full H2B keeps syscon in RUN (button reports). Dedicated light
+  // packet matches what rampost uses for backpack LEDs.
+  spine_write_h2b_frame(&spine_, &headData_);
+  spine_set_lights(&spine_, &headData_.lightState);
+  last_packet_send = now;
+  lastH2BSendTime_ms_ = HAL::GetTimeStamp();
+}
+
 Result spine_wait_for_first_frame(spine_ctx_t spine, const int * shutdownSignal)
 {
   TimeStamp_t startWait_ms = HAL::GetTimeStamp();
@@ -469,14 +558,16 @@ Result HAL::Init(const int * shutdownSignal)
   }
 
 #ifndef HAL_DUMMY_BODY
-  if (should_force_head_only()) {
-    enter_dummy_body_mode("/data/seek/head_only");
-  } else {
+  {
     AnkiInfo("HAL.Init.StartingSpineHAL", "");
 
     nextInvalidProxDataReportSendTime_ms_ = GetTimeStamp() + INVALID_PROX_DATA_REPORT_PERIOD_MS;
 
     desiredPowerMode_ = POWER_MODE_ACTIVE;
+
+    if (should_force_head_only()) {
+      enter_dummy_body_mode("/data/seek/head_only");
+    }
 
     spine_init(&spine_);
     struct spine_params params = {
@@ -495,15 +586,20 @@ Result HAL::Init(const int * shutdownSignal)
 
       AnkiDebug("HAL.Init.WaitingForDataFrame", "");
 
-      const Result res =  spine_wait_for_first_frame(&spine_, shutdownSignal);
-      if(res != RESULT_OK && !dummyBodyMode_)
-      {
-        AnkiError("HAL.Init.NoFirstFrame", "");
-        enter_dummy_body_mode("no first spine frame (SeekOS: skip 899)");
+      if (!dummyBodyMode_) {
+        const Result res =  spine_wait_for_first_frame(&spine_, shutdownSignal);
+        if(res != RESULT_OK && !dummyBodyMode_)
+        {
+          AnkiError("HAL.Init.NoFirstFrame", "");
+          enter_dummy_body_mode("no first spine frame (SeekOS: skip 899)");
+        }
       }
       if (!dummyBodyMode_) {
         AnkiDebug("HAL.Init.GotFirstFrame", "");
         request_version();  //get version so we have it when we need it.
+      } else {
+        // Still poke RUN + lights so backpack comes up immediately.
+        request_version();
       }
     }
   }
@@ -644,6 +740,8 @@ Result HAL::Step(void)
 
   if (dummyBodyMode_) {
     tick_dummy_body_data();
+    send_dummy_backpack_outputs(now, last_packet_send);
+    poll_spine_backpack();
 #if !PROCESS_IMU_ON_THREAD
     ProcessIMUEvents();
 #endif
