@@ -122,15 +122,17 @@ void BackpackLightComponent::UpdateCriticalBackpackLightConfig(bool isCloudStrea
   {
     trigger = BackpackAnimationTrigger::Off;
   }
-  // On charger: stock green pulse until full (priority over offline/muted —
-  // triple-click mute must not hide charging lights on the dock).
+  // Stock: pulse only while actually charging. On-contacts alone is not
+  // enough — after full / charge-disconnect the green loop must stop.
+  // Still above mute/offline so triple-click does not hide a live charge.
   else if(_isOnChargerContacts &&
+          _isBatteryCharging &&
           !_isBatteryFull &&
           !_isBatteryDisconnected)
   {
     trigger = BackpackAnimationTrigger::Charging;
   }
-  // If we have been offline for long enough (only when not on charger)
+  // If we have been offline for long enough (only when not charging)
   else if(_offlineAtTime_ms > 0 &&
           ((TimeStamp_t)curTime_ms - _offlineAtTime_ms > kOfflineTimeBeforeLights_ms))
   {
@@ -513,25 +515,11 @@ void BackpackLightComponent::UpdateOfflineCheck(bool force)
 
 void BackpackLightComponent::UpdateBatteryStatus(const RobotInterface::BatteryStatus& msg)
 {
-  const bool prevOnCharger = _isOnChargerContacts;
-  const bool prevCharging = _isBatteryCharging;
-  const bool prevFull = _isBatteryFull;
-  const bool prevDisc = _isBatteryDisconnected;
-
   _isBatteryLow = msg.isLow;
   _isBatteryCharging = msg.isCharging;
   _isOnChargerContacts = msg.onChargerContacts;
   _isBatteryFull = msg.isBatteryFull;
   _isBatteryDisconnected = msg.isBatteryDisconnected;
-
-  if (prevOnCharger != _isOnChargerContacts ||
-      prevCharging != _isBatteryCharging ||
-      prevFull != _isBatteryFull ||
-      prevDisc != _isBatteryDisconnected)
-  {
-    // Force Off → Charging transition when dock state changes.
-    _internalCriticalLightsTrigger = BackpackAnimationTrigger::Off;
-  }
 }
 
 }
