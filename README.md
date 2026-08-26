@@ -46,6 +46,19 @@ update-os http://files.anki.org.uk/ota/latest
 
 Eyes go dark while it downloads, then Vector reboots onto the new OTA.
 
+**Slow Wi‑Fi:** Vector’s 2.4 GHz radio crawling ~200MB from the internet can take a long time. Faster: download the `.ota` on your PC, then serve it on the LAN:
+
+1. On the PC, download `vicos-3.0.1.20d.ota` (GitHub release or any host).
+2. In that folder: `python -m http.server 8000` (Windows: `py -m http.server 8000`).
+3. `ipconfig` / `ip addr` — use the PC’s address on the **same Wi‑Fi as Vector** (e.g. `192.168.42.10`).
+4. On the robot:
+
+```sh
+update-os http://192.168.42.10:8000/vicos-3.0.1.20d.ota
+```
+
+If an `update-os` is already running, Ctrl+C it first (that stops `update-engine`). Windows Firewall must allow TCP 8000.
+
 GitHub release (same idea, pick the `.ota` you want):
 
 ```sh
