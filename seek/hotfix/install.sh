@@ -3,45 +3,67 @@
 set -e
 cd "$(dirname "$0")"
 
-mkdir -p /data/seek
+BACKUP_DIR=/data/seek/backups
+mkdir -p /data/seek "$BACKUP_DIR"
 rm -f /data/seek/head_only
+
+remount_rw() {
+  mount -o remount,rw / 2>/dev/null || true
+  mount -o remount,rw /anki 2>/dev/null || true
+}
+
+backup_once() {
+  name="$1"
+  src="$2"
+  bak="$BACKUP_DIR/$name"
+  if [ ! -f "$bak" ] && [ -f "$src" ]; then
+    cp -a "$src" "$bak"
+  fi
+}
 
 install_bin() {
   dest="$1"
   src="$2"
+  name="$(basename "$dest")"
   if [ ! -f "$dest" ]; then
     echo "missing $dest" >&2
     exit 1
   fi
-  bak="${dest}.seekbak"
-  if [ ! -f "$bak" ]; then
-    cp -a "$dest" "$bak"
+  if [ ! -f "$src" ]; then
+    echo "missing hotfix file $src" >&2
+    exit 1
   fi
-  cp "$src" "$dest"
+  backup_once "$name" "$dest"
+  remount_rw
+  if ! cp "$src" "$dest" 2>/dev/null; then
+    remount_rw
+    cp "$src" "$dest"
+  fi
   chown robot:anki "$dest" 2>/dev/null || true
   chmod 0755 "$dest"
 }
 
-mount -o remount,rw /anki 2>/dev/null || true
+install_root_bin() {
+  dest="$1"
+  src="$2"
+  name="$(basename "$dest")"
+  backup_once "$name" "$dest"
+  remount_rw
+  cp "$src" "$dest"
+  chmod 0755 "$dest"
+}
+
+remount_rw
 install_bin /anki/bin/vic-robot vic-robot
 if [ -f vic-anim ]; then
   install_bin /anki/bin/vic-anim vic-anim
 fi
 
-mount -o remount,rw / 2>/dev/null || true
-if [ -f /usr/bin/fault-code-handler ]; then
-  if [ ! -f /usr/bin/fault-code-handler.seekbak ]; then
-    cp -a /usr/bin/fault-code-handler /usr/bin/fault-code-handler.seekbak
-  fi
-  cp fault-code-handler /usr/bin/fault-code-handler
-  chmod 0755 /usr/bin/fault-code-handler
+if [ -f /usr/bin/fault-code-handler ] && [ -f fault-code-handler ]; then
+  install_root_bin /usr/bin/fault-code-handler fault-code-handler
 fi
-if [ -f /usr/bin/rampost ]; then
-  if [ ! -f /usr/bin/rampost.seekbak ]; then
-    cp -a /usr/bin/rampost /usr/bin/rampost.seekbak
-  fi
-  cp rampost /usr/bin/rampost
-  chmod 0755 /usr/bin/rampost
+if [ -f /usr/bin/rampost ] && [ -f rampost ]; then
+  install_root_bin /usr/bin/rampost rampost
 fi
 
 sync
