@@ -203,17 +203,18 @@ BodyToHead BootBodyData_{
     if (live == nullptr) {
       return;
     }
-    dummyBodyData_.touchLevel[0] = live->touchLevel[0];
-    dummyBodyData_.touchLevel[1] = live->touchLevel[1];
-    dummyBodyData_.touchHires[0] = live->touchHires[0];
-    dummyBodyData_.touchHires[1] = live->touchHires[1];
-    dummyBodyData_.micError[0] = live->micError[0];
-    dummyBodyData_.micError[1] = live->micError[1];
-    // Head + lift encoders so they can calibrate (idle sounds/animations).
-    // Wheels stay dummy.
-    dummyBodyData_.motor[MOTOR_LIFT] = live->motor[MOTOR_LIFT];
-    dummyBodyData_.motor[MOTOR_HEAD] = live->motor[MOTOR_HEAD];
-    dummyBodyData_.battery = live->battery;
+    // Keep the real B2H (head, lift, mics, button, battery) so engine/audio
+    // do not see a hollow dummy packet. Then neutralize body faults/cliffs
+    // that would kill vic-robot + vic-engine via fault-code-handler.
+    dummyBodyData_ = *live;
+    dummyBodyData_.failureCode = BOOT_FAIL_NONE;
+    dummyBodyData_.flags = static_cast<uint8_t>(dummyBodyData_.flags | RUNNING_FLAGS_SENSORS_VALID);
+    dummyBodyData_.cliffSense[0] = 800;
+    dummyBodyData_.cliffSense[1] = 800;
+    dummyBodyData_.cliffSense[2] = 800;
+    dummyBodyData_.cliffSense[3] = 800;
+    dummyBodyData_.motor[MOTOR_LEFT] = {};
+    dummyBodyData_.motor[MOTOR_RIGHT] = {};
   }
 
   void merge_backpack_from_boot(const struct SpineMessageHeader* hdr)
@@ -406,9 +407,8 @@ void poll_spine_backpack()
   FD_ZERO(&fdSet);
   FD_SET(fd, &fdSet);
   timeval timeout;
-  // Wait briefly for a B2H so head/lift encoders update every tick.
   timeout.tv_sec = 0;
-  timeout.tv_usec = 2000;
+  timeout.tv_usec = 0;
   const ssize_t nfds = select(FD_SETSIZE, &fdSet, NULL, NULL, &timeout);
   if (nfds > 0) {
     const ssize_t n = read(fd, readBuffer_, sizeof(readBuffer_));
@@ -418,11 +418,13 @@ void poll_spine_backpack()
   }
 
   uint8_t frame_buffer[SPINE_B2H_FRAME_LEN];
-  while (true) {
+  int parsed = 0;
+  while (parsed < 8) {
     const ssize_t r = spine_parse_frame(&spine_, frame_buffer, sizeof(frame_buffer), NULL);
     if (r <= 0) {
       break;
     }
+    parsed++;
     const struct SpineMessageHeader* hdr = (const struct SpineMessageHeader*)frame_buffer;
     if (hdr->payload_type == PAYLOAD_DATA_FRAME) {
       const struct spine_frame_b2h* frame = (const struct spine_frame_b2h*)frame_buffer;
@@ -452,10 +454,10 @@ void send_dummy_backpack_outputs(uint32_t now, uint32_t& last_packet_send)
     return;
   }
 
-  // Full H2B keeps syscon in RUN (button + lift). Dedicated light
-  // packet matches what rampost uses for backpack LEDs.
+  // Full H2B keeps syscon in RUN (button + head + lift + backpack LEDs).
+  // Do not also send PAYLOAD_LIGHT_STATE — that extra UART traffic desyncs
+  // a flaky spine and the fault handler then kills vic-robot/vic-engine.
   spine_write_h2b_frame(&spine_, &headData_);
-  spine_set_lights(&spine_, &headData_.lightState);
   last_packet_send = now;
   lastH2BSendTime_ms_ = HAL::GetTimeStamp();
 }

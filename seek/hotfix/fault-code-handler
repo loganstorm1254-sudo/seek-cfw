@@ -92,10 +92,11 @@ fi
 
 log "Handle fault code ${FAULT_CODE}"
 
-# SeekOS: 898 SPINE_SELECT_TIMEOUT / 899 NO_BODY — vic-robot now runs head-only
-# instead of displaying these. If they still arrive, do not tear down the face.
+# SeekOS: body-board faults must not tear down vic-robot / vic-engine.
+# Dummy-body HAL already suppresses these; this is the backstop if they
+# still reach the fifo (flaky spine CRC can look like cliff/TOF codes).
 case ${FAULT_CODE} in
-898|899)
+801|802|890|891|892|893|894|895|897|898|899)
     log "SeekOS: ignoring body fault ${FAULT_CODE} (head-only / dummy body)"
     exit 0
     ;;

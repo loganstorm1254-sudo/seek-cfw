@@ -15,7 +15,7 @@ fi
 cp -a /anki/bin/vic-robot /anki/bin/vic-robot.seekbak
 cp vic-robot /anki/bin/vic-robot
 chown robot:anki /anki/bin/vic-robot 2>/dev/null || true
-chmod 0550 /anki/bin/vic-robot
+chmod 0755 /anki/bin/vic-robot
 
 mount -o remount,rw / 2>/dev/null || true
 if [ -f /usr/bin/fault-code-handler ]; then
@@ -32,4 +32,6 @@ fi
 sync
 systemctl daemon-reload 2>/dev/null || true
 systemctl restart vic-robot
+sleep 1
+systemctl restart vic-engine 2>/dev/null || true
 echo SEEK_HEADONLY_OK
