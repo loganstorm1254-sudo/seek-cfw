@@ -117,9 +117,9 @@ BodyToHead BootBodyData_{
   {{}, {}, {}, {}},
   {0, 0, 0, 0},
   {
-    POWER_ON_CHARGER,              
-    static_cast<int16_t>(5.0/kBatteryScale),
-    static_cast<int16_t>(5.0/kBatteryScale)
+    0,
+    static_cast<int16_t>(3.9f/kBatteryScale),
+    0
   },
   {},
   {0, 0},
@@ -129,6 +129,27 @@ BodyToHead BootBodyData_{
   {0}
 };
 
+  // Keep RUNNING_FLAGS_SENSORS_VALID so PowerGetMode stays ACTIVE (full H2B /
+  // motors). Clear bogus charger flags when contacts are not energized — stops
+  // the backpack charging animation from sticking on.
+  void sanitize_live_body(BodyToHead* b)
+  {
+    if (b == nullptr) {
+      return;
+    }
+    b->failureCode = BOOT_FAIL_NONE;
+    b->flags = static_cast<uint8_t>(
+        (b->flags | RUNNING_FLAGS_SENSORS_VALID) &
+        static_cast<uint8_t>(~(ENCODERS_DISABLED | ENCODER_HEAD_INVALID | ENCODER_LIFT_INVALID)));
+
+    static const int16_t kMinChargerContactCounts =
+        static_cast<int16_t>(3.5f / kBatteryScale);
+    if (b->battery.charger < kMinChargerContactCounts) {
+      b->battery.flags = static_cast<BatteryFlags>(
+          b->battery.flags & ~(POWER_ON_CHARGER | POWER_IS_CHARGING));
+      b->battery.charger = 0;
+    }
+  }
 
   u32 _bodyDataPrintPeriod_tics = 0;
   u32 _bodyDataPrintCounter     = 0;
@@ -214,24 +235,12 @@ BodyToHead BootBodyData_{
     if (live == nullptr) {
       return;
     }
-    // Full live body including wheels. Only clear failureCode so flaky
-    // spine cannot raise face faults through ProcessFailureCode.
     dummyBodyData_ = *live;
-    dummyBodyData_.failureCode = BOOT_FAIL_NONE;
-    dummyBodyData_.flags = static_cast<uint8_t>(
-        (dummyBodyData_.flags | RUNNING_FLAGS_SENSORS_VALID) &
-        static_cast<uint8_t>(~(ENCODERS_DISABLED | ENCODER_HEAD_INVALID | ENCODER_LIFT_INVALID)));
+    sanitize_live_body(&dummyBodyData_);
   }
 
   // Last time dummy-mode spine poll got a DATA_FRAME (ms).
   TimeStamp_t dummyLastEncoder_ms_ = 0;
-  static const TimeStamp_t kDummyEncoderHold_ms = 100;
-
-  bool dummy_encoders_ok()
-  {
-    return dummyLastEncoder_ms_ != 0 &&
-           (HAL::GetTimeStamp() - dummyLastEncoder_ms_) <= kDummyEncoderHold_ms;
-  }
 
   void leave_dummy_body_mode(const char* reason)
   {
@@ -368,11 +377,11 @@ ssize_t robot_io(spine_ctx_t spine)
 void populate_boot_body_data(const struct SpineMessageHeader* hdr)
 {
   if (!haveValidSyscon_) {
-    //extract button data from stub packet and put in fake full packet
     uint8_t button_pressed = ((struct MicroBodyToHead*)(hdr+1))->buttonPressed;
     BootBodyData_.touchLevel[1] = button_pressed ? 0xFFFF : 0x0000;
-    BootBodyData_.micError[0] = ~BootBodyData_.micError[0]; //prevent stuck bits
+    BootBodyData_.micError[0] = ~BootBodyData_.micError[0];
     BootBodyData_.micError[1] = ~BootBodyData_.micError[1];
+    sanitize_live_body(&BootBodyData_);
     bodyData_ = &BootBodyData_;
   }
 }
@@ -475,9 +484,10 @@ void poll_spine_backpack()
   // SyncRobot / behaviors run like a stock robot.
   static TimeStamp_t goodSince_ms = 0;
   if (dataFrames > 0) {
+    bodyData_ = &dummyBodyData_;
     if (goodSince_ms == 0) {
       goodSince_ms = HAL::GetTimeStamp();
-    } else if (HAL::GetTimeStamp() - goodSince_ms > 1000) {
+    } else if (HAL::GetTimeStamp() - goodSince_ms > 250) {
       leave_dummy_body_mode("sustained B2H frames");
       goodSince_ms = 0;
     }
@@ -492,12 +502,6 @@ void send_dummy_backpack_outputs(uint32_t now, uint32_t& last_packet_send)
     return;
   }
 
-  // Full motor command path (wheels + head + lift). Only used for
-  // forced head_only / no-UART; normal 898 skips stay on stock Step.
-  if (!dummy_encoders_ok()) {
-    // Brief UART gap: hold motors rather than open-loop windup.
-    memset(headData_.motorPower, 0, sizeof(headData_.motorPower));
-  }
   headData_.framecounter++;
 
   if (now - last_packet_send < 5000u) {
@@ -695,6 +699,8 @@ void handle_payload_data(const uint8_t frame_buffer[]) {
 
   memcpy(frameBuffer_, frame_buffer, sizeof(frameBuffer_));
   bodyData_ = (BodyToHead*)(frameBuffer_ + sizeof(struct SpineMessageHeader));
+  sanitize_live_body(bodyData_);
+  leave_dummy_body_mode("live B2H frame");
 
   if (ccc_commander_is_active()) {
     ccc_payload_process(bodyData_);
