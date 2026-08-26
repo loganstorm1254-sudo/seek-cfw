@@ -194,8 +194,19 @@ BodyToHead BootBodyData_{
     fill_dummy_body_data();
     bodyData_ = &dummyBodyData_;
     dummyBodyMode_ = true;
-    // Keep talking to syscon so backpack button + LEDs still work.
     maxNumSelectTimeoutsReached_ = false;
+  }
+
+  // Seed bodyData_ so Init/Step can run without showing 899 — stay on the
+  // normal motor path (wheels included) unless head_only is forced.
+  void ensure_seed_body_data(const char* reason)
+  {
+    if (bodyData_ != nullptr) {
+      return;
+    }
+    AnkiWarn("HAL.SeedBody.Enable", "%s", reason ? reason : "unknown");
+    fill_dummy_body_data();
+    bodyData_ = &dummyBodyData_;
   }
 
   void merge_backpack_from_live(const BodyToHead* live)
@@ -203,23 +214,16 @@ BodyToHead BootBodyData_{
     if (live == nullptr) {
       return;
     }
-    // Keep the real B2H (head, lift, mics, button, battery, audio).
-    // Neutralize body faults/cliffs/wheels that would kill services or drive.
+    // Full live body including wheels. Only clear failureCode so flaky
+    // spine cannot raise face faults through ProcessFailureCode.
     dummyBodyData_ = *live;
     dummyBodyData_.failureCode = BOOT_FAIL_NONE;
     dummyBodyData_.flags = static_cast<uint8_t>(
         (dummyBodyData_.flags | RUNNING_FLAGS_SENSORS_VALID) &
         static_cast<uint8_t>(~(ENCODERS_DISABLED | ENCODER_HEAD_INVALID | ENCODER_LIFT_INVALID)));
-    dummyBodyData_.cliffSense[0] = 800;
-    dummyBodyData_.cliffSense[1] = 800;
-    dummyBodyData_.cliffSense[2] = 800;
-    dummyBodyData_.cliffSense[3] = 800;
-    dummyBodyData_.motor[MOTOR_LEFT] = {};
-    dummyBodyData_.motor[MOTOR_RIGHT] = {};
   }
 
   // Last time dummy-mode spine poll got a DATA_FRAME (ms).
-  // Head/lift may keep power briefly after a drop so calibration can finish.
   TimeStamp_t dummyLastEncoder_ms_ = 0;
   static const TimeStamp_t kDummyEncoderHold_ms = 100;
 
@@ -285,9 +289,14 @@ bool check_spine_readable(spine_ctx_t spine)
   }
 
   if (selectTimeoutCount >= SELECT_TIMEOUT_ATTEMPTS) {
-    AnkiError("HAL.check_spine_readable.timeoutCountReached","");
-    enter_dummy_body_mode("spine select timeout (SeekOS: skip 898)");
+    // SeekOS: do not show 898 and do not drop into wheel-off dummy mode.
+    // Reset and keep the normal motor path; StillAlive so anim stays up.
+    AnkiWarn("HAL.check_spine_readable.timeoutCountReached",
+             "SeekOS: skip 898, keep motors, retry spine");
     selectTimeoutCount = 0;
+    maxNumSelectTimeoutsReached_ = false;
+    RobotInterface::StillAlive msg;
+    RobotInterface::SendMessage(msg);
     return false;
   }
 
@@ -483,13 +492,11 @@ void send_dummy_backpack_outputs(uint32_t now, uint32_t& last_packet_send)
     return;
   }
 
-  // Never drive the wheels. Hold head/lift only if encoders went stale
-  // for >100ms so brief UART gaps do not freeze calibration / idle face.
-  headData_.motorPower[MOTOR_LEFT] = 0;
-  headData_.motorPower[MOTOR_RIGHT] = 0;
+  // Full motor command path (wheels + head + lift). Only used for
+  // forced head_only / no-UART; normal 898 skips stay on stock Step.
   if (!dummy_encoders_ok()) {
-    headData_.motorPower[MOTOR_LIFT] = 0;
-    headData_.motorPower[MOTOR_HEAD] = 0;
+    // Brief UART gap: hold motors rather than open-loop windup.
+    memset(headData_.motorPower, 0, sizeof(headData_.motorPower));
   }
   headData_.framecounter++;
 
@@ -564,17 +571,30 @@ Result spine_wait_for_first_frame(spine_ctx_t spine, const int * shutdownSignal)
     }
 
     robot_io(&spine_);
-    if (dummyBodyMode_ || maxNumSelectTimeoutsReached_) {
-      enter_dummy_body_mode("spine timeout waiting for first frame (SeekOS: skip 899)");
+    if (maxNumSelectTimeoutsReached_) {
+      // Soft skip 899: seed sensors if needed, stay off dummy so wheels work
+      // once frames arrive on the normal Step path.
+      AnkiWarn("HAL.SpineWaitForFirstFrame.timeout", "SeekOS: skip 899, seed body, continue");
+      maxNumSelectTimeoutsReached_ = false;
+      ensure_seed_body_data("spine timeout waiting for first frame (SeekOS: skip 899)");
+      if (should_force_head_only()) {
+        enter_dummy_body_mode("/data/seek/head_only after wait timeout");
+      }
       return RESULT_OK;
     }
     read_count++;
   }
 
-  // SeekOS: missing/invalid syscon is head-only, not a face fault.
+  // SeekOS: missing/invalid syscon — seed and continue, do not face-fault 899.
   if(!initialized || !haveValidSyscon_)
   {
-    enter_dummy_body_mode("no body / invalid syscon (SeekOS: skip 899)");
+    AnkiWarn("HAL.SpineWaitForFirstFrame.NoBody", "SeekOS: skip 899");
+    ensure_seed_body_data("no body / invalid syscon (SeekOS: skip 899)");
+    if (should_force_head_only() || !initialized) {
+      // No frame at all: optional dummy keep-alive. Wheels stay commanded
+      // if UART later delivers DATA_FRAME via poll.
+      enter_dummy_body_mode("no first spine frame (SeekOS: skip 899)");
+    }
     return RESULT_OK;
   }
 
@@ -646,14 +666,13 @@ Result HAL::Init(const int * shutdownSignal)
         if(res != RESULT_OK && !dummyBodyMode_)
         {
           AnkiError("HAL.Init.NoFirstFrame", "");
-          enter_dummy_body_mode("no first spine frame (SeekOS: skip 899)");
+          ensure_seed_body_data("no first spine frame (SeekOS: skip 899)");
         }
       }
       if (!dummyBodyMode_) {
-        AnkiDebug("HAL.Init.GotFirstFrame", "");
-        request_version();  //get version so we have it when we need it.
+        AnkiDebug("HAL.Init.GotFirstFrameOrSeed", "");
+        request_version();
       } else {
-        // Still poke RUN + lights so backpack comes up immediately.
         request_version();
       }
     }
@@ -732,9 +751,10 @@ Result spine_get_frame() {
       robot_io(&spine_);
       EventStop(EventType::ROBOT_IO);
 
-      // select timed out too many times — SeekOS: dummy body, keep the face up
-      if (dummyBodyMode_ || maxNumSelectTimeoutsReached_) {
-        enter_dummy_body_mode("spine_get_frame select timeout (SeekOS: skip 898)");
+      // select timed out — SeekOS: skip 898, keep normal motors, retry next tick
+      if (maxNumSelectTimeoutsReached_) {
+        AnkiWarn("HAL.spine_get_frame.selectTimeout", "SeekOS: skip 898");
+        maxNumSelectTimeoutsReached_ = false;
         return RESULT_OK;
       }
     }
@@ -892,8 +912,7 @@ Result HAL::Step(void)
     // Timeout is tuned to accommodate worst case back-to-back spine select timeouts
     const u32 timeSinceStartOfGetFrame_ms = GetTimeStamp() - startSpineGetFrameTime_ms;
     if (timeSinceStartOfGetFrame_ms > SPINE_GET_FRAME_TIMEOUT_MS) {
-      AnkiError("HAL.Step.SpineLoopTimeout", "");
-      enter_dummy_body_mode("spine loop timeout (SeekOS: skip 898)");
+      AnkiWarn("HAL.Step.SpineLoopTimeout", "SeekOS: skip 898, keep motors");
       result = RESULT_OK;
       break;
     }
@@ -914,8 +933,9 @@ Result HAL::Step(void)
 
   EventStop(EventType::READ_SPINE);
 
-  if (dummyBodyMode_ || result == RESULT_FAIL_IO_TIMEOUT) {
-    enter_dummy_body_mode("spine I/O timeout (SeekOS: skip 898)");
+  // SeekOS: never tear down for spine I/O timeout (stock 898 path).
+  if (result == RESULT_FAIL_IO_TIMEOUT) {
+    AnkiWarn("HAL.Step.SpineIoTimeout", "SeekOS: skip 898, keep motors");
     result = RESULT_OK;
   }
 

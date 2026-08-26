@@ -22,13 +22,13 @@ Source of truth: `seek/overlays/anki/victor/animProcess/src/cozmoAnim/faceDispla
 
 **898** (`SPINE_SELECT_TIMEOUT`) and **899** (`NO_BODY`) mean the head board cannot talk to the body board (flaky spine cable, body MCU, etc.). SeekOS does **not** show those faults.
 
-- If the body answers, Vector still drives and uses sensors as usual.
-- If spine comms fail at boot or drop out later, `vic-robot` switches to a dummy body so **face and eyes still power up**. Wheels and cliffs are ignored. It **still talks to syscon for the head, lift** (double-click / CCIS menu confirm), **backpack button**, and **backpack lights**. Head + lift must calibrate or idle sounds stay muted.
+- **Default:** full body stays on — **wheels, head, lift, backpack button, lights**. Flaky spine just retries; no 898/899 face code and no service teardown.
+- Dummy-body fallback (synthetic sensors) is only for `spine_open` failure or optional `/data/seek/head_only`.
 - Early boot (`rampost`) also continues when syscon/DFU does not answer, so 801/802 no longer block the LCD.
 
 **The published `v3.0.1.20d-dvt` GitHub OTA does not include this.** That is stock SeekOS DVT. Head-only lives on this branch and needs its own OTA (or a `vic-robot` hotfix) built from it.
 
-Only force dummy sensors if you need to (keeps head/lift/backpack when UART opens; blocks normal SyncRobot until spine recovers):
+Only force dummy sensors if you need to (keeps motors when UART opens; blocks normal SyncRobot until spine recovers):
 
 ```sh
 mkdir -p /data/seek

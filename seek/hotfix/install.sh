@@ -1,12 +1,10 @@
 #!/bin/sh
-# SeekOS head-only hotfix: skip 898/899, keep head/lift/backpack when spine is up.
-# Do NOT force /data/seek/head_only — that freezes idle face (never SyncRobot).
-# Dummy mode only engages if spine actually fails; it can recover.
+# SeekOS hotfix: suppress 898/899, keep full motors (wheels + head + lift).
 set -e
 cd "$(dirname "$0")"
 
 mkdir -p /data/seek
-# Previous hotfixes forced this and left Vector staring. Clear it.
+# Do not force head_only — that disables the normal drive path.
 rm -f /data/seek/head_only
 
 mount -o remount,rw /anki 2>/dev/null || true
@@ -14,7 +12,6 @@ if [ ! -f /anki/bin/vic-robot ]; then
   echo "missing /anki/bin/vic-robot" >&2
   exit 1
 fi
-# Keep first backup only so we can always restore stock DVT binary.
 if [ ! -f /anki/bin/vic-robot.seekbak ]; then
   cp -a /anki/bin/vic-robot /anki/bin/vic-robot.seekbak
 fi
