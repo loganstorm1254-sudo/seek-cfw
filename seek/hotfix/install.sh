@@ -1,23 +1,32 @@
 #!/bin/sh
-# SeekOS hotfix: suppress 898/899, keep full motors (wheels + head + lift).
+# SeekOS hotfix: DVT replicate OS look + suppress 898/899 (keep full motors).
 set -e
 cd "$(dirname "$0")"
 
 mkdir -p /data/seek
-# Do not force head_only — that disables the normal drive path.
 rm -f /data/seek/head_only
 
+install_bin() {
+  dest="$1"
+  src="$2"
+  if [ ! -f "$dest" ]; then
+    echo "missing $dest" >&2
+    exit 1
+  fi
+  bak="${dest}.seekbak"
+  if [ ! -f "$bak" ]; then
+    cp -a "$dest" "$bak"
+  fi
+  cp "$src" "$dest"
+  chown robot:anki "$dest" 2>/dev/null || true
+  chmod 0755 "$dest"
+}
+
 mount -o remount,rw /anki 2>/dev/null || true
-if [ ! -f /anki/bin/vic-robot ]; then
-  echo "missing /anki/bin/vic-robot" >&2
-  exit 1
+install_bin /anki/bin/vic-robot vic-robot
+if [ -f vic-anim ]; then
+  install_bin /anki/bin/vic-anim vic-anim
 fi
-if [ ! -f /anki/bin/vic-robot.seekbak ]; then
-  cp -a /anki/bin/vic-robot /anki/bin/vic-robot.seekbak
-fi
-cp vic-robot /anki/bin/vic-robot
-chown robot:anki /anki/bin/vic-robot 2>/dev/null || true
-chmod 0755 /anki/bin/vic-robot
 
 mount -o remount,rw / 2>/dev/null || true
 if [ -f /usr/bin/fault-code-handler ]; then
