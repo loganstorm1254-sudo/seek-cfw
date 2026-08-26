@@ -204,6 +204,9 @@ BodyToHead BootBodyData_{
     dummyBodyData_.touchLevel[1] = live->touchLevel[1];
     dummyBodyData_.touchHires[0] = live->touchHires[0];
     dummyBodyData_.touchHires[1] = live->touchHires[1];
+    // Lift encoders for CCIS / double-click menu confirm. Wheels stay dummy.
+    dummyBodyData_.motor[MOTOR_LIFT] = live->motor[MOTOR_LIFT];
+    dummyBodyData_.battery = live->battery;
   }
 
   void merge_backpack_from_boot(const struct SpineMessageHeader* hdr)
@@ -431,15 +434,18 @@ void send_dummy_backpack_outputs(uint32_t now, uint32_t& last_packet_send)
     return;
   }
 
-  // Fake cliffs/battery — do not command wheels/lift/head.
-  memset(headData_.motorPower, 0, sizeof(headData_.motorPower));
+  // Dummy wheels/head so a flaky body cannot 898 from drive/cliffs.
+  // Keep lift power for the double-click / CCIS menu confirm gesture.
+  headData_.motorPower[MOTOR_LEFT] = 0;
+  headData_.motorPower[MOTOR_RIGHT] = 0;
+  headData_.motorPower[MOTOR_HEAD] = 0;
   headData_.framecounter++;
 
   if (now - last_packet_send < 5000u) {
     return;
   }
 
-  // Full H2B keeps syscon in RUN (button reports). Dedicated light
+  // Full H2B keeps syscon in RUN (button + lift). Dedicated light
   // packet matches what rampost uses for backpack LEDs.
   spine_write_h2b_frame(&spine_, &headData_);
   spine_set_lights(&spine_, &headData_.lightState);
