@@ -30,5 +30,6 @@ if [ -f /usr/bin/rampost ]; then
 fi
 
 sync
+systemctl daemon-reload 2>/dev/null || true
 systemctl restart vic-robot
 echo SEEK_HEADONLY_OK

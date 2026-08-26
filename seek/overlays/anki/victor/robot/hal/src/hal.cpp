@@ -167,9 +167,12 @@ BodyToHead BootBodyData_{
   void tick_dummy_body_data()
   {
     dummyBodyData_.framecounter++;
-    // Flip mic bits so ProcessMicError does not report stuck mics.
-    dummyBodyData_.micError[0] = static_cast<uint16_t>(~dummyBodyData_.micError[0]);
-    dummyBodyData_.micError[1] = static_cast<uint16_t>(~dummyBodyData_.micError[1]);
+    // Only fake mic bits when syscon is silent. Flipping over live mic
+    // words fights ProcessMicError and can keep audio muted.
+    if (!haveValidSyscon_) {
+      dummyBodyData_.micError[0] = static_cast<uint16_t>(~dummyBodyData_.micError[0]);
+      dummyBodyData_.micError[1] = static_cast<uint16_t>(~dummyBodyData_.micError[1]);
+    }
     bodyData_ = &dummyBodyData_;
   }
 
@@ -204,8 +207,12 @@ BodyToHead BootBodyData_{
     dummyBodyData_.touchLevel[1] = live->touchLevel[1];
     dummyBodyData_.touchHires[0] = live->touchHires[0];
     dummyBodyData_.touchHires[1] = live->touchHires[1];
-    // Lift encoders for CCIS / double-click menu confirm. Wheels stay dummy.
+    dummyBodyData_.micError[0] = live->micError[0];
+    dummyBodyData_.micError[1] = live->micError[1];
+    // Head + lift encoders so they can calibrate (idle sounds/animations).
+    // Wheels stay dummy.
     dummyBodyData_.motor[MOTOR_LIFT] = live->motor[MOTOR_LIFT];
+    dummyBodyData_.motor[MOTOR_HEAD] = live->motor[MOTOR_HEAD];
     dummyBodyData_.battery = live->battery;
   }
 
@@ -399,8 +406,9 @@ void poll_spine_backpack()
   FD_ZERO(&fdSet);
   FD_SET(fd, &fdSet);
   timeval timeout;
+  // Wait briefly for a B2H so head/lift encoders update every tick.
   timeout.tv_sec = 0;
-  timeout.tv_usec = 0;
+  timeout.tv_usec = 2000;
   const ssize_t nfds = select(FD_SETSIZE, &fdSet, NULL, NULL, &timeout);
   if (nfds > 0) {
     const ssize_t n = read(fd, readBuffer_, sizeof(readBuffer_));
@@ -434,11 +442,10 @@ void send_dummy_backpack_outputs(uint32_t now, uint32_t& last_packet_send)
     return;
   }
 
-  // Dummy wheels/head so a flaky body cannot 898 from drive/cliffs.
-  // Keep lift power for the double-click / CCIS menu confirm gesture.
+  // Dummy wheels only. Head + lift must keep running so they calibrate
+  // (idle face/sounds) and the CCIS lift-confirm gesture still works.
   headData_.motorPower[MOTOR_LEFT] = 0;
   headData_.motorPower[MOTOR_RIGHT] = 0;
-  headData_.motorPower[MOTOR_HEAD] = 0;
   headData_.framecounter++;
 
   if (now - last_packet_send < 5000u) {
@@ -745,9 +752,9 @@ Result HAL::Step(void)
   bool commander_is_active = false;
 
   if (dummyBodyMode_) {
+    poll_spine_backpack();
     tick_dummy_body_data();
     send_dummy_backpack_outputs(now, last_packet_send);
-    poll_spine_backpack();
 #if !PROCESS_IMU_ON_THREAD
     ProcessIMUEvents();
 #endif
