@@ -146,6 +146,12 @@ button.danger:hover,
     color: var(--muted);
 }
 
+.field-wide {
+    flex: 1 1 18rem;
+    min-width: 12rem;
+    max-width: 32rem;
+}
+
 .drive-armed {
     display: inline-block;
     margin: 0 0 0.65rem;

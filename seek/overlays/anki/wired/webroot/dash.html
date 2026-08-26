@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#000000">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <title>Vector Demo</title>
-    <link rel="stylesheet" href="css/anki-demo.css?v=a16d">
+    <link rel="stylesheet" href="css/anki-demo.css?v=a19d">
 </head>
 <body>
     <main class="page">
@@ -145,6 +145,25 @@
         </div>
         <div id="disp_stop_message" class="footer-msg"></div>
 
+        <hr class="rule">
+
+        <p class="section-title">Voice (on-robot, like WirePod)</p>
+        <p class="hint">Save a Houndify Client ID + Key. Then say “Hey Vector” — local commands stay on-robot; questions go to Houndify (no PC / WirePod box).</p>
+        <div class="row">
+            <label for="houndifyClientId">Client ID</label>
+            <input type="text" id="houndifyClientId" autocomplete="off" placeholder="Houndify client id" class="field-wide">
+        </div>
+        <div class="row">
+            <label for="houndifyClientKey">Client Key</label>
+            <input type="password" id="houndifyClientKey" autocomplete="off" placeholder="Houndify client key" class="field-wide">
+        </div>
+        <div class="row">
+            <button type="button" class="ui-button" id="btnSaveHoundify">Save Houndify</button>
+            <button type="button" class="ui-button" id="btnTestHoundify">Test</button>
+            <button type="button" class="ui-button danger" id="btnClearHoundify">Clear</button>
+        </div>
+        <p id="houndifyStatus" class="hint"></p>
+
         <!-- Hidden stubs so seek-dashboard.js bindings stay quiet -->
         <div hidden aria-hidden="true">
             <input type="file" id="otaFile">
@@ -167,12 +186,6 @@
             <button type="button" id="btnSaveOpenAI"></button>
             <button type="button" id="btnClearOpenAI"></button>
             <button type="button" id="btnTestOpenAI"></button>
-            <input type="text" id="houndifyClientId">
-            <input type="password" id="houndifyClientKey">
-            <p id="houndifyStatus"></p>
-            <button type="button" id="btnSaveHoundify"></button>
-            <button type="button" id="btnClearHoundify"></button>
-            <button type="button" id="btnTestHoundify"></button>
             <input type="text" id="askAIText">
             <button type="button" id="btnAskAI"></button>
             <button type="button" id="btnAskAIMic"></button>
