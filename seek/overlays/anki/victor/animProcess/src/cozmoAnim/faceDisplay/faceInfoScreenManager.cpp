@@ -80,12 +80,9 @@ const std::string CreatorWebsite = "";
 
 // Forces transition to BLE pairing screen on double button press
 // without waiting for actual START_PAIRING message from switchboard.
-// Mainly useful in sim, where there is currently no switchboard.
-#ifdef SIMULATOR
+// SeekOS: switchboard pairing UI is not used; always show Pairing screen so
+// lift-raise can enter the CCIS main menu.
 #define FORCE_TRANSITION_TO_PAIRING 1
-#else
-#define FORCE_TRANSITION_TO_PAIRING 0
-#endif
 
 #define ENABLE_SELF_TEST 1
 
@@ -984,10 +981,15 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
     }
     lastReleaseTime_ms = curTime_ms;
 
-    // Triple fires immediately on the 3rd release (no wait) so it feels responsive
-    // and doesn't lose the gesture to a delayed double-confirm.
+    // Double/triple fire immediately on release so lift-raise for the CCIS menu
+    // is not lost to a long post-release confirm window.
     if (pressCount >= 3) {
       triplePressDetected = true;
+      pressCount = 0;
+      waitingConfirm = false;
+      lastReleaseTime_ms = 0;
+    } else if (pressCount == 2) {
+      doublePressDetected = true;
       pressCount = 0;
       waitingConfirm = false;
       lastReleaseTime_ms = 0;
@@ -997,12 +999,10 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
     holdStartTime_ms = 0;
   }
 
-  // Confirm single/double after the window expires (triple already handled above)
+  // Confirm single press after the window expires (double/triple already handled above)
   if (waitingConfirm && (curTime_ms - lastReleaseTime_ms >= kMultiPressWindow_ms)) {
     if (pressCount == 1) {
       singlePressDetected = true;
-    } else if (pressCount == 2) {
-      doublePressDetected = true;
     }
     pressCount = 0;
     waitingConfirm = false;
@@ -1065,7 +1065,6 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
                       doublePressDetected,
                       triplePressDetected);
 
-  const bool isOnCharger = static_cast<bool>(state.status & (uint32_t)RobotStatusFlag::IS_ON_CHARGER);
 
   const ScreenName currScreenName = GetCurrScreenName();
 
@@ -1084,27 +1083,16 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
     }
   }
 
-  // Check for conditions to enter BLE pairing mode
-  if (doublePressDetected && 
-      isOnCharger &&
-      // Only enter pairing from these three screens which include
-      // screens that are normally active during playpen test
+  // Double-press opens CCIS: Pairing screen, then raise lift for Main menu.
+  if (doublePressDetected &&
+      _engineLoaded &&
       CanEnterPairingFromScreen(currScreenName)) {
     LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotDoublePress", "Entering pairing");
     RobotInterface::SendAnimToEngine(SwitchboardInterface::EnterPairing());
 
     if (FORCE_TRANSITION_TO_PAIRING) {
-      LOG_WARNING("FaceInfoScreenManager.ProcessMenuNavigation.ForcedPairing",
-                  "Remove FORCE_TRANSITION_TO_PAIRING when switchboard is working");
       SetScreen(ScreenName::Pairing);
     }
-  }
-  else if(doublePressDetected &&
-          !isOnCharger && // while user-facing instructions may say "pick up the robot and double press," it's really just off charger
-          _engineLoaded &&
-          CanEnterPairingFromScreen(currScreenName))
-  {
-    ToggleMute("DOUBLE_PRESS");
   }
   else if(triplePressDetected &&
           _engineLoaded &&
