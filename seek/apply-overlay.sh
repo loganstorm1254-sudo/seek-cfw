@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Apply Seek CFW overlays on top of the wire-os-victor checkout.
 # Per https://os-vector.github.io/vector-docs/6.-Make-Your-Own-CFW/3.%20how.html
+# Includes branding plus head-only HAL (skip 898/899, dummy body for the face).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

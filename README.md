@@ -18,6 +18,24 @@ Source of truth: `seek/overlays/anki/victor/animProcess/src/cozmoAnim/faceDispla
 
 
 
+## Head-only (no 898 / 899)
+
+**898** (`SPINE_SELECT_TIMEOUT`) and **899** (`NO_BODY`) mean the head board cannot talk to the body board (flaky spine cable, body MCU, etc.). SeekOS does **not** show those faults.
+
+- If the body answers, Vector still drives and uses sensors as usual.
+- If spine comms fail at boot or drop out later, `vic-robot` switches to a dummy body: **face and eyes still power up**, motors/backpack are ignored.
+- Early boot (`rampost`) also continues when syscon/DFU does not answer, so 801/802 no longer block the LCD.
+
+To **always** ignore the body (never try spine, even on a good boot):
+
+```sh
+mkdir -p /data/seek
+touch /data/seek/head_only
+```
+
+Remove that file and reboot to try the body again.
+
+
 ## Backpack button
 
 | Gesture | Action |

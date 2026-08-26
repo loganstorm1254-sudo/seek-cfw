@@ -92,6 +92,15 @@ fi
 
 log "Handle fault code ${FAULT_CODE}"
 
+# SeekOS: 898 SPINE_SELECT_TIMEOUT / 899 NO_BODY — vic-robot now runs head-only
+# instead of displaying these. If they still arrive, do not tear down the face.
+case ${FAULT_CODE} in
+898|899)
+    log "SeekOS: ignoring body fault ${FAULT_CODE} (head-only / dummy body)"
+    exit 0
+    ;;
+esac
+
 # Ignore zero
 # Nobody should be writing 0 to the fifo, so it probably means
 # the fifo was closed after processes were shutdown

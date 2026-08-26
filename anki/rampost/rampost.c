@@ -268,7 +268,8 @@ int main(int argc, const char* argv[])
 
   spine_error = hal_init(SPINE_TTY, SPINE_BAUD);
   if (spine_error) {
-    error_code = ERROR_HAL_ERROR;
+    // SeekOS: missing/flaky body must not block the head LCD (898/899 / 801/802).
+    DAS_LOG(DAS_EVENT, "rampost.head_only", "spine init failed (%d); continuing without body", spine_error);
   }
   else {
     force_syscon_resync();
@@ -289,14 +290,13 @@ int main(int argc, const char* argv[])
         //hooray!
       }
       else if (result > err_OK) {
-        DAS_LOG(DAS_ERROR, "dfu_error", "DFU Error %d", result);
-        if (result < err_DFU_ERASE_ERROR) { error_code = ERROR_HAL_ERROR; }
-        else { error_code = ERROR_DFU_ERROR; }
+        DAS_LOG(DAS_ERROR, "dfu_error", "DFU Error %d (SeekOS: ignoring body/syscon failure)", result);
+        // Do not set error_code — keep booting so the face/eyes can still come up.
       }
     }
   }
 
-  if (!error_code) {
+  if (!error_code && !spine_error) {
     BatteryState bat_state = confirm_battery_level();
     switch (bat_state) {
     case battery_LEVEL_GOOD:
@@ -311,8 +311,7 @@ int main(int argc, const char* argv[])
       break;
     case battery_BOOTLOADER:
       DAS_LOG(DAS_EVENT, "battery_check_fail", "Battery check saw bootloader!");
-      error_code = ERROR_DFU_ERROR; //should be impossible.
-      break;
+      break; // SeekOS: continue so the head LCD can still boot.
     case battery_TIMEOUT:
       DAS_LOG(DAS_EVENT, "battery_check_fail", "Battery check timed out!");
       break; // But do continue boot in case this is because something needs recovering etc.
