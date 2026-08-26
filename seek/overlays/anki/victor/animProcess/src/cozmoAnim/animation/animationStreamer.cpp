@@ -1747,9 +1747,11 @@ namespace Anim {
       ? _longEnoughSinceLastStreamTimeout_s
       : 2.0f;
     const bool longEnoughSinceStream  = (BaseStationTimer::getInstance()->GetCurrentTimeInSeconds() - _lastAnimationStreamTime) > idleBeforeNeutral_s;
+    const bool holdCCISPairingFace = FaceInfoScreenManager::getInstance()->IsHoldingCCISPairingFace();
     if (!haveStreamingAnimation &&
          haveStreamedAnything &&
-         longEnoughSinceStream)
+         longEnoughSinceStream &&
+         !holdCCISPairingFace)
     {
       if (!FACTORY_TEST)
       {
@@ -1913,6 +1915,9 @@ namespace Anim {
 
   void AnimationStreamer::EnableKeepFaceAlive(bool enable, u32 disableTimeout_ms)
   {
+    if (enable && FaceInfoScreenManager::getInstance()->IsHoldingCCISPairingFace()) {
+      return;
+    }
     if (s_enableKeepFaceAlive && !enable)
     {
       _proceduralTrackComponent->RemoveKeepFaceAlive(_relativeStreamTime_ms, disableTimeout_ms);

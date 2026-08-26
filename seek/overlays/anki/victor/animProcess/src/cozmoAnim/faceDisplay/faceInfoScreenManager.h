@@ -130,6 +130,8 @@ public:
   // Forcibly exit any screen
   void ExitCCScreen(Anim::AnimationStreamer* animStreamer);
 
+  bool IsHoldingCCISPairingFace() const { return _ccisPairingFaceHeld; }
+
 private:
   const Anim::AnimContext* _context = nullptr;
   
@@ -263,6 +265,9 @@ private:
   uint32_t _volumeBeforeSoundMute = 0;
   // Show mute icon until this timestamp (ms); 0 = hidden
   u32 _soundMuteIconUntil_ms = 0;
+
+  // CCIS double-press pairing face (Victor + key) held until lift confirms menu.
+  bool _ccisPairingFaceHeld = false;
   
   // Reboot Linux
   void Reboot();

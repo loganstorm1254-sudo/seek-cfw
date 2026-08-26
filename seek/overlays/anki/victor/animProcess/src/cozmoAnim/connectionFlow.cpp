@@ -286,6 +286,9 @@ void UpdateConnectionFlow(const SwitchboardInterface::SetConnectionStatus& msg,
     break;
     case ConnectionStatus::END_PAIRING:
     {
+      if (FaceInfoScreenManager::getInstance()->IsHoldingCCISPairingFace()) {
+        break;
+      }
       if(s_enteredAnyScreen)
       {
         animStreamer->Abort();

@@ -1076,7 +1076,7 @@ void FaceInfoScreenManager::ResetObservedHeadAndLiftAngles()
 void FaceInfoScreenManager::EnterCCISMainMenu(const char* reason)
 {
   LOG_INFO("FaceInfoScreenManager.EnterCCISMainMenu", "%s", reason);
-  RobotInterface::SendAnimToEngine(SwitchboardInterface::ExitPairing());
+  _ccisPairingFaceHeld = false;
   if (_animationStreamer != nullptr) {
     _animationStreamer->Abort();
     _animationStreamer->EnableKeepFaceAlive(true, 0);
@@ -1125,8 +1125,8 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
   if (doublePressDetected &&
       _engineLoaded &&
       CanEnterPairingFromScreen(currScreenName)) {
-    LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotDoublePress", "Entering pairing");
-    RobotInterface::SendAnimToEngine(SwitchboardInterface::EnterPairing());
+    LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotDoublePress", "Entering CCIS pairing face");
+    _ccisPairingFaceHeld = true;
     SetScreen(ScreenName::Pairing);
     ShowCCISPairingPrompt(_animationStreamer, _context);
   }
@@ -1270,6 +1270,12 @@ ScreenName FaceInfoScreenManager::GetCurrScreenName() const
 void FaceInfoScreenManager::Update(const RobotState& state)
 {
   ProcessMenuNavigation(state);
+
+  // Hold CCIS pairing face over engine eyes until lift opens the menu.
+  if (_ccisPairingFaceHeld && (GetCurrScreenName() == ScreenName::Pairing) &&
+      (_animationStreamer != nullptr)) {
+    _animationStreamer->EnableKeepFaceAlive(false, 0);
+  }
 
   // Keep sound mute enforced — engine volume/settings can overwrite Wwise state
   if (_soundMuted) {
@@ -1964,6 +1970,9 @@ void FaceInfoScreenManager::EnablePairingScreen(bool enable)
     LOG_INFO("FaceInfoScreenManager.EnablePairingScreen.Enable", "");
     SetScreen(ScreenName::Pairing);
   } else if (!enable && GetCurrScreenName() == ScreenName::Pairing) {
+    if (_ccisPairingFaceHeld) {
+      return;
+    }
     LOG_INFO("FaceInfoScreenManager.EnablePairingScreen.Disable", "");
     // TODO: it's possible that the user entered the app pairing screen during Alexa pairing,
     // in which case the face should return to the Alexa screen when app pairing is complete
