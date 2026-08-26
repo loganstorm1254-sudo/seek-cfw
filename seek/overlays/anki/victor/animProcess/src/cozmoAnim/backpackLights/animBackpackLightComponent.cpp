@@ -83,6 +83,11 @@ void BackpackLightComponent::Init()
     _context->GetDataLoader()->GetBackpackLightAnimations());
 
   _backpackTriggerToNameMap = _context->GetDataLoader()->GetBackpackAnimationTriggerMap();
+
+  // DVT: boot to off — never inherit a stuck red/orange engine pack from a prior crash.
+  _mostRecentTrigger = BackpackAnimationTrigger::Off;
+  _internalCriticalLightsTrigger = BackpackAnimationTrigger::Off;
+  SendBackpackLights(BackpackAnimationTrigger::Off);
 }
 
 

@@ -102,7 +102,15 @@ func (m *SeekDashboard) Load() error {
 	m.touchActivity()
 	m.initLink()
 	// Stock Anki backpack lights on every boot (clear WireOS/Seek red pack overrides).
+	hadCustom := false
+	if st, err := os.Stat(seekCustomLightsDir); err == nil && st.IsDir() {
+		hadCustom = true
+	}
 	_ = m.ensureAnkiLightsQuiet()
+	if hadCustom {
+		// Old Seek/WireOS red packs were on disk — soft-restart anim so they never stick.
+		softRestartLights()
+	}
 	m.idleOnce.Do(func() {
 		go m.idleWatch()
 	})
