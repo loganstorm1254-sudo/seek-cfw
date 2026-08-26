@@ -32,6 +32,7 @@ const (
 	seekCustomLightsDir   = "/data/data/customBackpackLights"
 	seekAnkiLightsFlag    = "/data/data/enableankilights"
 	seekLightsClearedMark = "/data/data/com.anki.victor/persistent/seek/cleared_ld_lights_v1"
+	seekSoundMuteFile     = "/data/data/com.anki.victor/persistent/soundMuted"
 )
 
 // SeekDashboard hosts eye color, volume, TTS, media, drive, and camera on Vector's IP.
@@ -107,14 +108,33 @@ func (m *SeekDashboard) Load() error {
 		hadCustom = true
 	}
 	_ = m.ensureAnkiLightsQuiet()
-	if hadCustom {
-		// Old Seek/WireOS red packs were on disk — soft-restart anim so they never stick.
+	// Triple-click mute persists on /data across OTAs and silences dash audio.
+	if clearedMute := clearSoundMuteFile(); clearedMute || hadCustom {
 		softRestartLights()
 	}
 	m.idleOnce.Do(func() {
 		go m.idleWatch()
 	})
 	return nil
+}
+
+// clearSoundMuteFile removes SeekOS persistent sound mute (triple-click).
+// Returns true if a mute file was present (caller should restart vic-anim).
+func clearSoundMuteFile() bool {
+	if _, err := os.Stat(seekSoundMuteFile); err != nil {
+		return false
+	}
+	_ = os.Remove(seekSoundMuteFile)
+	return true
+}
+
+// ensureAudioReady clears mute and bumps master volume before dash playback.
+func ensureAudioReady() {
+	if clearSoundMuteFile() {
+		softRestartLights()
+		time.Sleep(800 * time.Millisecond)
+	}
+	_ = setSettingSDKintbool("master_volume", "4")
 }
 
 func (m *SeekDashboard) touchActivity() {
@@ -301,6 +321,7 @@ func (m *SeekDashboard) HTTP(w http.ResponseWriter, r *http.Request) {
 			vars.HTTPError(w, r, "volume must be 0-5")
 			return
 		}
+		_ = clearSoundMuteFile()
 		if err := setSettingSDKintbool("master_volume", strconv.Itoa(n)); err != nil {
 			vars.HTTPError(w, r, err.Error())
 			return
@@ -680,6 +701,7 @@ func (m *SeekDashboard) sayText(text string, useVectorVoice bool) error {
 	if !vars.SDKReady() {
 		return errors.New("robot not ready yet (waiting for SDK token) — wait ~30s after boot")
 	}
+	ensureAudioReady()
 	// Prefer gateway JSON (same path as volume/eyes). Needs Seek 32d+ auth fix for perRuntimeToken.
 	if err := sayTextViaGateway(text, useVectorVoice); err == nil {
 		return nil
@@ -857,6 +879,7 @@ func (m *SeekDashboard) streamPCM(parent context.Context, v *vector.Vector, pcm 
 // streamPCMSynced plays PCM with real-time pacing. If clockStart is set, pacing
 // is anchored to that instant (used for multi-Vector Macarena sync).
 func (m *SeekDashboard) streamPCMSynced(parent context.Context, v *vector.Vector, pcm io.Reader, rate uint32, volume uint32, clockStart time.Time) error {
+	ensureAudioReady()
 	m.stopAudio()
 	ctx, cancel := context.WithCancel(parent)
 	m.audioMu.Lock()
@@ -1052,6 +1075,7 @@ func (m *SeekDashboard) streamPCMOnPreparedStream(ctx context.Context, stream ve
 // streamPCMLive pumps an open-ended mono s16le PCM stream (Doom SFX).
 // Unlike streamPCM, it has no upload size cap and stays open until ctx ends.
 func (m *SeekDashboard) streamPCMLive(parent context.Context, v *vector.Vector, pcm io.Reader, rate uint32, volume uint32) error {
+	ensureAudioReady()
 	m.stopAudio()
 	ctx, cancel := context.WithCancel(parent)
 	m.audioMu.Lock()
