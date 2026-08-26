@@ -1076,6 +1076,11 @@ void FaceInfoScreenManager::ResetObservedHeadAndLiftAngles()
 void FaceInfoScreenManager::EnterCCISMainMenu(const char* reason)
 {
   LOG_INFO("FaceInfoScreenManager.EnterCCISMainMenu", "%s", reason);
+  RobotInterface::SendAnimToEngine(SwitchboardInterface::ExitPairing());
+  if (_animationStreamer != nullptr) {
+    _animationStreamer->Abort();
+    _animationStreamer->EnableKeepFaceAlive(true, 0);
+  }
   SetScreen(ScreenName::Main);
 
   DASMSG(robot_cc_screen_enter, "robot.cc_screen_enter", "Entered customer care screen");
@@ -1116,11 +1121,14 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
     }
   }
 
-  // Double-press opens CCIS main menu directly (no lift gesture required).
+  // Double-press: Victor name + key screen, then raise lift for Main menu.
   if (doublePressDetected &&
       _engineLoaded &&
       CanEnterPairingFromScreen(currScreenName)) {
-    EnterCCISMainMenu("DOUBLE_PRESS");
+    LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotDoublePress", "Entering pairing");
+    RobotInterface::SendAnimToEngine(SwitchboardInterface::EnterPairing());
+    SetScreen(ScreenName::Pairing);
+    ShowCCISPairingPrompt(_animationStreamer, _context);
   }
   else if(triplePressDetected &&
           _engineLoaded &&

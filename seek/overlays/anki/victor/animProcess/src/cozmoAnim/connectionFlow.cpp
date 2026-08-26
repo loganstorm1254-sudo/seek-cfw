@@ -167,6 +167,26 @@ void SetBLEPin(uint32_t pin)
   _pin = pin;
 }
 
+// CCIS menu: show Victor name + key icon (no switchboard required).
+void ShowCCISPairingPrompt(Anim::AnimationStreamer* animStreamer, const Anim::AnimContext* context)
+{
+  if ((animStreamer == nullptr) || (context == nullptr)) {
+    return;
+  }
+
+  animStreamer->Abort();
+  animStreamer->EnableKeepFaceAlive(false, 0);
+  DrawShowPinScreen(animStreamer, context, "######");
+
+  RobotInterface::SetHeadAngle msg;
+  msg.angle_rad             = MAX_HEAD_ANGLE;
+  msg.max_speed_rad_per_sec = DEG_TO_RAD(60);
+  msg.accel_rad_per_sec2    = DEG_TO_RAD(360);
+  msg.duration_sec          = 0;
+  msg.actionID              = 0;
+  SendAnimToRobot(std::move(msg));
+}
+
 bool InitConnectionFlow(Anim::AnimationStreamer* animStreamer)
 {
   if(FACTORY_TEST)
