@@ -1,5 +1,5 @@
 #!/bin/sh
-# SeekOS hotfix: DVT replicate OS look + suppress 898/899 (keep full motors).
+# Crypto OS hotfix: WireOS look + Crypto branding + 898/899 skip (full motors).
 set -e
 HOTFIX_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$HOTFIX_DIR"
@@ -73,6 +73,30 @@ install_root_bin() {
   mv -f "$tmp" "$dest"
 }
 
+install_lights() {
+  src="$HOTFIX_DIR/backpackLightsWireOS"
+  dest="/anki/data/assets/cozmo_resources/config/engine/lights/backpackLightsWireOS"
+  if [ ! -d "$src" ]; then
+    return 0
+  fi
+  remount_rw
+  mkdir -p "$dest"
+  cp -a "$src/." "$dest/"
+  echo "installed WireOS backpack lights"
+}
+
+install_boot_anim() {
+  src="$HOTFIX_DIR/boot_anim.raw"
+  dest="/anki/data/assets/cozmo_resources/config/engine/animations/boot_anim.raw"
+  if [ ! -f "$src" ] || [ ! -f "$dest" ]; then
+    return 0
+  fi
+  remount_rw
+  cat "$src" > "${dest}.seeknew"
+  mv -f "${dest}.seeknew" "$dest"
+  echo "installed Crypto OS boot movie"
+}
+
 remount_rw
 install_bin /anki/bin/vic-robot
 if [ -f "$HOTFIX_DIR/vic-anim" ]; then
@@ -80,6 +104,10 @@ if [ -f "$HOTFIX_DIR/vic-anim" ]; then
 fi
 install_root_bin /usr/bin/fault-code-handler
 install_root_bin /usr/bin/rampost
+install_lights
+install_boot_anim
+
+rm -f /data/data/enableankilights 2>/dev/null || true
 
 sync
 systemctl daemon-reload 2>/dev/null || true
@@ -87,4 +115,4 @@ systemctl restart vic-robot
 sleep 1
 systemctl restart vic-engine 2>/dev/null || true
 systemctl restart vic-anim 2>/dev/null || true
-echo SEEK_HEADONLY_OK
+echo CRYPTO_OS_OK
