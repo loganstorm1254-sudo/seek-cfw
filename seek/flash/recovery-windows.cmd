@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 set IP=192.168.0.105
 set KEY=%TEMP%\vector_dev_key
 set SSH=ssh -i %KEY% -o PubkeyAcceptedAlgorithms=+ssh-rsa -o HostKeyAlgorithms=+ssh-rsa root@%IP%
