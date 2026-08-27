@@ -18,7 +18,7 @@ echo [2/4] Download OTA (~204MB)...
 curl -L -f -o "%OTA%" https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v3.0.1.33d-recovery/vicos-3.0.1.33d.ota
 if errorlevel 1 goto fail
 
-echo [3/4] Upload to Vector (scp — more reliable than pipe for 204MB)...
+echo [3/4] Upload to Vector (scp - more reliable than pipe for 204MB)...
 %SSH% "mkdir -p /data/ota /ota && df -h /data /ota /cache 2>/dev/null; rm -f /data/ota/v.ota /ota/v.ota"
 scp -i "%KEY%" -o PubkeyAcceptedAlgorithms=+ssh-rsa -o HostKeyAlgorithms=+ssh-rsa -o ServerAliveInterval=15 -o ServerAliveCountMax=120 "%FLASH%" root@%IP%:/data/unlock-manual-flash-v2.sh
 if errorlevel 1 goto fail
@@ -33,7 +33,7 @@ if errorlevel 1 (
 )
 
 echo [4/4] Flashing inactive slot (several minutes, then reboot)...
-%SSH% "rm -f /data/unbrick; mount -o remount,rw /; chmod 755 /data/unlock-manual-flash-v2.sh; sh /data/unlock-manual-flash-v2.sh %OTA_ON_ROBOT%"
+%SSH% "rm -f /data/unbrick; mount -o remount,rw /; chmod 755 /data/unlock-manual-flash-v2.sh; sh /data/unlock-manual-flash-v2.sh !OTA_ON_ROBOT!"
 if errorlevel 1 goto fail
 
 echo DONE - Vector should reboot into Seek.
