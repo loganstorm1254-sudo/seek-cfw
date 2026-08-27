@@ -1769,16 +1769,11 @@ namespace Anim {
 
           _proceduralTrackComponent->KeepFaceAlive(_relativeStreamTime_ms);
         }
-        else if (_wasAnimationInterruptedWithNothing)
-        {
-          // Keepalive disabled: KeepFaceTheSame() froze the last keyframe (happy/squint
-          // eyes stuck at top). Always fall back to neutral once idle.
-          UnlockTrack(AnimTrackFlag::FACE_TRACK);
-          SetStreamingAnimation(_neutralFaceAnimation, kNotAnimatingTag);
-          _wasAnimationInterruptedWithNothing = false;
-        }
         else
         {
+          // Keepalive off (sleep, pairing, petting, SDK): hold the last face keyframe.
+          // Do NOT stream neutral here — that reopens eyes while sleeping.
+          // Neutral is restored when keepalive is re-enabled.
           _proceduralTrackComponent->KeepFaceTheSame();
         }
       }
