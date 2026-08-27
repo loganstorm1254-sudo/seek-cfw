@@ -142,12 +142,19 @@ BodyToHead BootBodyData_{
         (b->flags | RUNNING_FLAGS_SENSORS_VALID) &
         static_cast<uint8_t>(~(ENCODERS_DISABLED | ENCODER_HEAD_INVALID | ENCODER_LIFT_INVALID)));
 
+    // Dock contact rail is ~5V. Below 4V treat as off-dock (was 3.5V; residual
+    // ADC noise could keep POWER_ON_CHARGER set and stick the green pulse).
     static const int16_t kMinChargerContactCounts =
-        static_cast<int16_t>(3.5f / kBatteryScale);
+        static_cast<int16_t>(4.0f / kBatteryScale);
     if (b->battery.charger < kMinChargerContactCounts) {
       b->battery.flags = static_cast<BatteryFlags>(
           b->battery.flags & ~(POWER_ON_CHARGER | POWER_IS_CHARGING));
       b->battery.charger = 0;
+    } else if ((b->battery.flags & POWER_IS_CHARGING) &&
+               !(b->battery.flags & POWER_ON_CHARGER)) {
+      // Inconsistent syscon frame: charging without contacts.
+      b->battery.flags = static_cast<BatteryFlags>(
+          b->battery.flags & ~POWER_IS_CHARGING);
     }
   }
 

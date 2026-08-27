@@ -20,6 +20,7 @@
 #include "cozmoAnim/micData/micDataSystem.h"
 #include "cozmoAnim/robotDataLoader.h"
 #include "clad/robotInterface/messageEngineToRobot.h"
+#include "clad/types/robotStatusAndActions.h"
 #include "util/console/consoleInterface.h"
 #include "util/fileUtils/fileUtils.h"
 #include "util/internetUtils/internetUtils.h"
@@ -124,11 +125,14 @@ void BackpackLightComponent::UpdateCriticalBackpackLightConfig(bool isCloudStrea
   }
   // Stock: pulse only while actually charging. On-contacts alone is not
   // enough — after full / charge-disconnect the green loop must stop.
+  // Also require live chargerVoltage so a stuck IS_CHARGING bit off-dock
+  // cannot leave the green pulse running forever.
   // Still above mute/offline so triple-click does not hide a live charge.
   else if(_isOnChargerContacts &&
           _isBatteryCharging &&
           !_isBatteryFull &&
-          !_isBatteryDisconnected)
+          !_isBatteryDisconnected &&
+          (_chargerVoltage >= 4.0f))
   {
     trigger = BackpackAnimationTrigger::Charging;
   }
@@ -177,6 +181,9 @@ void BackpackLightComponent::UpdateCriticalBackpackLightConfig(bool isCloudStrea
     else
     {
       StopBackpackAnimationInternal(_criticalLightConfig);
+      // Force LEDs dark immediately — do not wait for Update()'s null-config path,
+      // which can miss a frame and leave the last charging colors stuck.
+      SendBackpackLights(BackpackAnimationTrigger::Off);
     }
   }
 }
@@ -516,10 +523,50 @@ void BackpackLightComponent::UpdateOfflineCheck(bool force)
 void BackpackLightComponent::UpdateBatteryStatus(const RobotInterface::BatteryStatus& msg)
 {
   _isBatteryLow = msg.isLow;
-  _isBatteryCharging = msg.isCharging;
-  _isOnChargerContacts = msg.onChargerContacts;
   _isBatteryFull = msg.isBatteryFull;
   _isBatteryDisconnected = msg.isBatteryDisconnected;
+
+  // Prefer live chargerVoltage gate from UpdateChargerSense for contacts/charging.
+  // Only apply BatteryStatus bits when sense agrees we are on energized contacts.
+  if (_chargerVoltage >= 4.0f) {
+    _isBatteryCharging = msg.isCharging;
+    _isOnChargerContacts = msg.onChargerContacts;
+  } else {
+    _isBatteryCharging = false;
+    _isOnChargerContacts = false;
+  }
+}
+
+void BackpackLightComponent::UpdateChargerSense(float chargerVoltage, float batteryVoltage, uint32_t robotStatus)
+{
+  _chargerVoltage = chargerVoltage;
+  _batteryVoltage = batteryVoltage;
+
+  const bool statusOnCharger = (robotStatus & static_cast<uint32_t>(RobotStatusFlag::IS_ON_CHARGER)) != 0;
+  const bool statusCharging  = (robotStatus & static_cast<uint32_t>(RobotStatusFlag::IS_CHARGING)) != 0;
+  const bool statusDisc      = (robotStatus & static_cast<uint32_t>(RobotStatusFlag::IS_BATTERY_DISCONNECTED)) != 0;
+
+  // Contacts must be energized (~5V on dock). Below 4V → definitely off dock.
+  if (_chargerVoltage < 4.0f) {
+    _isOnChargerContacts = false;
+    _isBatteryCharging = false;
+  } else {
+    _isOnChargerContacts = statusOnCharger;
+    _isBatteryCharging = statusCharging && statusOnCharger;
+  }
+
+  if (statusDisc) {
+    _isBatteryDisconnected = true;
+  }
+
+  // Full pack on dock: high voltage and not actively charging → kill green pulse.
+  if (!_isOnChargerContacts) {
+    _isBatteryFull = false; // stock: Full only while docked
+  } else if (_isBatteryCharging) {
+    _isBatteryFull = false;
+  } else if (_batteryVoltage >= 4.15f) {
+    _isBatteryFull = true;
+  }
 }
 
 }
