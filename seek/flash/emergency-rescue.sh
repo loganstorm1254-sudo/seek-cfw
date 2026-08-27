@@ -1,62 +1,49 @@
 #!/bin/sh
-# Emergency slot rescue from recovery SSH. Finds bootctl on a system slot image.
+# Emergency recovery: run bootctl from mounted system image (needs /dev/block + libs).
 set -e
 
+MNT=/data/sysb
+BC="$MNT/usr/bin/bootctl-anki"
+LD="$MNT/lib/ld-linux.so.3"
+LIBS="$MNT/usr/lib:$MNT/lib"
+
 mount -o remount,rw / 2>/dev/null || true
-mkdir -p /data/ota /data/seek /mnt/sysa /mnt/sysb
-touch /data/unbrick
-sync
+mkdir -p "$MNT"
+umount "$MNT" 2>/dev/null || true
+mount -t ext4 -o ro /dev/block/bootdevice/by-name/system_b "$MNT"
 
-find_bootctl() {
-  for b in /bin/bootctl-anki /usr/bin/bootctl-anki /bin/bootctl; do
-    [ -x "$b" ] && echo "$b" && return 0
-  done
-  for mnt in /mnt/sysa /mnt/sysb; do
-    for b in "$mnt/usr/bin/bootctl-anki" "$mnt/bin/bootctl-anki"; do
-      [ -x "$b" ] && echo "$b" && return 0
-    done
-  done
-  return 1
+if [ ! -f "$BC" ]; then
+  umount "$MNT" 2>/dev/null || true
+  mount -t ext4 -o ro /dev/block/bootdevice/by-name/system_a /data/sysa
+  MNT=/data/sysa
+  BC="$MNT/usr/bin/bootctl-anki"
+  LD="$MNT/lib/ld-linux.so.3"
+  LIBS="$MNT/usr/lib:$MNT/lib"
+fi
+
+[ -f "$BC" ] || { echo "FATAL: bootctl-anki missing"; exit 1; }
+[ -f "$LD" ] || { echo "FATAL: ld-linux.so.3 missing"; exit 1; }
+
+run_bc() {
+  LD_LIBRARY_PATH="$LIBS" "$LD" --library-path "$LIBS" "$BC" "$@"
 }
 
-mount_system_slots() {
-  umount /mnt/sysa 2>/dev/null || true
-  umount /mnt/sysb 2>/dev/null || true
-  mount -t ext4 -o ro /dev/block/bootdevice/by-name/system_a /mnt/sysa 2>/dev/null || \
-    mount -o ro /dev/block/bootdevice/by-name/system_a /mnt/sysa 2>/dev/null || true
-  mount -t ext4 -o ro /dev/block/bootdevice/by-name/system_b /mnt/sysb 2>/dev/null || \
-    mount -o ro /dev/block/bootdevice/by-name/system_b /mnt/sysb 2>/dev/null || true
-}
-
-echo "=== Seek emergency rescue ==="
+echo "=== Vector emergency rescue ==="
 echo "cmdline: $(cat /proc/cmdline)"
 echo ""
-echo "Files:"
-ls -la /data/ota/v.ota /data/unbrick /data/unlock-manual-flash-v2.sh 2>/dev/null || true
 [ -f /data/ota/v.ota ] && echo "OTA bytes: $(wc -c </data/ota/v.ota)" || echo "OTA: missing"
 echo ""
 
-mount_system_slots
-BOOTCTL="$(find_bootctl || true)"
-if [ -z "$BOOTCTL" ]; then
-  echo "ERROR: bootctl-anki not found even after mounting system_a/system_b."
-  echo "Try normal reboot (keeps recovery if boot fails):"
-  echo "  rm -f /data/unbrick; reboot"
-  exit 1
-fi
-echo "bootctl: $BOOTCTL"
-echo ""
-
 echo "Slot A:"
-"$BOOTCTL" f status a || true
+run_bc f status a || true
 echo ""
 echo "Slot B:"
-"$BOOTCTL" f status b || true
+run_bc f status b || true
 echo ""
 
 PICK=""
 for s in a b; do
-  ST=$("$BOOTCTL" f status "$s" 2>/dev/null || true)
+  ST=$(run_bc f status "$s" 2>/dev/null || true)
   echo "$ST" | grep -q 'bootable: 1' || continue
   if echo "$ST" | grep -q 'successful: 1'; then
     PICK="$s"
@@ -66,15 +53,16 @@ for s in a b; do
 done
 
 if [ -z "$PICK" ]; then
-  echo "Both slots look unbootable. Trying slot B..."
+  echo "WARNING: both slots show unbootable."
+  echo "Will try slot B, then you may need a full re-flash."
   PICK=b
 fi
 
+echo "Removing /data/unbrick"
+rm -f /data/unbrick
 echo "Setting active slot: $PICK"
-"$BOOTCTL" f set_active "$PICK"
+run_bc f set_active "$PICK"
 sync
-
-echo ""
-echo "Rebooting to slot $PICK (recovery flag kept at /data/unbrick)..."
+echo "Rebooting..."
 sleep 2
 reboot
