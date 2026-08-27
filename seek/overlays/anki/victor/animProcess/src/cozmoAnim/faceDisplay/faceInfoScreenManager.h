@@ -163,7 +163,11 @@ private:
 
   void EnterCCISMainMenu(const char* reason);
   void RequestSystemSleep(const char* reason);
-  
+  // Inject a cloud intent over ai_sock (same path as system_sleep / vic-cloud).
+  bool InjectCloudIntent(const char* intentName, const char* sockSuffix);
+  // After 4-click sleep, backpack single-press must wake (touch/pickup often fail).
+  void RequestWakeFromSleep(const char* reason);
+
   // Returns true if screenName is one of the screens that allow the user to enter pairing when
   // double pressing the backpack and on the charger
   bool CanEnterPairingFromScreen( const ScreenName& screenName) const;
@@ -269,6 +273,9 @@ private:
 
   // CCIS double-press pairing face (Victor + key) held until lift confirms menu.
   bool _ccisPairingFaceHeld = false;
+
+  // Set by 4-click sleep; cleared when button wakes him.
+  bool _awaitingWakeFromSleep = false;
   
   // Reboot Linux
   void Reboot();

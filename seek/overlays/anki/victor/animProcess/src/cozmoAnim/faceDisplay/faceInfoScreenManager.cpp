@@ -1076,25 +1076,52 @@ void FaceInfoScreenManager::RequestSystemSleep(const char* reason)
   LOG_INFO("FaceInfoScreenManager.RequestSystemSleep", "%s", reason);
 
   // Inject system_sleep the same way vic-cloud does (UDP → engine ai_sock).
+  if (!InjectCloudIntent("intent_system_sleep", "_anim_ai_client_sleep")) {
+    return;
+  }
+  _awaitingWakeFromSleep = true;
+}
+
+bool FaceInfoScreenManager::InjectCloudIntent(const char* intentName, const char* sockSuffix)
+{
   CloudMic::IntentResult intent;
-  intent.intent = "intent_system_sleep";
+  intent.intent = intentName;
   CloudMic::Message msg = CloudMic::Message::Createresult(std::move(intent));
 
   LocalUdpClient client;
-  const std::string sockname = std::string(LOCAL_SOCKET_PATH) + "_anim_ai_client_sleep";
+  const std::string sockname = std::string(LOCAL_SOCKET_PATH) + sockSuffix;
   const std::string peername = std::string(AI_SERVER_BASE_PATH);
   if (!client.Connect(sockname, peername)) {
-    LOG_WARNING("FaceInfoScreenManager.RequestSystemSleep.ConnectFail", "peer=%s", peername.c_str());
-    return;
+    LOG_WARNING("FaceInfoScreenManager.InjectCloudIntent.ConnectFail",
+                "intent=%s peer=%s", intentName, peername.c_str());
+    return false;
   }
 
   std::vector<uint8_t> buf(msg.Size());
   msg.Pack(buf.data(), buf.size());
   const ssize_t sent = client.Send(reinterpret_cast<const char*>(buf.data()), buf.size());
-  if (sent <= 0) {
-    LOG_WARNING("FaceInfoScreenManager.RequestSystemSleep.SendFail", "sent=%zd", sent);
-  }
   client.Disconnect();
+  if (sent <= 0) {
+    LOG_WARNING("FaceInfoScreenManager.InjectCloudIntent.SendFail",
+                "intent=%s sent=%zd", intentName, sent);
+    return false;
+  }
+  return true;
+}
+
+void FaceInfoScreenManager::RequestWakeFromSleep(const char* reason)
+{
+  LOG_INFO("FaceInfoScreenManager.RequestWakeFromSleep", "%s", reason);
+
+  // Re-open eyes immediately — sleep holds the last closed-eye frame while keepalive is off.
+  if (_animationStreamer != nullptr) {
+    _animationStreamer->EnableKeepFaceAlive(true, 0);
+  }
+
+  // Deep sleep from system_sleep only always-wakes on VoiceCommand (pending intent).
+  // Touch/pickup often don't work with flaky spine — inject a greeting so SleepCycle wakes.
+  InjectCloudIntent("intent_greeting_goodmorning", "_anim_ai_client_wake");
+  _awaitingWakeFromSleep = false;
 }
 
 void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
@@ -1127,14 +1154,31 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
       }
       EnableAlexaScreen(ScreenName::None,"","");
     } else if (currScreenName == ScreenName::None) {
-      // Fake trigger word on single press
+      if (_awaitingWakeFromSleep) {
+        // Wake from 4-click sleep (must work even when touch/pickup don't)
+        RequestWakeFromSleep("SINGLE_PRESS");
+      }
+      // Fake trigger word on single press (also helps SleepingTriggerWord path)
       LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotSinglePress", "Triggering wake word");
       _context->GetMicDataSystem()->FakeTriggerWordDetection();
     }
   }
 
   // Stock WireOS double-press: pairing on charger, mic mute off charger.
-  if (doublePressDetected &&
+  // If we put him to sleep via 4-click, any backpack press should wake first.
+  if (_awaitingWakeFromSleep &&
+      _engineLoaded &&
+      currScreenName == ScreenName::None &&
+      (singlePressDetected || doublePressDetected || triplePressDetected || quadruplePressDetected)) {
+    // single already handled above; catch multi-press wake too
+    if (!singlePressDetected) {
+      RequestWakeFromSleep(doublePressDetected ? "DOUBLE_PRESS" :
+                           (triplePressDetected ? "TRIPLE_PRESS" : "QUAD_PRESS_WAKE"));
+      _context->GetMicDataSystem()->FakeTriggerWordDetection();
+    }
+    // Don't also run mute/pairing/sleep while waking
+  }
+  else if (doublePressDetected &&
       isOnCharger &&
       CanEnterPairingFromScreen(currScreenName)) {
     LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotDoublePress", "Entering pairing");
