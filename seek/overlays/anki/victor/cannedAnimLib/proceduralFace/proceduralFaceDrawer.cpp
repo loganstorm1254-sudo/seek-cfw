@@ -16,6 +16,7 @@
 #include "util/random/randomGenerator.h"
 #include <mutex>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 // switch std::round() to macro for easier change
@@ -78,6 +79,9 @@ namespace Vector {
   CONSOLE_VAR(bool,                         kProcFace_Scanlines,              CONSOLE_GROUP, false);
   CONSOLE_VAR_RANGED(ProceduralFace::Value, kProcFace_DefaultScanlineOpacity, CONSOLE_GROUP, 1.f, 0.f, 1.f);
 #endif
+
+  // Seek: track Cozmo look so face cache invalidates when CCIS toggles the flag.
+  static bool sLastCozmoLook = false;
 
 #if PROCEDURALFACE_NOISE_FEATURE
   static const s32 kNumNoiseImages = 7;
@@ -340,8 +344,8 @@ void ProceduralFaceDrawer::LoadCustomEyePNG()
   void ProceduralFaceDrawer::DrawEye(const ProceduralFace& faceData, WhichEye whichEye, const Matrix_3x3f* W_facePtr,
                                      Vision::Image& faceImg, Rectangle<f32>& eyeBoundingBox)
   {
-    const s32 eyeWidth  = ProceduralFace::NominalEyeWidth;
-    const s32 eyeHeight = ProceduralFace::NominalEyeHeight;
+    const s32 eyeWidth  = ProceduralFace::GetDrawEyeWidth();
+    const s32 eyeHeight = ProceduralFace::GetDrawEyeHeight();
     const f32 halfEyeWidth  = 0.5f*eyeWidth;
     const f32 halfEyeHeight = 0.5f*eyeHeight;
 
@@ -594,7 +598,8 @@ void ProceduralFaceDrawer::LoadCustomEyePNG()
       // Inner Glow = the brighter glow at the center of the eye that falls off radially towards the edge of the eye
       // Outer Glow = the "halo" effect around the outside of the eye shape
       // Add inner glow to the eye shape, before we compute the outer glow, so that boundaries conditions match.
-      if(kProcFace_HotspotRender)
+      // Seek Cozmo look: skip Vector-style hotspot for flatter CRT eyes.
+      if(kProcFace_HotspotRender && !ProceduralFace::CozmoLookActive())
       {
         ANKI_CPU_PROFILE("HotspotRender");
 
@@ -759,9 +764,16 @@ void ProceduralFaceDrawer::LoadCustomEyePNG()
   {
     ANKI_CPU_PROFILE("DrawFace");
 
+    const bool cozmoLook = ProceduralFace::CozmoLookActive();
     bool dirty = false; // set to true to force all stages to render, previous pipeline
+    if (cozmoLook != sLastCozmoLook) {
+      sLastCozmoLook = cozmoLook;
+      dirty = true;
+    }
     dirty = DrawEyes(faceData, dirty);
-    dirty = ApplyScanlines(_faceCache.img8[_faceCache.finalFace], faceData.GetScanlineOpacity(), dirty);
+    const float scanOpacity = cozmoLook ? ProceduralFace::GetCozmoScanlineOpacity()
+                                        : faceData.GetScanlineOpacity();
+    dirty = ApplyScanlines(_faceCache.img8[_faceCache.finalFace], scanOpacity, dirty);
     dirty = DistortScanlines(faceData, dirty);
     dirty = ApplyNoise(rng, dirty);
     dirty = ConvertColorspace(faceData, output, dirty);
@@ -1231,7 +1243,7 @@ bool ProceduralFaceDrawer::ApplyCustomOverlay(const ProceduralFace& faceData,
   bool ProceduralFaceDrawer::ApplyScanlines(Vision::ImageRGB& imageHsv, const float opacity, bool dirty)
   {
 #if PROCEDURALFACE_SCANLINE_FEATURE
-    if(kProcFace_Scanlines) {
+    if(kProcFace_Scanlines || ProceduralFace::CozmoLookActive()) {
       ANKI_CPU_PROFILE("ApplyScanlines");
 
       const bool applyScanlines = !Util::IsNear(opacity, 1.f);
@@ -1262,7 +1274,7 @@ bool ProceduralFaceDrawer::ApplyCustomOverlay(const ProceduralFace& faceData,
   bool ProceduralFaceDrawer::ApplyScanlines(Vision::Image& image8, const float opacity, bool dirty)
   {
 #if PROCEDURALFACE_SCANLINE_FEATURE
-    if(kProcFace_Scanlines) {
+    if(kProcFace_Scanlines || ProceduralFace::CozmoLookActive()) {
       ANKI_CPU_PROFILE("ApplyScanlines");
 
       DEV_ASSERT(Util::InRange(opacity, 0.f, 1.f), "ProceduralFaceDrawer.ApplyScanlines.InvalidOpacity");

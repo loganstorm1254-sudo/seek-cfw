@@ -1165,7 +1165,7 @@ void FaceInfoScreenManager::SetCozmoMode(bool enabled, const char* reason)
   }
   _cozmoMode = enabled;
 
-  const std::string line = enabled ? "COZMO MODE ON" : "VECTOR MODE";
+  const std::string line = enabled ? "COZMO CRT ON" : "VECTOR MODE";
   RobotInterface::DrawTextOnScreen msg{};
   msg.drawNow = true;
   msg.textColor.r = NamedColors::GREEN.r();
