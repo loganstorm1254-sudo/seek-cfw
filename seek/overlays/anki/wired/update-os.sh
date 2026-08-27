@@ -312,6 +312,31 @@ while true; do
     sleep 2
 done
 
+# Lock the slot we are leaving before reboot (OTA just flashed the OTHER slot).
+BOOTCTL=""
+for b in /bin/bootctl-anki /usr/bin/bootctl-anki; do
+  [ -x "$b" ] && BOOTCTL="$b" && break
+done
+if [ -n "$BOOTCTL" ]; then
+  SFX="_f"
+  for tok in $(cat /proc/cmdline); do
+    case "$tok" in
+      androidboot.slot_suffix=*) SFX=${tok#androidboot.slot_suffix=} ;;
+    esac
+  done
+  case "$SFX" in
+    _a) CUR=a ;;
+    _b) CUR=b ;;
+    *) CUR= ;;
+  esac
+  if [ -n "$CUR" ]; then
+    mkdir -p /data/seek
+    touch /data/seek/slot_lock
+    echo "Locking departing slot $CUR before reboot..."
+    "$BOOTCTL" "$CUR" set_unbootable "$CUR" 2>/dev/null || true
+  fi
+fi
+
 echo -e "\n\nRebooting....."
 sleep 2
 sync

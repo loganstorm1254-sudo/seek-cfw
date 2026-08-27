@@ -42,4 +42,10 @@ fi
 
 sync
 systemctl restart vic-anim 2>/dev/null || true
+
+if [ -f "$HOTFIX_DIR/seek-slot-lock.sh" ]; then
+  cp -f "$HOTFIX_DIR/seek-slot-lock.sh" /data/seek/seek-slot-lock.sh
+  chmod 0755 /data/seek/seek-slot-lock.sh
+  sh /data/seek/seek-slot-lock.sh || true
+fi
 echo SEEK_ANIM_MENU_OK

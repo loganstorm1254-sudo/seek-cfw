@@ -139,6 +139,11 @@ sync
 
 echo "Setting active slot $TARGET ..."
 "$BOOTCTL" "$CUR" set_active "$TARGET"
+
+echo "Locking old slot $CUR (prevent WireOS/stock fallback)..."
+"$BOOTCTL" "$CUR" set_unbootable "$CUR" 2>/dev/null || true
+mkdir -p /data/seek
+touch /data/seek/slot_lock
 sync
 rm -rf "$TMP"
 
