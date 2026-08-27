@@ -1705,9 +1705,20 @@ void FaceInfoScreenManager::DrawBuildInfo() {
 
 void FaceInfoScreenManager::DrawFactoryInfo()
 {
-  // Original birth-certificate / EMR fields (not the display ESN on Main).
+  // Factory screen: real ESN (cmdline) + raw birth-cert EMR fields.
   char temp[40] = "";
   const auto* emr = Factory::GetEMR();
+
+  std::string realEsn = "ESN: --------";
+  const std::string bootSn = ReadAndroidBootSerial8();
+  if (!bootSn.empty()) {
+    realEsn = "ESN: " + bootSn;
+    std::transform(realEsn.begin() + 5, realEsn.end(), realEsn.begin() + 5,
+                   [](unsigned char c){ return std::tolower(c); });
+  } else if (emr != nullptr) {
+    sprintf(temp, "ESN: %08x", emr->fields.ESN);
+    realEsn = temp;
+  }
 
   std::string emrEsn = "EMR: --------";
   std::string hw = "HW: --";
@@ -1728,16 +1739,7 @@ void FaceInfoScreenManager::DrawFactoryInfo()
     packed = temp;
   }
 
-  // Kernel serial (androidboot.serialno) — visual reference for what Main shows
-  std::string bootSn = "BOOT: --------";
-  {
-    const std::string serial = ReadAndroidBootSerial8();
-    if (!serial.empty()) {
-      bootSn = "BOOT: " + serial;
-    }
-  }
-
-  DrawTextOnScreen({emrEsn, bootSn, hw, model, lot, packed});
+  DrawTextOnScreen({realEsn, emrEsn, hw, model, lot, packed});
 }
 
 void FaceInfoScreenManager::DrawIMUInfo(const RobotState& state)
