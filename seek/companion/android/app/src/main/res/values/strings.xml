@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Seek Cozmo</string>
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="ip_hint">Vector IP (from CCIS)</string>
+    <string name="status_idle">Not connected — enter IP from CCIS Main</string>
+    <string name="drive_hint">Hold pads to drive (gRPC hookup next build)</string>
+</resources>

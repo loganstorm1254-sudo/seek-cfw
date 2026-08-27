@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.SeekCozmo" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/cozmo_orange</item>
+        <item name="colorPrimaryVariant">@color/cozmo_orange_dim</item>
+        <item name="colorOnPrimary">@color/cozmo_bg</item>
+        <item name="android:statusBarColor">@color/cozmo_bg</item>
+        <item name="android:navigationBarColor">@color/cozmo_bg</item>
+        <item name="android:windowBackground">@color/cozmo_bg</item>
+        <item name="android:textColor">@color/cozmo_text</item>
+    </style>
+</resources>
