@@ -58,18 +58,33 @@ umount /usr/sbin/update-os 2>/dev/null || true
 
 # Force HTTP/1.1 system-wide for update-engine (runs as user net).
 # Do this on /usr (exec), never on noexec /data or /run.
+# IMPORTANT: never `cat > /usr/bin/curl` while curl is executing — ETXTBSY
+# ("Text file busy"). Unlink + recreate instead.
 mount -o remount,rw / 2>/dev/null || true
 if [ ! -x /usr/bin/curl.anki ]; then
-    cp -L /usr/bin/curl /usr/bin/curl.anki 2>/dev/null || cp /usr/bin/curl /usr/bin/curl.anki
+    # Prefer real binary; skip if /usr/bin/curl is already our wrapper.
+    if head -n 1 /usr/bin/curl 2>/dev/null | grep -q '^#!'; then
+        echo "FATAL: /usr/bin/curl is a script but curl.anki is missing."
+        exit 1
+    fi
+    cp -a /usr/bin/curl /usr/bin/curl.anki
     chmod 755 /usr/bin/curl.anki
 fi
-cat > /usr/bin/curl << 'EOF'
+WRAP=/tmp/curl.seek.wrap.$$
+cat > "$WRAP" << 'EOF'
 #!/bin/sh
 # SeekOS: Vector's stock curl stalls on GitHub CDN over HTTP/2.
 # -k: many robots have a broken/missing CA bundle (curl exit 77).
 exec /usr/bin/curl.anki -k -L --http1.1 -4 --connect-timeout 30 "$@"
 EOF
+chmod 755 "$WRAP"
+# Kill holders, unlink busy inode, install fresh wrapper.
+fuser -k /usr/bin/curl >/dev/null 2>&1 || true
+sleep 0.3
+rm -f /usr/bin/curl
+cp "$WRAP" /usr/bin/curl
 chmod 755 /usr/bin/curl
+rm -f "$WRAP"
 
 CURL_BIN=/usr/bin/curl.anki
 
