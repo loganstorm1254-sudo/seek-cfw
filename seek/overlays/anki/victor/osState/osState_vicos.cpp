@@ -495,13 +495,28 @@ const std::string& OSState::GetSerialNumberAsString()
 {
   if(_serialNumString.empty())
   {
-    std::stringstream ss;
-    ss << std::hex
-       << std::setfill('0')
-       << std::setw(8)
-       << std::uppercase
-       << Factory::GetEMR()->fields.ESN;
-    _serialNumString = ss.str();
+    // Victor DVT2: ESN 0 in birth certificate — real serial is on cmdline.
+    // https://randym32.github.io/Anki.Vector.Documentation/historical-bots/Victor%20DVT2.html
+    if (Factory::GetEMR() != nullptr && Factory::GetEMR()->fields.ESN == 0) {
+      std::ifstream infile(kCmdLineFile);
+      std::string line;
+      if (std::getline(infile, line)) {
+        static const std::string kProp = "androidboot.serialno=";
+        const size_t index = line.find(kProp);
+        if (index != std::string::npos) {
+          _serialNumString = line.substr(index + kProp.length(), 8);
+        }
+      }
+    }
+    if (_serialNumString.empty()) {
+      std::stringstream ss;
+      ss << std::hex
+         << std::setfill('0')
+         << std::setw(8)
+         << std::uppercase
+         << Factory::GetEMR()->fields.ESN;
+      _serialNumString = ss.str();
+    }
   }
   return _serialNumString;
 }

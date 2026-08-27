@@ -1486,37 +1486,17 @@ void FaceInfoScreenManager::DrawMain()
   auto *osstate = OSState::getInstance();
 
   std::string esn = osstate->GetSerialNumberAsString();
-  if(esn.empty())
-  {
-    // TODO Remove once DVT2s are phased out
-    // ESN is 0 assume this is a DVT2 with a fake birthcertificate
-    // so look for serial number in "/proc/cmdline"
-    static std::string serialNum = "";
-    if(serialNum == "")
-    {
-      std::ifstream infile("/proc/cmdline");
-
-      std::string line;
-      while(std::getline(infile, line))
-      {
-        static const std::string kProp = "androidboot.serialno=";
-        size_t index = line.find(kProp);
-        if(index != std::string::npos)
-        {
-          serialNum = line.substr(index + kProp.length(), 8);
-        }
-      }
-      infile.close();
-    }
-    esn =  serialNum;
-  }
+  // Victor DVT2: fake birth certificate (ESN 0) — serial from cmdline via OSState.
+  const bool dvt2Proto = (Factory::GetEMR() != nullptr && Factory::GetEMR()->fields.ESN == 0);
 
   std::transform(esn.begin(), esn.end(), esn.begin(),
     [](unsigned char c){ return std::tolower(c); });
 
   const std::string serialNo = "ESN: "  + esn;
 
-  const std::string hwVer    = "HW: "   + std::to_string(IsXray() ? 8 : Factory::GetEMR()->fields.HW_VER);
+  const std::string hwVer    = dvt2Proto
+    ? "HW: DVT2"
+    : ("HW: " + std::to_string(IsXray() ? 8 : Factory::GetEMR()->fields.HW_VER));
 
   // Double-click → lift arm → Main: stock Anki DVT CCIS layout (green eng text).
   // Keep to 5 content lines so the 4-item bottom menu (EXIT/TEST/COZMO/CLEAR)

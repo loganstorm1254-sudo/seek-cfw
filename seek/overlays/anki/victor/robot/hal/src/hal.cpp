@@ -212,6 +212,52 @@ BodyToHead BootBodyData_{
 #endif
   }
 
+  static bool read_cmdline_serial(char* out, size_t out_len)
+  {
+    if (out == nullptr || out_len < 9) {
+      return false;
+    }
+    FILE* f = fopen("/proc/cmdline", "r");
+    if (f == nullptr) {
+      return false;
+    }
+    char buf[512] = {};
+    if (fgets(buf, sizeof(buf), f) == nullptr) {
+      fclose(f);
+      return false;
+    }
+    fclose(f);
+    const char* key = "androidboot.serialno=";
+    char* p = strstr(buf, key);
+    if (p == nullptr) {
+      return false;
+    }
+    p += strlen(key);
+    size_t n = 0;
+    while (p[n] != '\0' && p[n] != ' ' && n < 8) {
+      out[n] = p[n];
+      n++;
+    }
+    out[n] = '\0';
+    return n == 8;
+  }
+
+  void detect_dvt2_generation()
+  {
+    if (access("/data/seek/dvt2_body", F_OK) == 0) {
+      AnkiInfo("HAL.Init.DetectGeneration", "DVT2 body forced via /data/seek/dvt2_body");
+      isDVT2Robot_ = true;
+      return;
+    }
+    if (Factory::GetEMR() != nullptr && Factory::GetEMR()->fields.ESN == 0) {
+      char serial[9] = {};
+      if (read_cmdline_serial(serial, sizeof(serial))) {
+        AnkiInfo("HAL.Init.DetectGeneration", "DVT2 robot detected (fake birth cert, serial %s)", serial);
+        isDVT2Robot_ = true;
+      }
+    }
+  }
+
   void enter_dummy_body_mode(const char* reason)
   {
     if (dummyBodyMode_) {
@@ -641,6 +687,8 @@ Result HAL::Init(const int * shutdownSignal)
     }
     pclose(f);
   }
+
+  detect_dvt2_generation();
 
 #ifndef HAL_DUMMY_BODY
   {

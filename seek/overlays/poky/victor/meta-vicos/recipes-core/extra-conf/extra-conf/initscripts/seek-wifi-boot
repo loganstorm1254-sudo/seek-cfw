@@ -37,6 +37,25 @@ connect_provisioned() {
   return 1
 }
 
+# Victor DVT2 protos often ship with AnkiRobits provisioned (fake that SSID on your router).
+# https://randym32.github.io/Anki.Vector.Documentation/historical-bots/Victor%20DVT2.html
+try_dvt2_legacy_wifi() {
+  if [ -f /data/seek/skip-dvt2-wifi ]; then
+    return 1
+  fi
+  log "scan for DVT2 legacy SSID AnkiRobits"
+  connmanctl enable wifi 2>/dev/null
+  connmanctl scan wifi 2>/dev/null
+  sleep 6
+  svc="$(connmanctl services 2>/dev/null | grep -i AnkiRobits | head -1 | awk '{print $3}')"
+  if [ -n "$svc" ]; then
+    log "connect $svc"
+    connmanctl connect "$svc" 2>/dev/null
+    return 0
+  fi
+  return 1
+}
+
 recover_stack() {
   log "recover connman/wpa"
   systemctl restart wpa_supplicant 2>/dev/null
@@ -61,6 +80,14 @@ for pass in 1 2 3 4 5 6; do
   if wlan_has_ip; then
     log "connected on pass $pass"
     exit 0
+  fi
+  if [ "$pass" -ge 2 ]; then
+    try_dvt2_legacy_wifi
+    sleep 10
+    if wlan_has_ip; then
+      log "connected via DVT2 AnkiRobits fallback"
+      exit 0
+    fi
   fi
   if [ "$pass" -eq 3 ]; then
     recover_stack

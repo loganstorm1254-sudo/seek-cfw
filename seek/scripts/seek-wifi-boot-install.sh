@@ -15,6 +15,14 @@ for pass in 1 2 3 4 5 6; do
   [ -n "$prov" ] && connmanctl connect "$prov" 2>/dev/null
   sleep 8
   if wlan_has_ip; then exit 0; fi
+  if [ ! -f /data/seek/skip-dvt2-wifi ] && [ "$pass" -ge 2 ]; then
+    connmanctl scan wifi 2>/dev/null
+    sleep 5
+    ar=$(connmanctl services 2>/dev/null | grep -i AnkiRobits | head -1 | awk '{print $3}')
+    [ -n "$ar" ] && connmanctl connect "$ar" 2>/dev/null
+    sleep 10
+    if wlan_has_ip; then exit 0; fi
+  fi
   if [ "$pass" -eq 3 ]; then systemctl restart wpa_supplicant connman; sleep 8; fi
 done
 EOF
