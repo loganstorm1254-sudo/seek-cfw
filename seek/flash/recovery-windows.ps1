@@ -36,12 +36,20 @@ function Invoke-SshStreamUpload([string]$Local, [string]$RemotePath) {
     return $LASTEXITCODE
 }
 
-function Send-RobotFile([string]$Local, [string]$RemotePath) {
+function Send-RobotOta([string]$Local, [string]$RemotePath) {
     if (-not (Test-Path $Local)) { throw "Missing local file: $Local" }
-    if ((Invoke-ScpFile $Local $RemotePath) -eq 0) { return }
-    if ((Invoke-SshStreamUpload $Local $RemotePath) -ne 0) {
+    $size = (Get-Item $Local).Length
+    if ($size -lt 50MB) {
+        if ((Invoke-ScpFile $Local $RemotePath) -eq 0) { return }
+        if ((Invoke-SshStreamUpload $Local $RemotePath) -eq 0) { return }
         throw "Upload failed for $RemotePath"
     }
+
+    Write-Host "  large OTA ($([math]::Round($size/1MB)) MB) — chunked upload..."
+    $chunkScript = Join-Path $env:TEMP "recovery-chunk-upload.ps1"
+    curl.exe -L -f -o $chunkScript "https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/$Branch/seek/flash/recovery-chunk-upload.ps1?v=1"
+    & $chunkScript -Ip $Ip -Key $Key -Ota $Local
+    if ($LASTEXITCODE -ne 0) { throw "Chunked OTA upload failed" }
 }
 
 Write-Host "=== Seek recovery flash v$ScriptVersion (3.0.1.33d) ==="
