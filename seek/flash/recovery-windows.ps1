@@ -75,9 +75,13 @@ if (-not $SkipDownload) {
 Write-Host "[3/4] Upload to Vector (/data/ota only — /ota is read-only in recovery)..."
 ssh @SshOpts $Remote "mkdir -p /data/ota && df -h /data /cache 2>/dev/null; rm -f $OtaOnRobot"
 Write-Host "  flash script..."
-Send-RobotFile $Flash "/data/unlock-manual-flash-v2.sh"
+if ((Invoke-ScpFile $Flash "/data/unlock-manual-flash-v2.sh") -ne 0) {
+    if ((Invoke-SshStreamUpload $Flash "/data/unlock-manual-flash-v2.sh") -ne 0) {
+        throw "Upload failed for flash script"
+    }
+}
 Write-Host "  OTA (~204MB, several minutes)..."
-Send-RobotFile $Ota $OtaOnRobot
+Send-RobotOta $Ota $OtaOnRobot
 
 Write-Host "[4/4] Flashing inactive slot (several minutes, then reboot)..."
 ssh @SshOpts $Remote "rm -f /data/unbrick; mount -o remount,rw /; chmod 755 /data/unlock-manual-flash-v2.sh; sh /data/unlock-manual-flash-v2.sh $OtaOnRobot"
