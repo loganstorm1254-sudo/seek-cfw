@@ -207,6 +207,7 @@ private:
   void DrawNetwork();
   void DrawSensorInfo(const RobotState& state);
   void DrawBuildInfo();
+  void DrawFactoryInfo();
   void DrawIMUInfo(const RobotState& state);
   void DrawMotorInfo(const RobotState& state);
   void DrawCustomText();

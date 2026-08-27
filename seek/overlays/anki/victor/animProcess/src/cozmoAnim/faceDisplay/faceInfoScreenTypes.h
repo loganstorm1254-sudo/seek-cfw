@@ -52,6 +52,7 @@ enum class ScreenName : uint8_t {
   Kercre123,
   CozmoMode,
   VectorMode,
+  FactoryInfo, // Original EMR / birth-cert ESN + HW (end of backpack chain)
   
   Count
 };

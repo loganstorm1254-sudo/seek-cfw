@@ -270,7 +270,8 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
     ADD_SCREEN(Camera, BuildInfo);
   }
 
-  ADD_SCREEN(BuildInfo, Main); // Last screen cycles back to Main
+  ADD_SCREEN(BuildInfo, FactoryInfo);
+  ADD_SCREEN(FactoryInfo, Main); // Last screen cycles back to Main
 
 
   // ========== Screen Customization ========= 
@@ -1474,6 +1475,9 @@ void FaceInfoScreenManager::Update(const RobotState& state)
     case ScreenName::BuildInfo:
       DrawBuildInfo();
       break;
+    case ScreenName::FactoryInfo:
+      DrawFactoryInfo();
+      break;
     default:
       // Other screens are either updated once when SetScreen() is called
       // or updated by their own draw functions that are called externally
@@ -1675,6 +1679,48 @@ void FaceInfoScreenManager::DrawBuildInfo() {
   const std::string sha = "SHA: " + osstate->GetBuildSha();
   const std::string mode = IsCozmoMode() ? "MODE: COZMO" : "MODE: VECTOR";
   DrawTextOnScreen({osProject, osVer, mode, sha});
+}
+
+void FaceInfoScreenManager::DrawFactoryInfo()
+{
+  // Original birth-certificate / EMR fields (not the display ESN on Main).
+  char temp[40] = "";
+  const auto* emr = Factory::GetEMR();
+
+  std::string emrEsn = "EMR: --------";
+  std::string hw = "HW: --";
+  std::string model = "MODEL: --";
+  std::string lot = "LOT: --";
+  std::string packed = "PACK: --";
+
+  if (emr != nullptr) {
+    sprintf(temp, "EMR: %08x", emr->fields.ESN);
+    emrEsn = temp;
+    sprintf(temp, "HW: %u", emr->fields.HW_VER);
+    hw = temp;
+    sprintf(temp, "MODEL: %u", emr->fields.MODEL);
+    model = temp;
+    sprintf(temp, "LOT: %u", emr->fields.LOT_CODE);
+    lot = temp;
+    sprintf(temp, "PACK: %u", emr->fields.PACKED_OUT_FLAG);
+    packed = temp;
+  }
+
+  // Kernel serial (androidboot.serialno) — what Main uses when EMR ESN is 0
+  std::string bootSn = "BOOT: --------";
+  {
+    std::ifstream infile("/proc/cmdline");
+    std::string line;
+    if (std::getline(infile, line)) {
+      static const std::string kProp = "androidboot.serialno=";
+      const size_t index = line.find(kProp);
+      if (index != std::string::npos) {
+        bootSn = "BOOT: " + line.substr(index + kProp.length(), 8);
+      }
+    }
+  }
+
+  DrawTextOnScreen({emrEsn, bootSn, hw, model, lot, packed});
 }
 
 void FaceInfoScreenManager::DrawIMUInfo(const RobotState& state)
