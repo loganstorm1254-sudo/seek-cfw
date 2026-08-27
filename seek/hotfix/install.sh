@@ -87,20 +87,24 @@ install_lights() {
 
 install_boot_anim() {
   remount_rw
+  mount -o remount,rw /persist 2>/dev/null || true
   for name in boot_anim.raw boot_anim_20.raw; do
     src="$HOTFIX_DIR/$name"
     dest="/anki/data/assets/cozmo_resources/config/engine/animations/$name"
     if [ ! -f "$src" ]; then
       continue
     fi
-    if [ ! -f "$dest" ]; then
-      # still try to place it
-      mkdir -p "$(dirname "$dest")" 2>/dev/null || true
-    fi
+    mkdir -p "$(dirname "$dest")" 2>/dev/null || true
     cat "$src" > "${dest}.seeknew"
     mv -f "${dest}.seeknew" "$dest"
     echo "installed $name"
   done
+  # WireOS override — must replace or WireOS boot keeps playing
+  if [ -f "$HOTFIX_DIR/boot_anim.raw" ]; then
+    cat "$HOTFIX_DIR/boot_anim.raw" > /persist/boot_anim.raw.seeknew
+    mv -f /persist/boot_anim.raw.seeknew /persist/boot_anim.raw
+    echo "installed /persist/boot_anim.raw (overrides WireOS)"
+  fi
 }
 
 remount_rw
