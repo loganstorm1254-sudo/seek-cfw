@@ -1,0 +1,12 @@
+[Unit]
+Description=Seek early Wi-Fi reconnect on boot
+After=connman.service enable-wifi.service mount-data.service
+Wants=connman.service
+
+[Service]
+Type=oneshot
+ExecStart=/etc/initscripts/seek-wifi-boot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

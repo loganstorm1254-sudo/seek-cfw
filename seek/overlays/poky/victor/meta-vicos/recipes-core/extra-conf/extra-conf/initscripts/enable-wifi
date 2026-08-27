@@ -1,0 +1,15 @@
+#!/bin/bash
+# Connman does not always enable wlan on boot after module upgrade — retry until it works.
+
+set +e
+
+max_attempts=30
+
+for ((i=1; i<=max_attempts; i++)); do
+  echo "enable-wifi attempt $i"
+  CATTEMPT="$(connmanctl enable wifi 2>&1)"
+  if [[ ! "${CATTEMPT}" == *"Error wifi"* ]] && [[ ! "${CATTEMPT}" == *"wifi is not"* ]]; then
+  break
+  fi
+  sleep 1
+done

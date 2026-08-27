@@ -106,6 +106,7 @@ private:
 
   // Updates the critical backpack light config if neccessary
   void UpdateCriticalBackpackLightConfig(bool isCloudStreamOpen, bool isMicMuted, bool isNotificationPending);
+  void ForceChargingLightsOff();
 
   // Updates the current system light pattern if neccessary
   void UpdateSystemLightState(bool isCloudStreamOpen);
@@ -162,8 +163,10 @@ private:
   bool _isOnChargerContacts = false;
   bool _isBatteryFull = false;
   bool _isBatteryDisconnected = false;
+  bool _wasOnChargerContacts = false;
   float _chargerVoltage = 0.f;
   float _batteryVoltage = 0.f;
+  AnimTimeStamp_t _lastForceOffSent_ms = 0;
 
   // State for streaming lights
   bool _willStreamOpen = false;

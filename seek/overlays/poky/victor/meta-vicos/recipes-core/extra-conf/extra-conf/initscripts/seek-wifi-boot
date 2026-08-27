@@ -1,0 +1,71 @@
+#!/bin/bash
+# Seek: connman sometimes misses autoconnect on cold boot — nudge Wi‑Fi early.
+set +e
+
+log() { echo "seek-wifi-boot: $*"; }
+
+wlan_has_ip() {
+  ip -4 addr show wlan0 2>/dev/null | grep -q 'inet '
+}
+
+wait_connman() {
+  for i in $(seq 1 30); do
+    connmanctl technologies 2>/dev/null | grep -q wifi && return 0
+    sleep 1
+  done
+  return 1
+}
+
+connect_provisioned() {
+  connmanctl enable wifi 2>/dev/null
+  connmanctl scan wifi 2>/dev/null
+  sleep 3
+  services="$(connmanctl services 2>/dev/null | grep 'wifi_' || true)"
+  if [ -z "$services" ]; then
+    return 1
+  fi
+  # Prefer a provisioned (asterisk) service.
+  prov="$(echo "$services" | grep '^\*' | head -1 | awk '{print $3}')"
+  if [ -z "$prov" ]; then
+    prov="$(echo "$services" | head -1 | awk '{print $3}')"
+  fi
+  if [ -n "$prov" ]; then
+    log "connect $prov"
+    connmanctl connect "$prov" 2>/dev/null
+    return 0
+  fi
+  return 1
+}
+
+recover_stack() {
+  log "recover connman/wpa"
+  systemctl restart wpa_supplicant 2>/dev/null
+  sleep 2
+  systemctl restart connman 2>/dev/null
+  sleep 5
+  connmanctl enable wifi 2>/dev/null
+}
+
+if ! wait_connman; then
+  log "connman not ready"
+  exit 0
+fi
+
+for pass in 1 2 3 4 5 6; do
+  if wlan_has_ip; then
+    log "wlan0 has IP"
+    exit 0
+  fi
+  connect_provisioned
+  sleep 8
+  if wlan_has_ip; then
+    log "connected on pass $pass"
+    exit 0
+  fi
+  if [ "$pass" -eq 3 ]; then
+    recover_stack
+  fi
+done
+
+log "still no wlan IP after retries (switchboard will keep trying)"
+exit 0

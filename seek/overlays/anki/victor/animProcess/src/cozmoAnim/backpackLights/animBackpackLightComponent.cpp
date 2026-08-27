@@ -35,6 +35,9 @@ namespace Anim {
 
 CONSOLE_VAR(u32, kOfflineTimeBeforeLights_ms, "Backpacklights", (1000*60*2));
 CONSOLE_VAR(u32, kOfflineCheckFreq_ms,        "Backpacklights", 5000);
+
+// Dock contact rail is ~5V. 4.2V avoids false "on charger" from spine/ADC noise off-dock.
+static constexpr float kMinChargerSenseVolts = 4.2f;
   
 enum class BackpackLightSourcePrivate : BackpackLightSourceType
 {
@@ -132,7 +135,7 @@ void BackpackLightComponent::UpdateCriticalBackpackLightConfig(bool isCloudStrea
           _isBatteryCharging &&
           !_isBatteryFull &&
           !_isBatteryDisconnected &&
-          (_chargerVoltage >= 4.0f))
+          (_chargerVoltage >= kMinChargerSenseVolts))
   {
     trigger = BackpackAnimationTrigger::Charging;
   }
@@ -197,6 +200,16 @@ void BackpackLightComponent::Update()
   // streaming. Trigger word stays detected until the stream state is updated
   const bool isCloudStreamOpen = (_willStreamOpen || _isStreaming || _alexaStreaming);
   UpdateCriticalBackpackLightConfig(isCloudStreamOpen, _micMuted, _hasNotification);
+
+  // Anti-stick: re-send OFF while off-dock so a missed frame cannot leave green pulse.
+  if (_chargerVoltage < kMinChargerSenseVolts &&
+      _internalCriticalLightsTrigger == BackpackAnimationTrigger::Off) {
+    const AnimTimeStamp_t curTime_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp();
+    if (curTime_ms - _lastForceOffSent_ms > 2000) {
+      SendBackpackLights(BackpackAnimationTrigger::Off);
+      _lastForceOffSent_ms = curTime_ms;
+    }
+  }
 
   UpdateSystemLightState(isCloudStreamOpen);
   
@@ -528,13 +541,20 @@ void BackpackLightComponent::UpdateBatteryStatus(const RobotInterface::BatterySt
 
   // Prefer live chargerVoltage gate from UpdateChargerSense for contacts/charging.
   // Only apply BatteryStatus bits when sense agrees we are on energized contacts.
-  if (_chargerVoltage >= 4.0f) {
+  if (_chargerVoltage >= kMinChargerSenseVolts) {
     _isBatteryCharging = msg.isCharging;
     _isOnChargerContacts = msg.onChargerContacts;
   } else {
     _isBatteryCharging = false;
     _isOnChargerContacts = false;
   }
+}
+
+void BackpackLightComponent::ForceChargingLightsOff()
+{
+  _internalCriticalLightsTrigger = BackpackAnimationTrigger::Off;
+  StopBackpackAnimationInternal(_criticalLightConfig);
+  SendBackpackLights(BackpackAnimationTrigger::Off);
 }
 
 void BackpackLightComponent::UpdateChargerSense(float chargerVoltage, float batteryVoltage, uint32_t robotStatus)
@@ -546,14 +566,19 @@ void BackpackLightComponent::UpdateChargerSense(float chargerVoltage, float batt
   const bool statusCharging  = (robotStatus & static_cast<uint32_t>(RobotStatusFlag::IS_CHARGING)) != 0;
   const bool statusDisc      = (robotStatus & static_cast<uint32_t>(RobotStatusFlag::IS_BATTERY_DISCONNECTED)) != 0;
 
-  // Contacts must be energized (~5V on dock). Below 4V → definitely off dock.
-  if (_chargerVoltage < 4.0f) {
+  // Contacts must be energized (~5V on dock). Below threshold → off dock.
+  const bool wasOnDock = _wasOnChargerContacts;
+  if (_chargerVoltage < kMinChargerSenseVolts) {
     _isOnChargerContacts = false;
     _isBatteryCharging = false;
+    if (wasOnDock || _internalCriticalLightsTrigger == BackpackAnimationTrigger::Charging) {
+      ForceChargingLightsOff();
+    }
   } else {
     _isOnChargerContacts = statusOnCharger;
     _isBatteryCharging = statusCharging && statusOnCharger;
   }
+  _wasOnChargerContacts = _isOnChargerContacts;
 
   if (statusDisc) {
     _isBatteryDisconnected = true;
