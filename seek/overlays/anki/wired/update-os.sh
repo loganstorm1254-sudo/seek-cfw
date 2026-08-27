@@ -127,24 +127,14 @@ case "$URL" in
     ;;
 esac
 
-# Seek default: flash CURRENT slot (no A/B flip). Set SEEK_OTA_OTHER_SLOT=1 for stock flip.
-if [ "${SEEK_OTA_OTHER_SLOT:-0}" != "1" ]; then
-    echo "Seek: flashing CURRENT boot slot (other slot untouched)"
-    case "$URL" in
-      http://127.0.0.1:*|http://localhost:*)
-        OTAFILE=/data/ota/v.ota
-        ;;
-      *)
-        OTAFILE=/data/ota/v.ota
-        echo "Downloading OTA to $OTAFILE ..."
-        $CURL_BIN -k -L --http1.1 -4 --fail -o "$OTAFILE" "$URL"
-        ;;
-    esac
-    FLASH_HELPER=/data/seek-flash-ota-current.sh
-    $CURL_BIN -k -L --http1.1 -4 -o "$FLASH_HELPER" \
-      "https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/head-only-ignore-body-7a4a/seek/flash/flash-ota-current-slot.sh"
-    chmod +x "$FLASH_HELPER"
-    exec sh "$FLASH_HELPER" "$OTAFILE"
+# Full OTA must flash the INACTIVE slot (not the running rootfs). Use anim hotfix
+# for vic-anim-only updates without a slot change. SEEK_OTA_CURRENT_SLOT=1 is
+# rejected — it corrupts the running partition.
+if [ "${SEEK_OTA_CURRENT_SLOT:-0}" = "1" ]; then
+    echo "ERROR: SEEK_OTA_CURRENT_SLOT is disabled — cannot full-flash the running slot."
+    echo "Use vic-anim hotfix for face/menu changes, or flash the OTHER slot:"
+    echo "  bash /data/update-os.sh <ota-url>   (default: inactive slot)"
+    exit 1
 fi
 
 systemctl -q stop update-engine.timer update-engine 2>/dev/null || true
