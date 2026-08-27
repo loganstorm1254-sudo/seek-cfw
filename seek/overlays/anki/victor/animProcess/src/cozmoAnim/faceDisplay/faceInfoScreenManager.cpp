@@ -83,9 +83,12 @@ const std::string CreatorWebsite = "";
 
 // Forces transition to BLE pairing screen on double button press
 // without waiting for actual START_PAIRING message from switchboard.
-// SeekOS: switchboard pairing UI is not used; always show Pairing screen so
-// lift-raise can enter the CCIS main menu.
+// Mainly useful in sim, where there is currently no switchboard.
+#ifdef SIMULATOR
 #define FORCE_TRANSITION_TO_PAIRING 1
+#else
+#define FORCE_TRANSITION_TO_PAIRING 0
+#endif
 
 #define ENABLE_SELF_TEST 1
 
@@ -118,8 +121,6 @@ namespace {
   const f32 kWheelMotionThresh_mmps = 3.f;
 
   const f32 kMenuLiftRange_rad = DEG_TO_RAD(45);
-  // Pairing-screen lift confirm uses a smaller sweep so menu entry is easier.
-  const f32 kPairingMenuLiftRange_rad = DEG_TO_RAD(20);
   f32 _liftLowestAngle_rad;
   f32 _liftHighestAngle_rad;
 
@@ -1111,6 +1112,7 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
                       triplePressDetected,
                       quadruplePressDetected);
 
+  const bool isOnCharger = static_cast<bool>(state.status & (uint32_t)RobotStatusFlag::IS_ON_CHARGER);
 
   const ScreenName currScreenName = GetCurrScreenName();
 
@@ -1129,31 +1131,34 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
     }
   }
 
-  // Double-press: Victor name + key screen, then raise lift for Main menu.
+  // Stock WireOS double-press: pairing on charger, mic mute off charger.
   if (doublePressDetected &&
-      _engineLoaded &&
+      isOnCharger &&
       CanEnterPairingFromScreen(currScreenName)) {
-    LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotDoublePress", "Entering CCIS pairing face");
-    _ccisPairingFaceHeld = true;
-    SetScreen(ScreenName::Pairing);
-    ShowCCISPairingPromptEnter(_animationStreamer, _context);
+    LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotDoublePress", "Entering pairing");
+    RobotInterface::SendAnimToEngine(SwitchboardInterface::EnterPairing());
+
+    if (FORCE_TRANSITION_TO_PAIRING) {
+      LOG_WARNING("FaceInfoScreenManager.ProcessMenuNavigation.ForcedPairing",
+                  "Remove FORCE_TRANSITION_TO_PAIRING when switchboard is working");
+      SetScreen(ScreenName::Pairing);
+    }
+  }
+  else if(doublePressDetected &&
+          !isOnCharger &&
+          _engineLoaded &&
+          CanEnterPairingFromScreen(currScreenName))
+  {
+    ToggleMute("DOUBLE_PRESS");
   }
   else if(triplePressDetected &&
           _engineLoaded &&
           (currScreenName == ScreenName::None ||
            currScreenName == ScreenName::ToggleMute ||
            currScreenName == ScreenName::FAC ||
-           currScreenName == ScreenName::MirrorMode ||
-           currScreenName == ScreenName::Pairing))
+           currScreenName == ScreenName::MirrorMode))
   {
-    // Triple-click mutes/unmutes all robot sounds and shows a mute icon
-    if (_ccisPairingFaceHeld) {
-      _ccisPairingFaceHeld = false;
-      SetScreen(ScreenName::None);
-      if (_animationStreamer != nullptr) {
-        _animationStreamer->EnableKeepFaceAlive(true, 0);
-      }
-    }
+    // Triple-click mutes/unmutes all robot sounds
     ToggleSoundMute("TRIPLE_PRESS");
   }
   else if(quadruplePressDetected &&
@@ -1161,17 +1166,9 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
           (currScreenName == ScreenName::None ||
            currScreenName == ScreenName::ToggleMute ||
            currScreenName == ScreenName::FAC ||
-           currScreenName == ScreenName::MirrorMode ||
-           currScreenName == ScreenName::Pairing))
+           currScreenName == ScreenName::MirrorMode))
   {
     // Quad-click: go to sleep
-    if (_ccisPairingFaceHeld) {
-      _ccisPairingFaceHeld = false;
-      SetScreen(ScreenName::None);
-      if (_animationStreamer != nullptr) {
-        _animationStreamer->EnableKeepFaceAlive(true, 0);
-      }
-    }
     RequestSystemSleep("QUADRUPLE_PRESS");
   }
 
@@ -1231,7 +1228,7 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
     }
   }
 
-  if (_currScreen->HasMenu() || GetCurrScreenName() == ScreenName::Pairing) {
+  if (_currScreen->HasMenu() || currScreenName == ScreenName::Pairing) {
     // Process lift motion for confirming current menu selection
 
     // Update min/max lift angles and the current range observed
@@ -1243,11 +1240,8 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
       _liftLowestAngle_rad = liftAngle;
     }
     const float liftRange_rad = _liftHighestAngle_rad - _liftLowestAngle_rad;
-    const f32 liftConfirmRange_rad = (GetCurrScreenName() == ScreenName::Pairing)
-      ? kPairingMenuLiftRange_rad
-      : kMenuLiftRange_rad;
 
-    if (!_liftTriggerReady && (liftRange_rad > liftConfirmRange_rad)) {
+    if (!_liftTriggerReady && (liftRange_rad > kMenuLiftRange_rad)) {
       _liftTriggerReady = true;
     } else if (_liftTriggerReady && 
                (Util::Abs(liftAngle - _liftLowestAngle_rad) < kMenuAngularTriggerThresh_rad)) {
@@ -1258,6 +1252,7 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
         SetScreen(_currScreen->ConfirmMenuItemAndGetNextScreen());
       } else if (GetCurrScreenName() == ScreenName::Pairing) {
         LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.ExitPairing", "Going to Customer Service Main from Pairing");
+        RobotInterface::SendAnimToEngine(SwitchboardInterface::ExitPairing());
         EnterCCISMainMenu("LIFT_CONFIRM");
       }
     }
@@ -1303,19 +1298,6 @@ ScreenName FaceInfoScreenManager::GetCurrScreenName() const
 void FaceInfoScreenManager::Update(const RobotState& state)
 {
   ProcessMenuNavigation(state);
-
-  // Hold CCIS pairing face over engine eyes until lift opens the menu.
-  // Redraw periodically so engine/keepalive cannot steal the face back.
-  if (_ccisPairingFaceHeld && (GetCurrScreenName() == ScreenName::Pairing) &&
-      (_animationStreamer != nullptr)) {
-    static u32 lastPairingRedraw_ms = 0;
-    const u32 now_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp();
-    _animationStreamer->EnableKeepFaceAlive(false, 0);
-    if ((now_ms - lastPairingRedraw_ms) > 150) {
-      lastPairingRedraw_ms = now_ms;
-      ShowCCISPairingPrompt(_animationStreamer, _context);
-    }
-  }
 
   // Keep sound mute enforced — engine volume/settings can overwrite Wwise state
   if (_soundMuted) {
@@ -2010,9 +1992,6 @@ void FaceInfoScreenManager::EnablePairingScreen(bool enable)
     LOG_INFO("FaceInfoScreenManager.EnablePairingScreen.Enable", "");
     SetScreen(ScreenName::Pairing);
   } else if (!enable && GetCurrScreenName() == ScreenName::Pairing) {
-    if (_ccisPairingFaceHeld) {
-      return;
-    }
     LOG_INFO("FaceInfoScreenManager.EnablePairingScreen.Disable", "");
     // TODO: it's possible that the user entered the app pairing screen during Alexa pairing,
     // in which case the face should return to the Alexa screen when app pairing is complete
