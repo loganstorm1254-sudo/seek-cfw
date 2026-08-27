@@ -1,25 +1,50 @@
-# Seek recovery flash from Windows (PowerShell). More reliable than .cmd on modern Windows.
+# Seek recovery flash from Windows (PowerShell). Version: 3
 param(
     [string]$Ip = "192.168.0.105",
     [string]$Key = "$env:TEMP\vector_dev_key",
     [switch]$SkipDownload
 )
 
+$ScriptVersion = 3
 $ErrorActionPreference = "Stop"
 $Branch = "cursor/head-only-ignore-body-7a4a"
 $Flash = Join-Path $env:TEMP "unlock-manual-flash-v2.sh"
 $Ota = Join-Path $env:TEMP "vicos-3.0.1.33d.ota"
+$OtaOnRobot = "/data/ota/v.ota"
+$Remote = "root@$Ip"
 $SshOpts = @(
     "-i", $Key,
     "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa",
-    "-o", "HostKeyAlgorithms=+ssh-rsa"
+    "-o", "HostKeyAlgorithms=+ssh-rsa",
+    "-o", "ServerAliveInterval=15",
+    "-o", "ServerAliveCountMax=120"
 )
-# -O = legacy scp protocol (recovery has no sftp-server; Windows OpenSSH defaults to SFTP)
-$ScpOpts = $SshOpts + @("-O", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=120")
-$OtaOnRobot = "/data/ota/v.ota"
-$Remote = "root@$Ip"
+# -O = legacy scp (recovery has no sftp-server; Windows OpenSSH defaults to SFTP)
+$ScpOpts = $SshOpts + @("-O")
 
-Write-Host "=== Seek recovery flash (3.0.1.33d) ==="
+function Invoke-ScpFile([string]$Local, [string]$RemotePath) {
+    $dest = "${Remote}:${RemotePath}"
+    & scp @ScpOpts $Local $dest
+    return $LASTEXITCODE
+}
+
+function Invoke-SshStreamUpload([string]$Local, [string]$RemotePath) {
+    Write-Host "  streaming over ssh (legacy scp unavailable)..."
+    $q = '"'
+    $sshLine = "ssh -i $q$Key$q -o PubkeyAcceptedAlgorithms=+ssh-rsa -o HostKeyAlgorithms=+ssh-rsa -o ServerAliveInterval=15 -o ServerAliveCountMax=120 $Remote"
+    & cmd.exe /c "type $q$Local$q | $sshLine `"cat > $RemotePath`""
+    return $LASTEXITCODE
+}
+
+function Send-RobotFile([string]$Local, [string]$RemotePath) {
+    if (-not (Test-Path $Local)) { throw "Missing local file: $Local" }
+    if ((Invoke-ScpFile $Local $RemotePath) -eq 0) { return }
+    if ((Invoke-SshStreamUpload $Local $RemotePath) -ne 0) {
+        throw "Upload failed for $RemotePath"
+    }
+}
+
+Write-Host "=== Seek recovery flash v$ScriptVersion (3.0.1.33d) ==="
 Write-Host "Charger must stay connected. IP=$Ip"
 Write-Host ""
 
@@ -36,15 +61,15 @@ if (-not $SkipDownload) {
 } else {
     if (-not (Test-Path $Flash)) { throw "Missing flash script: $Flash" }
     if (-not (Test-Path $Ota)) { throw "Missing OTA: $Ota" }
-    Write-Host "[1-2/4] Using existing files in %TEMP%"
+    Write-Host "[1-2/4] Using existing files in TEMP"
 }
 
-Write-Host "[3/4] Upload to Vector (recovery: /data/ota only, /ota is read-only)..."
-ssh @SshOpts $Remote "mkdir -p /data/ota && df -h /data /cache 2>/dev/null; rm -f /data/ota/v.ota"
-scp @ScpOpts $Flash "${Remote}:/data/unlock-manual-flash-v2.sh"
-if ($LASTEXITCODE -ne 0) { throw "scp failed for flash script" }
-scp @ScpOpts $Ota "${Remote}:${OtaOnRobot}"
-if ($LASTEXITCODE -ne 0) { throw "scp failed for OTA (check /data free space and charger)" }
+Write-Host "[3/4] Upload to Vector (/data/ota only — /ota is read-only in recovery)..."
+ssh @SshOpts $Remote "mkdir -p /data/ota && df -h /data /cache 2>/dev/null; rm -f $OtaOnRobot"
+Write-Host "  flash script..."
+Send-RobotFile $Flash "/data/unlock-manual-flash-v2.sh"
+Write-Host "  OTA (~204MB, several minutes)..."
+Send-RobotFile $Ota $OtaOnRobot
 
 Write-Host "[4/4] Flashing inactive slot (several minutes, then reboot)..."
 ssh @SshOpts $Remote "rm -f /data/unbrick; mount -o remount,rw /; chmod 755 /data/unlock-manual-flash-v2.sh; sh /data/unlock-manual-flash-v2.sh $OtaOnRobot"
