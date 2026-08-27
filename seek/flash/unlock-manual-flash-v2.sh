@@ -23,6 +23,14 @@ echo "OTA: $OTA ($SZ bytes)"
 echo "temp: $TMP"
 df -h /data /cache 2>/dev/null || true
 
+# Reject truncated/corrupt OTA (full release is ~204MB).
+MIN_OTA=200000000
+if [ "$SZ" -lt "$MIN_OTA" ]; then
+  echo "FATAL: OTA too small ($SZ bytes). Need complete ~204MB file."
+  echo "Re-upload with recovery-chunk-upload.ps1 before flashing."
+  exit 1
+fi
+
 if [ ! -s "$PAS" ]; then
   echo "Creating $PAS (ankidev)"
   echo "$ANKIDEV_B64" | base64 -d >"$PAS"
@@ -140,8 +148,19 @@ sync
 echo "Setting active slot $TARGET ..."
 "$BOOTCTL" "$CUR" set_active "$TARGET"
 
-echo "Locking old slot $CUR (prevent WireOS/stock fallback)..."
-"$BOOTCTL" "$CUR" set_unbootable "$CUR" 2>/dev/null || true
+# Lock the OTHER slot only. When booting recovery (CUR=f), f aliases to slot a —
+# locking CUR would mark the slot we just flashed unbootable and brick reboot.
+if [ "$CUR" = "f" ]; then
+  case "$TARGET" in
+    a) LOCK=b ;;
+    b) LOCK=a ;;
+    *) LOCK=b ;;
+  esac
+else
+  LOCK="$CUR"
+fi
+echo "Locking fallback slot $LOCK (not the flashed slot $TARGET)..."
+"$BOOTCTL" "$CUR" set_unbootable "$LOCK" 2>/dev/null || true
 mkdir -p /data/seek
 touch /data/seek/slot_lock
 sync
