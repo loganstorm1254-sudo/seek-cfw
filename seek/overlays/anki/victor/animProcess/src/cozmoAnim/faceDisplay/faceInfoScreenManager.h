@@ -202,6 +202,7 @@ private:
   FaceInfoScreen* _currScreen;
 
   // Internal draw functions that
+  void DrawFactoryMenu();
   void DrawFAC();
   void DrawFactoryAlert();
   void DrawMain();

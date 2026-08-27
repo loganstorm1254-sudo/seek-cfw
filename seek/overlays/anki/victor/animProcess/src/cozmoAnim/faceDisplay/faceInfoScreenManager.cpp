@@ -63,6 +63,7 @@
 
 #include <chrono>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <thread>
 #include <sys/stat.h>
@@ -245,8 +246,9 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   ADD_SCREEN_WITH_TEXT(Recovery, Recovery, {"RECOVERY MODE"});
   ADD_SCREEN(None, None);
   ADD_SCREEN(Pairing, Pairing);
-  ADD_SCREEN(FAC, None);
-  ADD_SCREEN(FactoryAlert, Main);
+  ADD_SCREEN(FAC, FactoryMenu);
+  ADD_SCREEN(FactoryAlert, FactoryMenu);
+  ADD_SCREEN(FactoryMenu, Main);
   ADD_SCREEN(CustomText, None);
   ADD_SCREEN(Main, Network);
   ADD_SCREEN_WITH_TEXT(ClearUserData, Main, {"CLEAR OUT SOUL?"});
@@ -312,16 +314,30 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   SET_ENTER_ACTION(None, noneEnterFcn);
   SET_EXIT_ACTION(None, noneExitFcn);
 
+  // Hold still in CCIS / factory preview: abort face anims and enable calm power.
+  auto ccisStillEnterFcn = [this](const std::function<void()>& drawScreen) {
+    if (_animationStreamer != nullptr) {
+      _animationStreamer->Abort();
+      _animationStreamer->EnableKeepFaceAlive(true, 0);
+    }
+    RobotInterface::CalmPowerMode calm;
+    calm.enable = true;
+    SendAnimToRobot(std::move(calm));
+    if (drawScreen) {
+      drawScreen();
+    }
+  };
+
   // === FAC screen ===
-  auto facEnterFcn = [this]() {
-    DrawFAC();
+  auto facEnterFcn = [this, ccisStillEnterFcn]() {
+    ccisStillEnterFcn([this]() { DrawFAC(); });
   };
   SET_ENTER_ACTION(FAC, facEnterFcn);
   DISABLE_TIMEOUT(FAC);
 
   // === Factory alert (!) preview screen ===
-  auto factoryAlertEnterFcn = [this]() {
-    DrawFactoryAlert();
+  auto factoryAlertEnterFcn = [this, ccisStillEnterFcn]() {
+    ccisStillEnterFcn([this]() { DrawFactoryAlert(); });
   };
   SET_ENTER_ACTION(FactoryAlert, factoryAlertEnterFcn);
   DISABLE_TIMEOUT(FactoryAlert);
@@ -346,9 +362,9 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
 
   // === Main screen ===
   // DVT: unlock backpack-button debug info chain immediately (Network → sensors → motors …)
-  auto mainEnterFcn = [this]() {
+  auto mainEnterFcn = [this, ccisStillEnterFcn]() {
     _debugInfoScreensUnlocked = true;
-    DrawMain();
+    ccisStillEnterFcn([this]() { DrawMain(); });
   };
   SET_ENTER_ACTION(Main, mainEnterFcn);
 
@@ -363,8 +379,16 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   };
   ADD_MENU_ITEM_WITH_ACTION(Main, "COZMO", cozmoMenuAction);
   ADD_MENU_ITEM(Main, "CLEAR", ClearUserData);
-  ADD_MENU_ITEM(Main, "FAC", FAC);
-  ADD_MENU_ITEM(Main, "!", FactoryAlert);
+  ADD_MENU_ITEM(Main, "FACT", FactoryMenu);
+
+  // === Factory preview submenu (FAC / !) ===
+  auto factoryMenuEnterFcn = [this, ccisStillEnterFcn]() {
+    ccisStillEnterFcn([this]() { DrawFactoryMenu(); });
+  };
+  SET_ENTER_ACTION(FactoryMenu, factoryMenuEnterFcn);
+  ADD_MENU_ITEM(FactoryMenu, "EXIT", Main);
+  ADD_MENU_ITEM(FactoryMenu, "FAC", FAC);
+  ADD_MENU_ITEM(FactoryMenu, "!", FactoryAlert);
 
   // === Cozmo mode ===
   ADD_MENU_ITEM(CozmoMode, "EXIT", Main);
@@ -599,10 +623,13 @@ bool FaceInfoScreenManager::IsDebugScreen(ScreenName screen) const
 {
   switch(screen) {
     case ScreenName::None:
-    case ScreenName::FAC:
-    case ScreenName::FactoryAlert:
     case ScreenName::CustomText:
       return false;
+#if FACTORY_TEST
+    case ScreenName::FAC:
+    case ScreenName::FactoryAlert:
+      return false;
+#endif
     default:
       return true;
   }
@@ -610,6 +637,7 @@ bool FaceInfoScreenManager::IsDebugScreen(ScreenName screen) const
 
 void FaceInfoScreenManager::SetScreen(ScreenName screen)
 {
+  ScreenName prevScreenName = ScreenName::None;
   bool prevScreenIsDebug = false;
   bool prevScreenNeedsWait = false;
   bool prevScreenWasMute = false;
@@ -620,10 +648,11 @@ void FaceInfoScreenManager::SetScreen(ScreenName screen)
     if (screen == GetCurrScreenName()) {
       return;
     }
+    prevScreenName = GetCurrScreenName();
+    prevScreenIsDebug = IsDebugScreen(prevScreenName);
+    prevScreenNeedsWait = ScreenNeedsWait(prevScreenName);
+    prevScreenWasMute = prevScreenName == ScreenName::ToggleMute;
     _currScreen->ExitScreen();
-    prevScreenIsDebug = IsDebugScreen(GetCurrScreenName());
-    prevScreenNeedsWait = ScreenNeedsWait(GetCurrScreenName());
-    prevScreenWasMute = GetCurrScreenName() == ScreenName::ToggleMute;
   }
 
   _currScreen = GetScreen(screen);
@@ -637,13 +666,27 @@ void FaceInfoScreenManager::SetScreen(ScreenName screen)
     _currScreen = GetScreen(ScreenName::FAC);
   }
 
-  // Tell engine if the screen changes so behaviors can be appropriately enabled/disabled
-  bool currScreenIsDebug = IsDebugScreen(GetCurrScreenName());
-  bool currScreenNeedsWait = ScreenNeedsWait(GetCurrScreenName());
-  if ((currScreenIsDebug != prevScreenIsDebug) || (currScreenNeedsWait != prevScreenNeedsWait)) {
+  const ScreenName currScreenName = GetCurrScreenName();
+
+  auto shouldPauseBehaviors = [this](ScreenName name) {
+    return IsDebugScreen(name)
+      || name == ScreenName::FAC
+      || name == ScreenName::FactoryAlert
+      || name == ScreenName::FactoryMenu;
+  };
+
+  const bool prevPauseBehaviors = shouldPauseBehaviors(prevScreenName);
+
+  bool currScreenIsDebug = IsDebugScreen(currScreenName);
+  bool currScreenNeedsWait = ScreenNeedsWait(currScreenName);
+  const bool currPauseBehaviors = shouldPauseBehaviors(currScreenName);
+
+  if ((currScreenIsDebug != prevScreenIsDebug)
+      || (currScreenNeedsWait != prevScreenNeedsWait)
+      || (currPauseBehaviors != prevPauseBehaviors)) {
     DebugScreenMode msg;
     msg.isDebug = currScreenIsDebug;
-    msg.needsWait = currScreenNeedsWait;
+    msg.needsWait = currPauseBehaviors || currScreenNeedsWait;
     // leaving the mute screen via single press may coincide with the start of a wake word trigger, so don't clear it
     msg.fromMute = prevScreenWasMute;
     RobotInterface::SendAnimToEngine(std::move(msg));
@@ -681,6 +724,12 @@ void FaceInfoScreenManager::SetScreen(ScreenName screen)
   _wheelMovingForwardsCount = 0;
   _wheelMovingBackwardsCount = 0;
 
+}
+
+void FaceInfoScreenManager::DrawFactoryMenu()
+{
+  const std::vector<std::string> lines = {"FACTORY", "PREVIEWS"};
+  DrawTextOnScreen(lines);
 }
 
 void FaceInfoScreenManager::DrawFAC()
@@ -1302,7 +1351,7 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
             currScreenName == ScreenName::FactoryAlert))
   {
     LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.ExitFactoryVisual", "");
-    SetScreen(ScreenName::Main);
+    SetScreen(ScreenName::FactoryMenu);
   }
   else if (doublePressDetected &&
       isOnCharger &&
@@ -1355,6 +1404,7 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
         (currScreenName != ScreenName::None &&
           currScreenName != ScreenName::FAC &&
           currScreenName != ScreenName::FactoryAlert &&
+          currScreenName != ScreenName::FactoryMenu &&
           currScreenName != ScreenName::Pairing &&
           currScreenName != ScreenName::Recovery) ) {
       SetScreen(_currScreen->GetButtonGotoScreen());
@@ -2533,6 +2583,10 @@ bool FaceInfoScreenManager::IsAlexaScreen(const ScreenName& screenName) const
 bool FaceInfoScreenManager::ScreenNeedsWait(const ScreenName& screenName) const
 {
   switch (screenName) {
+    case ScreenName::Main:
+    case ScreenName::FactoryMenu:
+    case ScreenName::FAC:
+    case ScreenName::FactoryAlert:
     case ScreenName::AlexaPairing:
     case ScreenName::AlexaPairingSuccess:
     case ScreenName::AlexaPairingFailed:
