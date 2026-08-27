@@ -1,31 +1,27 @@
 # Vector rear speaker cover (3D print)
 
-Replacement for the lost **black head-back speaker grille** — the cupped cowling with 2×5 horizontal slots (not a flat plate).
+Replacement for Anki part **000-00623** — the black head-back speaker cowling.
+
+## Shape (matches OEM photos)
+
+- **Top:** widest, nearly flat / slight crown (ANKI side)
+- **Sides:** taper inward going down
+- **Bottom:** smoother U-round (narrower)
+- Domed face + ~9 mm wrap-back rim
+- Outside: recessed 2×5 capsule grille, hinge peg, cable notch
+- Inside: circular speaker well + two screw bosses
 
 ## Files
 
 | File | Use |
 |------|-----|
-| `vector_speaker_cover.stl` | Slice & print (**use this**) |
-| `gen_stl.py` | Regenerates the cupped STL |
-| `vector_speaker_cover.scad` | Rough OpenSCAD twin for tweaks |
-
-## Shape
-
-- Tombstone / shield outline — wider at the top, rounded bottom
-- Mildly domed face + **~9.5 mm wrap-back rim** (cup over the speaker)
-- Recessed grille: 2 columns × 5 capsule slots
-- Hinge peg (lower-left) + cable notch (upper-left)
+| `vector_speaker_cover.stl` | Slice & print |
+| `gen_stl.py` | Regenerate STL |
+| `vector_speaker_cover.scad` | Rough OpenSCAD twin |
 
 ## Print
 
-- **Size (approx):** ~32 × 36 × 12 mm (estimated from photos — not OEM CAD)
-- **Material:** PETG/ABS preferred; PLA OK for a fit check
+- **Size (approx):** ~35 × 38 × 12 mm (photo-estimated — not OEM CAD)
+- **Material:** PETG/ABS preferred; PLA for fit check
 - **Layer:** 0.12–0.16 mm, 100% infill
-- **Orientation:** grille face up; support the wrap rim if your slicer needs it
-- **Fit:** scale XY ±2–5% in the slicer, or edit sizes at the top of `gen_stl.py` and re-run
-
-## Notes
-
-- Peg/notch are approximate — sand or glue if the OEM snap doesn’t catch.
-- Cover only — not the speaker driver or blue lead.
+- **Fit:** scale XY ±2–5% if needed, or edit sizes at top of `gen_stl.py`
