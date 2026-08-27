@@ -329,14 +329,15 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
 
   ADD_MENU_ITEM(Main, "EXIT", None);
 #if ENABLE_SELF_TEST
-  ADD_MENU_ITEM(Main, IsXray() ? "TEST" : "SELF TEST", SelfTest);
+  ADD_MENU_ITEM(Main, "TEST", SelfTest);
 #endif
-  // Opens enter or exit confirm depending on current mode
+  // Opens enter or exit confirm depending on current mode.
+  // Keep labels short — 4 vertical menu rows must clear SSID/IP on the 96px face.
   FaceInfoScreen::MenuItemAction cozmoMenuAction = [this]() {
     return IsCozmoMode() ? ScreenName::VectorMode : ScreenName::CozmoMode;
   };
-  ADD_MENU_ITEM_WITH_ACTION(Main, "COZMO MODE", cozmoMenuAction);
-  ADD_MENU_ITEM(Main, IsXray() ? "CLEAR" : "CLEAR OUT SOUL", ClearUserData);
+  ADD_MENU_ITEM_WITH_ACTION(Main, "COZMO", cozmoMenuAction);
+  ADD_MENU_ITEM(Main, "CLEAR", ClearUserData);
 
   // === Cozmo mode ===
   ADD_MENU_ITEM(CozmoMode, "EXIT", Main);
@@ -1518,6 +1519,9 @@ void FaceInfoScreenManager::DrawMain()
   const std::string hwVer    = "HW: "   + std::to_string(IsXray() ? 8 : Factory::GetEMR()->fields.HW_VER);
 
   // Double-click → lift arm → Main: stock Anki DVT CCIS layout (green eng text).
+  // Keep to 5 content lines so the 4-item bottom menu (EXIT/TEST/COZMO/CLEAR)
+  // does not collide with SSID/IP on the 96px face. Cozmo vs Vector is shown
+  // on the OS line (no separate MODE line).
   const std::string osProject = IsCozmoMode() ? "OS: Cozmo" : ("OS: " + OSProject);
   std::string osVer = "VER: " + osstate->GetOSBuildVersion();
   if (osVer == "VER: " || osVer == "VER:") {
@@ -1531,13 +1535,10 @@ void FaceInfoScreenManager::DrawMain()
     ip = "XXX.XXX.XXX.XXX";
   }
 
-  const std::string modeLine = IsCozmoMode() ? "MODE: COZMO" : "MODE: VECTOR";
-
   // ESN + HW on one line; then OS / VER / SSID / IP (stock Anki CCIS Main layout).
   ColoredTextLines lines = { { {serialNo}, {hwVer, NamedColors::GREEN, false} },
                              {osProject},
                              {osVer},
-                             {modeLine},
                              {ssid}, 
 #if FACTORY_TEST
                              {"IP: " + ip},

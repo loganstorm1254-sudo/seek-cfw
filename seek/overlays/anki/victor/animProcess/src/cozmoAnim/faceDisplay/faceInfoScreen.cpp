@@ -105,7 +105,8 @@ void FaceInfoScreen::DrawMenuVertical(Vision::ImageRGB565& img) const
   const ColorRGBA& menuBgColor = NamedColors::BLACK;
   const ColorRGBA& menuItemColor = NamedColors::GREEN;
   const f32 locX = 10;
-  const f32 stepY = 11;
+  // 4 items × 11px collides with Main SSID/IP on 96px; tighten when crowded.
+  const f32 stepY = (_menu.size() >= 4) ? 10.f : 11.f;
   const f32 textScale = 0.4f;
 
   f32 locY = stepY;
@@ -115,19 +116,17 @@ void FaceInfoScreen::DrawMenuVertical(Vision::ImageRGB565& img) const
   }
   
   if (HasMenu()) {
-    // Draw menu items (bottom-aligned)
+    // Draw menu items (bottom-aligned). Always clear each row so status text
+    // (IP/SSID) cannot bleed through under the selection cursor.
     locY = FACE_DISPLAY_HEIGHT-1;
     for (s32 i = static_cast<s32>(_menu.size()) - 1; i >= 0; --i) {
-      
+      const Rectangle<f32> rect( 0.f, locY-stepY, FACE_DISPLAY_WIDTH, stepY);
+      img.DrawFilledRect(rect, menuBgColor);
+
       if (_menuCursor == i) {
-        // Draw cursor
         img.DrawText({0,locY}, ">", menuItemColor, textScale);
-      } else {
-        const Rectangle<f32> rect( 0.f, locY-stepY, FACE_DISPLAY_WIDTH, stepY);
-        img.DrawFilledRect(rect, menuBgColor);
       }
 
-      // Draw menu item text
       img.DrawText({locX, locY}, _menu[i].text, menuItemColor, textScale);
       locY -= stepY;
     }
