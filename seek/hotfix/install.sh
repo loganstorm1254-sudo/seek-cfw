@@ -11,6 +11,7 @@ rm -f /data/seek/head_only
 remount_rw() {
   mount -o remount,rw / 2>/dev/null || true
   mount -o remount,rw /anki 2>/dev/null || true
+  mount -o remount,rw /persist 2>/dev/null || true
 }
 
 same_file() {
@@ -86,8 +87,12 @@ install_lights() {
 }
 
 install_boot_anim() {
+  # bootAnim prefers /persist/boot_anim.raw over stock paths. WireOS leaves that
+  # file; always writing 184x96 there breaks 160x80 displays. Clear the override
+  # so LCD-correct stock paths (boot_anim.raw / boot_anim_20.raw) are used.
+  SANTEK_FRAME=$((184 * 96 * 2))
+  MIDAS_FRAME=$((160 * 80 * 2))
   remount_rw
-  mount -o remount,rw /persist 2>/dev/null || true
   for name in boot_anim.raw boot_anim_20.raw; do
     src="$HOTFIX_DIR/$name"
     dest="/anki/data/assets/cozmo_resources/config/engine/animations/$name"
@@ -97,13 +102,33 @@ install_boot_anim() {
     mkdir -p "$(dirname "$dest")" 2>/dev/null || true
     cat "$src" > "${dest}.seeknew"
     mv -f "${dest}.seeknew" "$dest"
-    echo "installed $name"
+    echo "installed $name ($(wc -c < "$dest") bytes)"
   done
-  # WireOS override — must replace or WireOS boot keeps playing
-  if [ -f "$HOTFIX_DIR/boot_anim.raw" ]; then
-    cat "$HOTFIX_DIR/boot_anim.raw" > /persist/boot_anim.raw.seeknew
-    mv -f /persist/boot_anim.raw.seeknew /persist/boot_anim.raw
-    echo "installed /persist/boot_anim.raw (overrides WireOS)"
+  if [ -f /persist/boot_anim.raw ]; then
+    old_sz=$(wc -c < /persist/boot_anim.raw)
+    echo "found WireOS override /persist/boot_anim.raw ($old_sz bytes) — removing"
+    rm -f /persist/boot_anim.raw 2>/dev/null || true
+    if [ -f /persist/boot_anim.raw ]; then
+      echo "WARN: delete failed — overwriting with size-matched Crypto anim"
+      src=""
+      if [ $((old_sz % MIDAS_FRAME)) -eq 0 ] && [ $((old_sz % SANTEK_FRAME)) -ne 0 ]; then
+        src="$HOTFIX_DIR/boot_anim_20.raw"
+      elif [ $((old_sz % SANTEK_FRAME)) -eq 0 ]; then
+        src="$HOTFIX_DIR/boot_anim.raw"
+      fi
+      if [ -n "$src" ] && [ -f "$src" ]; then
+        cat "$src" > /persist/boot_anim.raw.seeknew
+        mv -f /persist/boot_anim.raw.seeknew /persist/boot_anim.raw
+        echo "installed /persist/boot_anim.raw from $(basename "$src")"
+      else
+        echo "ERROR: could not clear WireOS /persist/boot_anim.raw" >&2
+        exit 1
+      fi
+    else
+      echo "removed WireOS /persist/boot_anim.raw"
+    fi
+  else
+    echo "no /persist/boot_anim.raw (stock paths used)"
   fi
 }
 
