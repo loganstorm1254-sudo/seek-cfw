@@ -168,6 +168,11 @@ private:
   // After 4-click sleep, backpack single-press must wake (touch/pickup often fail).
   void RequestWakeFromSleep(const char* reason);
 
+  bool IsCozmoMode() const { return _cozmoMode; }
+  void LoadCozmoModeFlag();
+  void SetCozmoMode(bool enabled, const char* reason);
+  void ExitCozmoModeToVector(const char* reason);
+
   // Returns true if screenName is one of the screens that allow the user to enter pairing when
   // double pressing the backpack and on the charger
   bool CanEnterPairingFromScreen( const ScreenName& screenName) const;
@@ -276,6 +281,9 @@ private:
 
   // Set by 4-click sleep; cleared when button wakes him.
   bool _awaitingWakeFromSleep = false;
+
+  // Cozmo mode (CCIS menu). Persisted at /data/seek/cozmo_mode.
+  bool _cozmoMode = false;
   
   // Reboot Linux
   void Reboot();

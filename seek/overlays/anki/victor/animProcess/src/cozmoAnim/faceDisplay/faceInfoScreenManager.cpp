@@ -186,6 +186,8 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   // allow us to send debug info out to the web server
   _webService = context->GetWebService();
 
+  LoadCozmoModeFlag();
+
   #define ADD_SCREEN(name, gotoScreen) \
     _screenMap.emplace(std::piecewise_construct, \
                        std::forward_as_tuple(ScreenName::name), \
@@ -235,6 +237,8 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   ADD_SCREEN_WITH_TEXT(Rebooting, Rebooting, {"Vector will remember that..."});
   ADD_SCREEN_WITH_TEXT(SelfTest, Main, {"START SELF TEST?"});
   ADD_SCREEN(SelfTestRunning, SelfTestRunning)
+  ADD_SCREEN_WITH_TEXT(CozmoMode, Main, {"ENTER COZMO MODE?"});
+  ADD_SCREEN_WITH_TEXT(VectorMode, Main, {"BACK TO VECTOR?"});
   ADD_SCREEN(Network, SensorInfo);
   ADD_SCREEN(SensorInfo, IMUInfo);
   ADD_SCREEN(IMUInfo, MotorInfo);
@@ -327,7 +331,27 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
 #if ENABLE_SELF_TEST
   ADD_MENU_ITEM(Main, IsXray() ? "TEST" : "SELF TEST", SelfTest);
 #endif
+  // Opens enter or exit confirm depending on current mode
+  FaceInfoScreen::MenuItemAction cozmoMenuAction = [this]() {
+    return IsCozmoMode() ? ScreenName::VectorMode : ScreenName::CozmoMode;
+  };
+  ADD_MENU_ITEM_WITH_ACTION(Main, "COZMO MODE", cozmoMenuAction);
   ADD_MENU_ITEM(Main, IsXray() ? "CLEAR" : "CLEAR OUT SOUL", ClearUserData);
+
+  // === Cozmo mode ===
+  ADD_MENU_ITEM(CozmoMode, "EXIT", Main);
+  FaceInfoScreen::MenuItemAction confirmCozmoMode = [this]() {
+    SetCozmoMode(true, "CCIS_MENU");
+    return ScreenName::None;
+  };
+  ADD_MENU_ITEM_WITH_ACTION(CozmoMode, "CONFIRM", confirmCozmoMode);
+
+  ADD_MENU_ITEM(VectorMode, "EXIT", Main);
+  FaceInfoScreen::MenuItemAction confirmVectorMode = [this]() {
+    ExitCozmoModeToVector("CCIS_MENU");
+    return ScreenName::None;
+  };
+  ADD_MENU_ITEM_WITH_ACTION(VectorMode, "CONFIRM", confirmVectorMode);
 
   // === Self test screen ===
   ADD_MENU_ITEM(SelfTest, "EXIT", Main);
@@ -1124,6 +1148,44 @@ void FaceInfoScreenManager::RequestWakeFromSleep(const char* reason)
   _awaitingWakeFromSleep = false;
 }
 
+void FaceInfoScreenManager::LoadCozmoModeFlag()
+{
+  _cozmoMode = Util::FileUtils::FileExists("/data/seek/cozmo_mode");
+  LOG_INFO("FaceInfoScreenManager.LoadCozmoModeFlag", "cozmoMode=%d", _cozmoMode ? 1 : 0);
+}
+
+void FaceInfoScreenManager::SetCozmoMode(bool enabled, const char* reason)
+{
+  LOG_INFO("FaceInfoScreenManager.SetCozmoMode", "enabled=%d reason=%s", enabled ? 1 : 0, reason);
+  Util::FileUtils::CreateDirectory("/data/seek", false, true);
+  if (enabled) {
+    Util::FileUtils::WriteFile("/data/seek/cozmo_mode", "1");
+  } else {
+    Util::FileUtils::DeleteFile("/data/seek/cozmo_mode");
+  }
+  _cozmoMode = enabled;
+
+  const std::string line = enabled ? "COZMO MODE ON" : "VECTOR MODE";
+  RobotInterface::DrawTextOnScreen msg{};
+  msg.drawNow = true;
+  msg.textColor.r = NamedColors::GREEN.r();
+  msg.textColor.g = NamedColors::GREEN.g();
+  msg.textColor.b = NamedColors::GREEN.b();
+  msg.bgColor.r = NamedColors::BLACK.r();
+  msg.bgColor.g = NamedColors::BLACK.g();
+  msg.bgColor.b = NamedColors::BLACK.b();
+  std::copy(line.c_str(), line.c_str() + line.length(), &(msg.text[0]));
+  msg.text[line.length()] = '\0';
+  msg.text_length = static_cast<decltype(msg.text_length)>(line.length());
+  GetScreen(ScreenName::CustomText)->SetTimeout(2.f, ScreenName::None);
+  SetCustomText(msg);
+}
+
+void FaceInfoScreenManager::ExitCozmoModeToVector(const char* reason)
+{
+  SetCozmoMode(false, reason);
+}
+
 void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
 {
   const bool buttonIsPressed = static_cast<bool>(state.status & (uint32_t)RobotStatusFlag::IS_BUTTON_PRESSED);
@@ -1214,8 +1276,13 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
            currScreenName == ScreenName::FAC ||
            currScreenName == ScreenName::MirrorMode))
   {
-    // Quad-click: go to sleep
-    RequestSystemSleep("QUADRUPLE_PRESS");
+    if (IsCozmoMode()) {
+      // 4-click in Cozmo mode → back to Vector mode
+      ExitCozmoModeToVector("QUADRUPLE_PRESS");
+    } else {
+      // Quad-click: go to sleep
+      RequestSystemSleep("QUADRUPLE_PRESS");
+    }
   }
 
   // Check for button press to go to next debug screen
@@ -1451,7 +1518,7 @@ void FaceInfoScreenManager::DrawMain()
   const std::string hwVer    = "HW: "   + std::to_string(IsXray() ? 8 : Factory::GetEMR()->fields.HW_VER);
 
   // Double-click → lift arm → Main: stock Anki DVT CCIS layout (green eng text).
-  const std::string osProject = "OS: " + OSProject;
+  const std::string osProject = IsCozmoMode() ? "OS: Cozmo" : ("OS: " + OSProject);
   std::string osVer = "VER: " + osstate->GetOSBuildVersion();
   if (osVer == "VER: " || osVer == "VER:") {
     osVer = "VER: unknown";
@@ -1464,10 +1531,13 @@ void FaceInfoScreenManager::DrawMain()
     ip = "XXX.XXX.XXX.XXX";
   }
 
+  const std::string modeLine = IsCozmoMode() ? "MODE: COZMO" : "MODE: VECTOR";
+
   // ESN + HW on one line; then OS / VER / SSID / IP (stock Anki CCIS Main layout).
   ColoredTextLines lines = { { {serialNo}, {hwVer, NamedColors::GREEN, false} },
                              {osProject},
                              {osVer},
+                             {modeLine},
                              {ssid}, 
 #if FACTORY_TEST
                              {"IP: " + ip},
@@ -1619,10 +1689,11 @@ void FaceInfoScreenManager::DrawSensorInfo(const RobotState& state)
 void FaceInfoScreenManager::DrawBuildInfo() {
   auto *osstate = OSState::getInstance();
   // Build debug screen: OS name + version (same values as Main)
-  const std::string osProject = "OS: " + OSProject;
+  const std::string osProject = IsCozmoMode() ? "OS: Cozmo" : ("OS: " + OSProject);
   const std::string osVer = "VER: " + osstate->GetOSBuildVersion();
   const std::string sha = "SHA: " + osstate->GetBuildSha();
-  DrawTextOnScreen({osProject, osVer, sha});
+  const std::string mode = IsCozmoMode() ? "MODE: COZMO" : "MODE: VECTOR";
+  DrawTextOnScreen({osProject, osVer, mode, sha});
 }
 
 void FaceInfoScreenManager::DrawIMUInfo(const RobotState& state)
