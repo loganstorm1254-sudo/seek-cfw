@@ -149,20 +149,20 @@ private:
   // Called everytime the screen changes.
   void ResetObservedHeadAndLiftAngles();
 
-  // Detects various button events
-  // Single press is confirmed after the inter-press window. Double/triple use a
-  // short confirm delay on the 2nd release so lift/menu gestures stay responsive
-  // while triple-click can still cancel an pending double.
+  // Detects backpack button gestures:
+  // 1 = wake word, 2 = CCIS key screen, 3 = sound mute, 4 = sleep
   void CheckForButtonEvent(const bool buttonPressed, 
                            bool& buttonPressedEvent,
                            bool& buttonReleasedEvent,
                            bool& singlePressDetected, 
                            bool& doublePressDetected,
-                           bool& triplePressDetected);
+                           bool& triplePressDetected,
+                           bool& quadruplePressDetected);
 
   void ApplySoundMuteState();
 
   void EnterCCISMainMenu(const char* reason);
+  void RequestSystemSleep(const char* reason);
   
   // Returns true if screenName is one of the screens that allow the user to enter pairing when
   // double pressing the backpack and on the charger

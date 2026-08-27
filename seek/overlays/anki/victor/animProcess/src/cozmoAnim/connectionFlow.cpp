@@ -174,9 +174,18 @@ void ShowCCISPairingPrompt(Anim::AnimationStreamer* animStreamer, const Anim::An
     return;
   }
 
-  animStreamer->Abort();
   animStreamer->EnableKeepFaceAlive(false, 0);
   DrawShowPinScreen(animStreamer, context, "######");
+}
+
+void ShowCCISPairingPromptEnter(Anim::AnimationStreamer* animStreamer, const Anim::AnimContext* context)
+{
+  if ((animStreamer == nullptr) || (context == nullptr)) {
+    return;
+  }
+
+  animStreamer->Abort();
+  ShowCCISPairingPrompt(animStreamer, context);
 
   RobotInterface::SetHeadAngle msg;
   msg.angle_rad             = MAX_HEAD_ANGLE;

@@ -32,10 +32,13 @@
 #include "audioEngine/audioTypeTranslator.h"
 #include "clad/audio/audioStateTypes.h"
 #include "clad/audio/audioParameterTypes.h"
+#include "clad/cloud/mic.h"
 
 #include "coretech/common/shared/array2d.h"
 #include "coretech/common/engine/utils/data/dataPlatform.h"
 #include "coretech/common/engine/utils/timer.h"
+#include "coretech/messaging/shared/LocalUdpClient.h"
+#include "coretech/messaging/shared/socketConstants.h"
 #include "coretech/vision/engine/image.h"
 #include "util/console/consoleInterface.h"
 #include "util/console/consoleSystem.h"
@@ -149,7 +152,7 @@ namespace {
 #if ANKI_DEV_CHEATS
   // Fake one of several types of button presses. This value will get reset immediately, so to
   // run it again from the web interface, first set it to NoOp
-  CONSOLE_VAR_ENUM(int, kFakeButtonPressType, "FaceInfoScreenManager", 0, "NoOp,singlePressDetected,doublePressDetected,triplePressDetected");
+  CONSOLE_VAR_ENUM(int, kFakeButtonPressType, "FaceInfoScreenManager", 0, "NoOp,singlePressDetected,doublePressDetected,triplePressDetected,quadruplePressDetected");
 #endif
 }
 
@@ -949,15 +952,13 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
                                                 bool& buttonReleasedEvent,
                                                 bool& singlePressDetected, 
                                                 bool& doublePressDetected,
-                                                bool& triplePressDetected)
+                                                bool& triplePressDetected,
+                                                bool& quadruplePressDetected)
 {
   static u32  lastReleaseTime_ms = 0;
   static u32  pressCount         = 0;
   static bool waitingConfirm     = false;
   static bool buttonWasPressed   = false;
-  static bool pendingDouble      = false;
-  static u32  pendingDoubleAt_ms = 0;
-  static u32  suppressSingleUntil_ms = 0;
 
   // Whether or not the shutdown message was already sent
   static bool shutdownSent       = false;
@@ -969,21 +970,18 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
   singlePressDetected = false;
   doublePressDetected = false;
   triplePressDetected = false;
+  quadruplePressDetected = false;
 
-  // Max gap between releases that still counts as one multi-press gesture
-  static const u32 kMultiPressWindow_ms = 1500;
-  // Short delay before confirming double so a fast 3rd press can cancel it
-  static const u32 kDoubleConfirmDelay_ms = 300;
+  // Gap between clicks that still counts as one multi-press gesture
+  static const u32 kMultiPressWindow_ms = 1200;
+  // After last release, wait this long before committing (so 2 vs 3 vs 4 resolve cleanly)
+  static const u32 kConfirmDelay_ms = 350;
 
   const u32 curTime_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp();
 
   if (buttonPressedEvent) {
     holdStartTime_ms = curTime_ms;
     shutdownSent = false;
-    // A press after two quick releases means the user may be triple-clicking.
-    if (pendingDouble) {
-      pendingDouble = false;
-    }
   } else if (buttonReleasedEvent) {
     if ((pressCount > 0) && (curTime_ms - lastReleaseTime_ms < kMultiPressWindow_ms)) {
       ++pressCount;
@@ -991,40 +989,19 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
       pressCount = 1;
     }
     lastReleaseTime_ms = curTime_ms;
-
-    if (pressCount >= 3) {
-      triplePressDetected = true;
-      pendingDouble = false;
-      pressCount = 0;
-      waitingConfirm = false;
-      lastReleaseTime_ms = 0;
-      suppressSingleUntil_ms = curTime_ms + 600;
-    } else if (pressCount == 2) {
-      pendingDouble = true;
-      pendingDoubleAt_ms = curTime_ms;
-      waitingConfirm = false;
-    } else {
-      waitingConfirm = true;
-    }
+    waitingConfirm = true;
     holdStartTime_ms = 0;
   }
 
-  if (pendingDouble && (curTime_ms - pendingDoubleAt_ms >= kDoubleConfirmDelay_ms)) {
-    doublePressDetected = true;
-    pendingDouble = false;
-    pressCount = 0;
-    waitingConfirm = false;
-    lastReleaseTime_ms = 0;
-    suppressSingleUntil_ms = curTime_ms + 600;
-  }
-
-  // Confirm single press after the window expires
-  if (waitingConfirm &&
-      !pendingDouble &&
-      (curTime_ms - lastReleaseTime_ms >= kMultiPressWindow_ms) &&
-      (curTime_ms >= suppressSingleUntil_ms)) {
+  if (waitingConfirm && (curTime_ms - lastReleaseTime_ms >= kConfirmDelay_ms)) {
     if (pressCount == 1) {
       singlePressDetected = true;
+    } else if (pressCount == 2) {
+      doublePressDetected = true;
+    } else if (pressCount == 3) {
+      triplePressDetected = true;
+    } else if (pressCount >= 4) {
+      quadruplePressDetected = true;
     }
     pressCount = 0;
     waitingConfirm = false;
@@ -1043,10 +1020,10 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
     waitingConfirm = false;
     lastReleaseTime_ms = 0;
     holdStartTime_ms = 0;
-    pendingDouble = false;
     singlePressDetected = false;
     doublePressDetected = false;
     triplePressDetected = false;
+    quadruplePressDetected = false;
     shutdownSent = true;
   }
   
@@ -1059,6 +1036,9 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
     kFakeButtonPressType = 0;
   } else if( kFakeButtonPressType == 3 ) { // triple press
     triplePressDetected = true;
+    kFakeButtonPressType = 0;
+  } else if( kFakeButtonPressType == 4 ) { // quadruple press
+    quadruplePressDetected = true;
     kFakeButtonPressType = 0;
   }
 #endif
@@ -1088,6 +1068,32 @@ void FaceInfoScreenManager::EnterCCISMainMenu(const char* reason)
   DASMSG_SEND();
 }
 
+void FaceInfoScreenManager::RequestSystemSleep(const char* reason)
+{
+  LOG_INFO("FaceInfoScreenManager.RequestSystemSleep", "%s", reason);
+
+  // Inject system_sleep the same way vic-cloud does (UDP → engine ai_sock).
+  CloudMic::IntentResult intent;
+  intent.intent = "intent_system_sleep";
+  CloudMic::Message msg = CloudMic::Message::Createresult(std::move(intent));
+
+  LocalUdpClient client;
+  const std::string sockname = std::string(LOCAL_SOCKET_PATH) + "_anim_ai_client_sleep";
+  const std::string peername = std::string(AI_SERVER_BASE_PATH);
+  if (!client.Connect(sockname, peername)) {
+    LOG_WARNING("FaceInfoScreenManager.RequestSystemSleep.ConnectFail", "peer=%s", peername.c_str());
+    return;
+  }
+
+  std::vector<uint8_t> buf(msg.Size());
+  msg.Pack(buf.data(), buf.size());
+  const ssize_t sent = client.Send(reinterpret_cast<const char*>(buf.data()), buf.size());
+  if (sent <= 0) {
+    LOG_WARNING("FaceInfoScreenManager.RequestSystemSleep.SendFail", "sent=%zd", sent);
+  }
+  client.Disconnect();
+}
+
 void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
 {
   const bool buttonIsPressed = static_cast<bool>(state.status & (uint32_t)RobotStatusFlag::IS_BUTTON_PRESSED);
@@ -1096,12 +1102,14 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
   bool singlePressDetected;
   bool doublePressDetected;
   bool triplePressDetected;
+  bool quadruplePressDetected;
   CheckForButtonEvent(buttonIsPressed, 
                       buttonPressedEvent, 
                       buttonReleasedEvent, 
                       singlePressDetected, 
                       doublePressDetected,
-                      triplePressDetected);
+                      triplePressDetected,
+                      quadruplePressDetected);
 
 
   const ScreenName currScreenName = GetCurrScreenName();
@@ -1128,18 +1136,43 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
     LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotDoublePress", "Entering CCIS pairing face");
     _ccisPairingFaceHeld = true;
     SetScreen(ScreenName::Pairing);
-    ShowCCISPairingPrompt(_animationStreamer, _context);
+    ShowCCISPairingPromptEnter(_animationStreamer, _context);
   }
   else if(triplePressDetected &&
           _engineLoaded &&
           (currScreenName == ScreenName::None ||
            currScreenName == ScreenName::ToggleMute ||
            currScreenName == ScreenName::FAC ||
-           currScreenName == ScreenName::MirrorMode))
+           currScreenName == ScreenName::MirrorMode ||
+           currScreenName == ScreenName::Pairing))
   {
-    // SeekOS: triple-click mutes/unmutes all robot sounds and shows a mute icon
-    // (works on or off charger; fires immediately on 3rd release)
+    // Triple-click mutes/unmutes all robot sounds and shows a mute icon
+    if (_ccisPairingFaceHeld) {
+      _ccisPairingFaceHeld = false;
+      SetScreen(ScreenName::None);
+      if (_animationStreamer != nullptr) {
+        _animationStreamer->EnableKeepFaceAlive(true, 0);
+      }
+    }
     ToggleSoundMute("TRIPLE_PRESS");
+  }
+  else if(quadruplePressDetected &&
+          _engineLoaded &&
+          (currScreenName == ScreenName::None ||
+           currScreenName == ScreenName::ToggleMute ||
+           currScreenName == ScreenName::FAC ||
+           currScreenName == ScreenName::MirrorMode ||
+           currScreenName == ScreenName::Pairing))
+  {
+    // Quad-click: go to sleep
+    if (_ccisPairingFaceHeld) {
+      _ccisPairingFaceHeld = false;
+      SetScreen(ScreenName::None);
+      if (_animationStreamer != nullptr) {
+        _animationStreamer->EnableKeepFaceAlive(true, 0);
+      }
+    }
+    RequestSystemSleep("QUADRUPLE_PRESS");
   }
 
   // Check for button press to go to next debug screen
@@ -1272,9 +1305,16 @@ void FaceInfoScreenManager::Update(const RobotState& state)
   ProcessMenuNavigation(state);
 
   // Hold CCIS pairing face over engine eyes until lift opens the menu.
+  // Redraw periodically so engine/keepalive cannot steal the face back.
   if (_ccisPairingFaceHeld && (GetCurrScreenName() == ScreenName::Pairing) &&
       (_animationStreamer != nullptr)) {
+    static u32 lastPairingRedraw_ms = 0;
+    const u32 now_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp();
     _animationStreamer->EnableKeepFaceAlive(false, 0);
+    if ((now_ms - lastPairingRedraw_ms) > 150) {
+      lastPairingRedraw_ms = now_ms;
+      ShowCCISPairingPrompt(_animationStreamer, _context);
+    }
   }
 
   // Keep sound mute enforced — engine volume/settings can overwrite Wwise state

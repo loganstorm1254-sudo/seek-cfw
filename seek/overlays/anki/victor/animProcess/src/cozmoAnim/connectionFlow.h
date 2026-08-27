@@ -35,6 +35,7 @@ void UpdateConnectionFlow(const SwitchboardInterface::SetConnectionStatus& msg,
                           const Anim::AnimContext* context);
 
 void ShowCCISPairingPrompt(Anim::AnimationStreamer* animStreamer, const Anim::AnimContext* context);
+void ShowCCISPairingPromptEnter(Anim::AnimationStreamer* animStreamer, const Anim::AnimContext* context);
 
 }
 }
