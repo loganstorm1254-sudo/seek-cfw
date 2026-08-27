@@ -53,6 +53,7 @@ enum class ScreenName : uint8_t {
   CozmoMode,
   VectorMode,
   FactoryInfo, // Original EMR / birth-cert ESN + HW (end of backpack chain)
+  FactoryAlert, // Playpen-style ! on yellow (CCIS menu preview)
   
   Count
 };

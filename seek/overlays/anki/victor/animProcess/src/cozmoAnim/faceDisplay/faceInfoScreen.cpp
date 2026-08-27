@@ -105,8 +105,8 @@ void FaceInfoScreen::DrawMenuVertical(Vision::ImageRGB565& img) const
   const ColorRGBA& menuBgColor = NamedColors::BLACK;
   const ColorRGBA& menuItemColor = NamedColors::GREEN;
   const f32 locX = 10;
-  // 4 items × 11px collides with Main SSID/IP on 96px; tighten when crowded.
-  const f32 stepY = (_menu.size() >= 4) ? 10.f : 11.f;
+  // 6 CCIS menu rows need tighter spacing on the 96px face.
+  const f32 stepY = (_menu.size() >= 6) ? 9.f : ((_menu.size() >= 4) ? 10.f : 11.f);
   const f32 textScale = 0.4f;
 
   f32 locY = stepY;

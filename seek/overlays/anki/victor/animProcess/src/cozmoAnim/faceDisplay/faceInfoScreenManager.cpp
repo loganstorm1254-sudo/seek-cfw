@@ -246,6 +246,7 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   ADD_SCREEN(None, None);
   ADD_SCREEN(Pairing, Pairing);
   ADD_SCREEN(FAC, None);
+  ADD_SCREEN(FactoryAlert, Main);
   ADD_SCREEN(CustomText, None);
   ADD_SCREEN(Main, Network);
   ADD_SCREEN_WITH_TEXT(ClearUserData, Main, {"CLEAR OUT SOUL?"});
@@ -318,6 +319,13 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   SET_ENTER_ACTION(FAC, facEnterFcn);
   DISABLE_TIMEOUT(FAC);
 
+  // === Factory alert (!) preview screen ===
+  auto factoryAlertEnterFcn = [this]() {
+    DrawFactoryAlert();
+  };
+  SET_ENTER_ACTION(FactoryAlert, factoryAlertEnterFcn);
+  DISABLE_TIMEOUT(FactoryAlert);
+
 
   // === Pairing screen ===
   // Never timeout. Let switchboard handle timeouts.
@@ -355,6 +363,8 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   };
   ADD_MENU_ITEM_WITH_ACTION(Main, "COZMO", cozmoMenuAction);
   ADD_MENU_ITEM(Main, "CLEAR", ClearUserData);
+  ADD_MENU_ITEM(Main, "FAC", FAC);
+  ADD_MENU_ITEM(Main, "!", FactoryAlert);
 
   // === Cozmo mode ===
   ADD_MENU_ITEM(CozmoMode, "EXIT", Main);
@@ -590,6 +600,7 @@ bool FaceInfoScreenManager::IsDebugScreen(ScreenName screen) const
   switch(screen) {
     case ScreenName::None:
     case ScreenName::FAC:
+    case ScreenName::FactoryAlert:
     case ScreenName::CustomText:
       return false;
     default:
@@ -676,11 +687,38 @@ void FaceInfoScreenManager::DrawFAC()
 {
   DrawTextOnScreen({"FAC"},
                    NamedColors::BLACK,
-                   (Factory::GetEMR()->fields.PLAYPEN_PASSED_FLAG ? 
-		    NamedColors::GREEN : NamedColors::RED),
+                   NamedColors::ORANGE,
                    { 0, FACE_DISPLAY_HEIGHT-10 },
                    10,
                    3.f);
+}
+
+void FaceInfoScreenManager::DrawFactoryAlert()
+{
+  Vision::ImageRGB565& img = *_scratchDrawingImg;
+  img.FillWith({NamedColors::BLACK.r(), NamedColors::BLACK.g(), NamedColors::BLACK.b()});
+
+  static const ColorRGBA kGold(1.f, 0.78f, 0.f);
+  constexpr s32 kMarginX = 6;
+  constexpr s32 kMarginY = 4;
+  const Rectangle<s32> box(kMarginX, kMarginY,
+                           FACE_DISPLAY_WIDTH - kMarginX,
+                           FACE_DISPLAY_HEIGHT - kMarginY);
+  img.DrawFilledRect(box, kGold);
+
+  const std::string bang = "!";
+  const f32 scale = 4.f;
+  const int thick = 8;
+  const auto sz = Vision::Image::GetTextSize(bang, scale, thick);
+  const int baselineY = (FACE_DISPLAY_HEIGHT + sz.y()) / 2;
+  img.DrawTextCenteredHorizontally(bang,
+                                   cv::QT_FONT_NORMAL,
+                                   scale,
+                                   thick,
+                                   NamedColors::BLACK,
+                                   baselineY,
+                                   false);
+  DrawScratch();
 }
 
 void FaceInfoScreenManager::UpdateFAC()
@@ -1259,6 +1297,14 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
     // Don't also run mute/pairing/sleep while waking
   }
   else if (doublePressDetected &&
+           _engineLoaded &&
+           (currScreenName == ScreenName::FAC ||
+            currScreenName == ScreenName::FactoryAlert))
+  {
+    LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.ExitFactoryVisual", "");
+    SetScreen(ScreenName::Main);
+  }
+  else if (doublePressDetected &&
       isOnCharger &&
       CanEnterPairingFromScreen(currScreenName)) {
     LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotDoublePress", "Entering pairing");
@@ -1308,6 +1354,7 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
     if (_debugInfoScreensUnlocked &&
         (currScreenName != ScreenName::None &&
           currScreenName != ScreenName::FAC &&
+          currScreenName != ScreenName::FactoryAlert &&
           currScreenName != ScreenName::Pairing &&
           currScreenName != ScreenName::Recovery) ) {
       SetScreen(_currScreen->GetButtonGotoScreen());
@@ -2454,6 +2501,7 @@ bool FaceInfoScreenManager::CanEnterPairingFromScreen( const ScreenName& screenN
   {
     case ScreenName::None:
     case ScreenName::FAC:
+    case ScreenName::FactoryAlert:
     case ScreenName::CustomText:
     case ScreenName::Pairing:
     case ScreenName::MirrorMode:

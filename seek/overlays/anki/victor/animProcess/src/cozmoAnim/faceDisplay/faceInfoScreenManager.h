@@ -203,6 +203,7 @@ private:
 
   // Internal draw functions that
   void DrawFAC();
+  void DrawFactoryAlert();
   void DrawMain();
   void DrawNetwork();
   void DrawSensorInfo(const RobotState& state);
