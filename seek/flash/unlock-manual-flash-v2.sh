@@ -41,6 +41,17 @@ BOOTCTL=""
 for b in /bin/bootctl-anki /usr/bin/bootctl-anki /bin/bootctl; do
   if [ -x "$b" ]; then BOOTCTL="$b"; break; fi
 done
+if [ -z "$BOOTCTL" ]; then
+  mkdir -p /mnt/sysa /mnt/sysb
+  mount -t ext4 -o ro /dev/block/bootdevice/by-name/system_a /mnt/sysa 2>/dev/null || \
+    mount -o ro /dev/block/bootdevice/by-name/system_a /mnt/sysa 2>/dev/null || true
+  mount -t ext4 -o ro /dev/block/bootdevice/by-name/system_b /mnt/sysb 2>/dev/null || \
+    mount -o ro /dev/block/bootdevice/by-name/system_b /mnt/sysb 2>/dev/null || true
+  for b in /mnt/sysa/usr/bin/bootctl-anki /mnt/sysb/usr/bin/bootctl-anki \
+           /mnt/sysa/bin/bootctl-anki /mnt/sysb/bin/bootctl-anki; do
+    if [ -x "$b" ]; then BOOTCTL="$b"; break; fi
+  done
+fi
 [ -n "$BOOTCTL" ] || { echo "FATAL: no bootctl"; exit 1; }
 
 CMDLINE=$(cat /proc/cmdline)
