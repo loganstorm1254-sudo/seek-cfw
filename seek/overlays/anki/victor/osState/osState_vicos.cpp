@@ -496,7 +496,6 @@ const std::string& OSState::GetSerialNumberAsString()
   if(_serialNumString.empty())
   {
     // Victor DVT2: ESN 0 in birth certificate — real serial is on cmdline.
-    // https://randym32.github.io/Anki.Vector.Documentation/historical-bots/Victor%20DVT2.html
     if (Factory::GetEMR() != nullptr && Factory::GetEMR()->fields.ESN == 0) {
       std::ifstream infile(kCmdLineFile);
       std::string line;
