@@ -117,9 +117,9 @@ bool isDeployed() {
 namespace {
   // Number of tics that a wheel needs to be moving for before it registers
   // as a signal to move the menu cursor
-  const u32 kMenuCursorMoveCountThresh = 10;
+  const u32 kMenuCursorMoveCountThresh = 4;
 
-  const f32 kWheelMotionThresh_mmps = 3.f;
+  const f32 kWheelMotionThresh_mmps = 2.f;
 
   const f32 kMenuLiftRange_rad = DEG_TO_RAD(45);
   f32 _liftLowestAngle_rad;
@@ -320,12 +320,25 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
       _animationStreamer->Abort();
       _animationStreamer->EnableKeepFaceAlive(true, 0);
     }
+    SendAnimToRobot(RobotInterface::StopAllMotors());
     RobotInterface::CalmPowerMode calm;
     calm.enable = true;
     SendAnimToRobot(std::move(calm));
+    if (_context != nullptr) {
+      auto* audioController = _context->GetAudioController();
+      if (audioController != nullptr) {
+        audioController->StopAllAudioEvents();
+      }
+    }
     if (drawScreen) {
       drawScreen();
     }
+  };
+
+  auto ccisStillExitFcn = []() {
+    RobotInterface::CalmPowerMode calm;
+    calm.enable = false;
+    SendAnimToRobot(std::move(calm));
   };
 
   // === FAC screen ===
@@ -367,6 +380,7 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
     ccisStillEnterFcn([this]() { DrawMain(); });
   };
   SET_ENTER_ACTION(Main, mainEnterFcn);
+  SET_EXIT_ACTION(Main, ccisStillExitFcn);
 
   ADD_MENU_ITEM(Main, "EXIT", None);
 #if ENABLE_SELF_TEST
@@ -386,6 +400,7 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
     ccisStillEnterFcn([this]() { DrawFactoryMenu(); });
   };
   SET_ENTER_ACTION(FactoryMenu, factoryMenuEnterFcn);
+  SET_EXIT_ACTION(FactoryMenu, ccisStillExitFcn);
   ADD_MENU_ITEM(FactoryMenu, "EXIT", Main);
   ADD_MENU_ITEM(FactoryMenu, "FAC", FAC);
   ADD_MENU_ITEM(FactoryMenu, "!", FactoryAlert);
@@ -693,10 +708,18 @@ void FaceInfoScreenManager::SetScreen(ScreenName screen)
   }
 
 #ifndef SIMULATOR
-  // Enable/Disable lift
+  // Enable lift on CCIS menu screens (confirm with arm); keep disabled on sensor debug chain.
+  const bool ccisMenuLift =
+    (currScreenName == ScreenName::Main ||
+     currScreenName == ScreenName::FactoryMenu ||
+     currScreenName == ScreenName::CozmoMode ||
+     currScreenName == ScreenName::VectorMode ||
+     currScreenName == ScreenName::ClearUserData ||
+     currScreenName == ScreenName::SelfTest);
   RobotInterface::EnableMotorPower msg;
   msg.motorID = MotorID::MOTOR_LIFT;
   msg.enable = (!currScreenIsDebug ||
+                ccisMenuLift ||
                 GetCurrScreenName() == ScreenName::CameraMotorTest ||
                 GetCurrScreenName() == ScreenName::SelfTestRunning);
   SendAnimToRobot(std::move(msg));
@@ -1189,9 +1212,20 @@ void FaceInfoScreenManager::EnterCCISMainMenu(const char* reason)
 {
   LOG_INFO("FaceInfoScreenManager.EnterCCISMainMenu", "%s", reason);
   _ccisPairingFaceHeld = false;
+  _debugInfoScreensUnlocked = true;
   if (_animationStreamer != nullptr) {
     _animationStreamer->Abort();
     _animationStreamer->EnableKeepFaceAlive(true, 0);
+  }
+  SendAnimToRobot(RobotInterface::StopAllMotors());
+  RobotInterface::CalmPowerMode calm;
+  calm.enable = true;
+  SendAnimToRobot(std::move(calm));
+  if (_context != nullptr) {
+    auto* audioController = _context->GetAudioController();
+    if (audioController != nullptr) {
+      audioController->StopAllAudioEvents();
+    }
   }
   SetScreen(ScreenName::Main);
 
@@ -1357,6 +1391,10 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
       isOnCharger &&
       CanEnterPairingFromScreen(currScreenName)) {
     LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotDoublePress", "Entering pairing");
+    _ccisPairingFaceHeld = true;
+    if (_animationStreamer != nullptr && _context != nullptr) {
+      ShowCCISPairingPromptEnter(_animationStreamer, _context);
+    }
     RobotInterface::SendAnimToEngine(SwitchboardInterface::EnterPairing());
 
     if (FORCE_TRANSITION_TO_PAIRING) {
@@ -1402,9 +1440,10 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
   if (buttonReleasedEvent) {
     if (_debugInfoScreensUnlocked &&
         (currScreenName != ScreenName::None &&
+          currScreenName != ScreenName::Main &&
+          currScreenName != ScreenName::FactoryMenu &&
           currScreenName != ScreenName::FAC &&
           currScreenName != ScreenName::FactoryAlert &&
-          currScreenName != ScreenName::FactoryMenu &&
           currScreenName != ScreenName::Pairing &&
           currScreenName != ScreenName::Recovery) ) {
       SetScreen(_currScreen->GetButtonGotoScreen());
@@ -1490,6 +1529,42 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
     _liftTriggerReady = false;
   }
 
+  // Head tilt menu scroll on CCIS menus (fallback if treads don't register).
+  if ((currScreenName == ScreenName::Main || currScreenName == ScreenName::FactoryMenu) &&
+      _currScreen->HasMenu()) {
+    static f32 headScrollLowest_rad = std::numeric_limits<f32>::max();
+    static f32 headScrollHighest_rad = std::numeric_limits<f32>::lowest();
+    static bool headScrollReady = false;
+    constexpr f32 kHeadMenuScrollRange_rad = DEG_TO_RAD(15);
+
+    const auto headAngle = state.headAngle;
+    if (headAngle > headScrollHighest_rad) {
+      headScrollHighest_rad = headAngle;
+    }
+    if (headAngle < headScrollLowest_rad) {
+      headScrollLowest_rad = headAngle;
+    }
+    const float headScrollRange_rad = headScrollHighest_rad - headScrollLowest_rad;
+
+    if (!headScrollReady && (headScrollRange_rad > kHeadMenuScrollRange_rad)) {
+      headScrollReady = true;
+    } else if (headScrollReady &&
+               (Util::Abs(headAngle - headScrollHighest_rad) < kMenuAngularTriggerThresh_rad)) {
+      headScrollReady = false;
+      headScrollLowest_rad = std::numeric_limits<f32>::max();
+      headScrollHighest_rad = std::numeric_limits<f32>::lowest();
+      _currScreen->MoveMenuCursorUp();
+      DrawScratch();
+    } else if (headScrollReady &&
+               (Util::Abs(headAngle - headScrollLowest_rad) < kMenuAngularTriggerThresh_rad)) {
+      headScrollReady = false;
+      headScrollLowest_rad = std::numeric_limits<f32>::max();
+      headScrollHighest_rad = std::numeric_limits<f32>::lowest();
+      _currScreen->MoveMenuCursorDown();
+      DrawScratch();
+    }
+  }
+
   // Process head motion for going from Main screen to "hidden" debug info screens
   if (currScreenName == ScreenName::Main) {
 
@@ -1541,14 +1616,26 @@ void FaceInfoScreenManager::Update(const RobotState& state)
 
   switch(currScreenName) {
     case ScreenName::Main:
+    case ScreenName::FactoryMenu:
     {
-      static float lastTime = 0;
-      const float now = BaseStationTimer::getInstance()->GetCurrentTimeInSeconds();
-      if ( (now - lastTime) > kIPCheckPeriod_sec ) {
-        lastTime = now;
-        DrawMain();
+      static u32 lastStill_ms = 0;
+      const u32 now_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp();
+      if (now_ms - lastStill_ms > 1500) {
+        lastStill_ms = now_ms;
+        SendAnimToRobot(RobotInterface::StopAllMotors());
+        RobotInterface::CalmPowerMode calm;
+        calm.enable = true;
+        SendAnimToRobot(std::move(calm));
       }
-      break; 
+      if (currScreenName == ScreenName::Main) {
+        static float lastTime = 0;
+        const float now = BaseStationTimer::getInstance()->GetCurrentTimeInSeconds();
+        if ( (now - lastTime) > kIPCheckPeriod_sec ) {
+          lastTime = now;
+          DrawMain();
+        }
+      }
+      break;
     }
     case ScreenName::Network:
     {
