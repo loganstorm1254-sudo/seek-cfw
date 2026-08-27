@@ -86,15 +86,21 @@ install_lights() {
 }
 
 install_boot_anim() {
-  src="$HOTFIX_DIR/boot_anim.raw"
-  dest="/anki/data/assets/cozmo_resources/config/engine/animations/boot_anim.raw"
-  if [ ! -f "$src" ] || [ ! -f "$dest" ]; then
-    return 0
-  fi
   remount_rw
-  cat "$src" > "${dest}.seeknew"
-  mv -f "${dest}.seeknew" "$dest"
-  echo "installed Crypto OS boot movie"
+  for name in boot_anim.raw boot_anim_20.raw; do
+    src="$HOTFIX_DIR/$name"
+    dest="/anki/data/assets/cozmo_resources/config/engine/animations/$name"
+    if [ ! -f "$src" ]; then
+      continue
+    fi
+    if [ ! -f "$dest" ]; then
+      # still try to place it
+      mkdir -p "$(dirname "$dest")" 2>/dev/null || true
+    fi
+    cat "$src" > "${dest}.seeknew"
+    mv -f "${dest}.seeknew" "$dest"
+    echo "installed $name"
+  done
 }
 
 remount_rw
