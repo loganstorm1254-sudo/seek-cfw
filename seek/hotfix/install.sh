@@ -1,5 +1,6 @@
 #!/bin/sh
 # Crypto OS hotfix: WireOS look + Crypto branding + 898/899 skip (full motors).
+# BusyBox ash safe. Never abort the whole install on optional rootfs bits (rampost).
 set -e
 HOTFIX_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$HOTFIX_DIR"
@@ -7,6 +8,8 @@ cd "$HOTFIX_DIR"
 BACKUP_DIR=/data/seek/backups
 mkdir -p /data/seek "$BACKUP_DIR"
 rm -f /data/seek/head_only
+
+log() { echo "seek: $*"; }
 
 remount_rw() {
   mount -o remount,rw / 2>/dev/null || true
@@ -23,10 +26,10 @@ same_file() {
 
 backup_once() {
   name="$1"
-  src="$2"
+  path="$2"
   bak="$BACKUP_DIR/$name"
-  if [ ! -f "$bak" ] && [ -f "$src" ]; then
-    cp -a "$src" "$bak"
+  if [ ! -f "$bak" ] && [ -f "$path" ]; then
+    cp -a "$path" "$bak" 2>/dev/null || true
   fi
 }
 
@@ -43,35 +46,52 @@ install_bin() {
     exit 1
   fi
   if same_file "$src" "$dest"; then
-    echo "skip $name (already installed)"
+    log "skip $name (already installed)"
     return 0
   fi
   backup_once "$name" "$dest"
   remount_rw
   tmp="${dest}.seeknew"
-  cat "$src" > "$tmp"
+  cp -f "$src" "$tmp"
   chmod 0755 "$tmp"
   chown robot:anki "$tmp" 2>/dev/null || true
   mv -f "$tmp" "$dest"
+  log "installed $dest"
 }
 
-install_root_bin() {
+# Optional rootfs binaries (rampost often lives only in initramfs — may be absent).
+install_root_bin_optional() {
   dest="$1"
   name="$(basename "$dest")"
   src="$HOTFIX_DIR/$name"
   if [ ! -f "$src" ]; then
+    log "skip $name (not in hotfix)"
     return 0
   fi
   if same_file "$src" "$dest"; then
-    echo "skip $name (already installed)"
+    log "skip $name (already installed)"
     return 0
   fi
-  backup_once "$name" "$dest"
   remount_rw
-  tmp="${dest}.seeknew"
-  cat "$src" > "$tmp"
-  chmod 0755 "$tmp"
-  mv -f "$tmp" "$dest"
+  backup_once "$name" "$dest"
+  # Prefer in-place replace when target exists; otherwise try create.
+  if [ -f "$dest" ] || [ -L "$dest" ]; then
+    tmp="${dest}.seeknew"
+    if cp -f "$src" "$tmp" 2>/dev/null; then
+      chmod 0755 "$tmp"
+      mv -f "$tmp" "$dest"
+      log "installed $dest"
+      return 0
+    fi
+  else
+    if cp -f "$src" "$dest" 2>/dev/null; then
+      chmod 0755 "$dest"
+      log "installed $dest (new)"
+      return 0
+    fi
+  fi
+  log "WARN: could not install $name -> $dest (ok if initramfs-only)"
+  return 0
 }
 
 install_lights() {
@@ -83,7 +103,7 @@ install_lights() {
   remount_rw
   mkdir -p "$dest"
   cp -a "$src/." "$dest/"
-  echo "installed WireOS backpack lights"
+  log "installed WireOS backpack lights"
 }
 
 install_boot_anim() {
@@ -100,47 +120,53 @@ install_boot_anim() {
       continue
     fi
     mkdir -p "$(dirname "$dest")" 2>/dev/null || true
-    cat "$src" > "${dest}.seeknew"
+    cp -f "$src" "${dest}.seeknew"
     mv -f "${dest}.seeknew" "$dest"
-    echo "installed $name ($(wc -c < "$dest") bytes)"
+    log "installed $name ($(wc -c < "$dest") bytes)"
   done
   if [ -f /persist/boot_anim.raw ]; then
     old_sz=$(wc -c < /persist/boot_anim.raw)
-    echo "found WireOS override /persist/boot_anim.raw ($old_sz bytes) — removing"
+    log "found WireOS override /persist/boot_anim.raw ($old_sz bytes) — removing"
     rm -f /persist/boot_anim.raw 2>/dev/null || true
     if [ -f /persist/boot_anim.raw ]; then
-      echo "WARN: delete failed — overwriting with size-matched Crypto anim"
-      src=""
+      log "WARN: delete failed — overwriting with size-matched Crypto anim"
+      match=""
       if [ $((old_sz % MIDAS_FRAME)) -eq 0 ] && [ $((old_sz % SANTEK_FRAME)) -ne 0 ]; then
-        src="$HOTFIX_DIR/boot_anim_20.raw"
+        match="$HOTFIX_DIR/boot_anim_20.raw"
       elif [ $((old_sz % SANTEK_FRAME)) -eq 0 ]; then
-        src="$HOTFIX_DIR/boot_anim.raw"
+        match="$HOTFIX_DIR/boot_anim.raw"
       fi
-      if [ -n "$src" ] && [ -f "$src" ]; then
-        cat "$src" > /persist/boot_anim.raw.seeknew
+      if [ -n "$match" ] && [ -f "$match" ]; then
+        cp -f "$match" /persist/boot_anim.raw.seeknew
         mv -f /persist/boot_anim.raw.seeknew /persist/boot_anim.raw
-        echo "installed /persist/boot_anim.raw from $(basename "$src")"
+        log "installed /persist/boot_anim.raw from $(basename "$match")"
       else
         echo "ERROR: could not clear WireOS /persist/boot_anim.raw" >&2
         exit 1
       fi
     else
-      echo "removed WireOS /persist/boot_anim.raw"
+      log "removed WireOS /persist/boot_anim.raw"
     fi
   else
-    echo "no /persist/boot_anim.raw (stock paths used)"
+    log "no /persist/boot_anim.raw (stock paths used)"
   fi
 }
 
 remount_rw
+log "hotfix dir=$HOTFIX_DIR"
+log "rampost present on rootfs? $(ls -la /usr/bin/rampost /bin/rampost 2>&1 || true)"
+
+# Boot branding first so a later optional failure cannot skip it.
+install_boot_anim
+install_lights
+
 install_bin /anki/bin/vic-robot
 if [ -f "$HOTFIX_DIR/vic-anim" ]; then
   install_bin /anki/bin/vic-anim
 fi
-install_root_bin /usr/bin/fault-code-handler
-install_root_bin /usr/bin/rampost
-install_lights
-install_boot_anim
+install_root_bin_optional /usr/bin/fault-code-handler
+# Early splash binary is usually initramfs-only on WireOS; never fail the install.
+install_root_bin_optional /usr/bin/rampost
 
 rm -f /data/data/enableankilights 2>/dev/null || true
 
@@ -151,3 +177,4 @@ sleep 1
 systemctl restart vic-engine 2>/dev/null || true
 systemctl restart vic-anim 2>/dev/null || true
 echo CRYPTO_OS_OK
+log "reboot to see CRYPTO OS boot movie (face menu: OS: Crypto OS)"
