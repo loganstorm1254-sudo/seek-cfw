@@ -4,7 +4,7 @@
 #
 #   sh unlock-manual-flash-v2.sh /data/ota/v.ota
 set -e
-OTA="${1:-/ota/v.ota}"
+OTA="${1:-/data/ota/v.ota}"
 PAS=/anki/etc/ota.pas
 ANKIDEV_B64='6YCZ5piv5LiA5YCL5a+G56K8'
 TMP=/data/seek-flash

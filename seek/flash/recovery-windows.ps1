@@ -14,7 +14,9 @@ $SshOpts = @(
     "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa",
     "-o", "HostKeyAlgorithms=+ssh-rsa"
 )
-$ScpOpts = $SshOpts + @("-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=120")
+# -O = legacy scp protocol (recovery has no sftp-server; Windows OpenSSH defaults to SFTP)
+$ScpOpts = $SshOpts + @("-O", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=120")
+$OtaOnRobot = "/data/ota/v.ota"
 $Remote = "root@$Ip"
 
 Write-Host "=== Seek recovery flash (3.0.1.33d) ==="
@@ -37,21 +39,15 @@ if (-not $SkipDownload) {
     Write-Host "[1-2/4] Using existing files in %TEMP%"
 }
 
-Write-Host "[3/4] Upload to Vector..."
-ssh @SshOpts $Remote "mkdir -p /data/ota /ota && df -h /data /ota /cache 2>/dev/null; rm -f /data/ota/v.ota /ota/v.ota"
+Write-Host "[3/4] Upload to Vector (recovery: /data/ota only, /ota is read-only)..."
+ssh @SshOpts $Remote "mkdir -p /data/ota && df -h /data /cache 2>/dev/null; rm -f /data/ota/v.ota"
 scp @ScpOpts $Flash "${Remote}:/data/unlock-manual-flash-v2.sh"
-
-$otaOnRobot = "/ota/v.ota"
-scp @ScpOpts $Ota "${Remote}:/ota/v.ota"
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "/ota failed, trying /data/ota/v.ota ..."
-    scp @ScpOpts $Ota "${Remote}:/data/ota/v.ota"
-    if ($LASTEXITCODE -ne 0) { throw "scp failed for OTA" }
-    $otaOnRobot = "/data/ota/v.ota"
-}
+if ($LASTEXITCODE -ne 0) { throw "scp failed for flash script" }
+scp @ScpOpts $Ota "${Remote}:${OtaOnRobot}"
+if ($LASTEXITCODE -ne 0) { throw "scp failed for OTA (check /data free space and charger)" }
 
 Write-Host "[4/4] Flashing inactive slot (several minutes, then reboot)..."
-ssh @SshOpts $Remote "rm -f /data/unbrick; mount -o remount,rw /; chmod 755 /data/unlock-manual-flash-v2.sh; sh /data/unlock-manual-flash-v2.sh $otaOnRobot"
+ssh @SshOpts $Remote "rm -f /data/unbrick; mount -o remount,rw /; chmod 755 /data/unlock-manual-flash-v2.sh; sh /data/unlock-manual-flash-v2.sh $OtaOnRobot"
 if ($LASTEXITCODE -ne 0) { throw "Flash command failed" }
 
 Write-Host "DONE - Vector should reboot into Seek."
