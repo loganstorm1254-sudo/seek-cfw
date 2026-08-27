@@ -1508,14 +1508,11 @@ void FaceInfoScreenManager::DrawMain()
   const auto* emr = Factory::GetEMR();
   const bool dvt2Proto = (emr != nullptr && emr->fields.ESN == 0);
 
-  // Visual-only: Main ESN line uses cmdline serial when birth-cert ESN is fake zero.
-  // EMR / cloud / OSState serial are unchanged.
+  // Visual-only: Main always shows zero ESN when birth-cert EMR ESN is fake zero.
+  // Real serial stays on Factory Info (BOOT line); EMR/cloud unchanged.
   std::string esn = osstate->GetSerialNumberAsString();
   if (dvt2Proto) {
-    const std::string bootSn = ReadAndroidBootSerial8();
-    if (!bootSn.empty()) {
-      esn = bootSn;
-    }
+    esn = "000000";
   }
 
   std::transform(esn.begin(), esn.end(), esn.begin(),
