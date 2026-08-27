@@ -155,6 +155,22 @@ namespace {
   // run it again from the web interface, first set it to NoOp
   CONSOLE_VAR_ENUM(int, kFakeButtonPressType, "FaceInfoScreenManager", 0, "NoOp,singlePressDetected,doublePressDetected,triplePressDetected,quadruplePressDetected");
 #endif
+
+  // Visual-only: read kernel serial for CCIS face (does not change EMR / cloud ESN).
+  std::string ReadAndroidBootSerial8()
+  {
+    std::ifstream infile("/proc/cmdline");
+    std::string line;
+    if (!std::getline(infile, line)) {
+      return {};
+    }
+    static const std::string kProp = "androidboot.serialno=";
+    const size_t index = line.find(kProp);
+    if (index == std::string::npos) {
+      return {};
+    }
+    return line.substr(index + kProp.length(), 8);
+  }
 }
 
 
@@ -1489,9 +1505,18 @@ void FaceInfoScreenManager::DrawMain()
 {
   auto *osstate = OSState::getInstance();
 
+  const auto* emr = Factory::GetEMR();
+  const bool dvt2Proto = (emr != nullptr && emr->fields.ESN == 0);
+
+  // Visual-only: Main ESN line uses cmdline serial when birth-cert ESN is fake zero.
+  // EMR / cloud / OSState serial are unchanged.
   std::string esn = osstate->GetSerialNumberAsString();
-  // Victor DVT2: fake birth certificate (ESN 0) — serial from cmdline via OSState.
-  const bool dvt2Proto = (Factory::GetEMR() != nullptr && Factory::GetEMR()->fields.ESN == 0);
+  if (dvt2Proto) {
+    const std::string bootSn = ReadAndroidBootSerial8();
+    if (!bootSn.empty()) {
+      esn = bootSn;
+    }
+  }
 
   std::transform(esn.begin(), esn.end(), esn.begin(),
     [](unsigned char c){ return std::tolower(c); });
@@ -1500,7 +1525,7 @@ void FaceInfoScreenManager::DrawMain()
 
   const std::string hwVer    = dvt2Proto
     ? "HW: DVT2"
-    : ("HW: " + std::to_string(IsXray() ? 8 : Factory::GetEMR()->fields.HW_VER));
+    : ("HW: " + std::to_string(IsXray() ? 8 : emr->fields.HW_VER));
 
   // Double-click → lift arm → Main: stock Anki DVT CCIS layout (green eng text).
   // Keep to 5 content lines so the 4-item bottom menu (EXIT/TEST/COZMO/CLEAR)
@@ -1706,17 +1731,12 @@ void FaceInfoScreenManager::DrawFactoryInfo()
     packed = temp;
   }
 
-  // Kernel serial (androidboot.serialno) — what Main uses when EMR ESN is 0
+  // Kernel serial (androidboot.serialno) — visual reference for what Main shows
   std::string bootSn = "BOOT: --------";
   {
-    std::ifstream infile("/proc/cmdline");
-    std::string line;
-    if (std::getline(infile, line)) {
-      static const std::string kProp = "androidboot.serialno=";
-      const size_t index = line.find(kProp);
-      if (index != std::string::npos) {
-        bootSn = "BOOT: " + line.substr(index + kProp.length(), 8);
-      }
+    const std::string serial = ReadAndroidBootSerial8();
+    if (!serial.empty()) {
+      bootSn = "BOOT: " + serial;
     }
   }
 
