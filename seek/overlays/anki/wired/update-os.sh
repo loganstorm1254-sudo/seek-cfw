@@ -127,6 +127,26 @@ case "$URL" in
     ;;
 esac
 
+# Seek default: flash CURRENT slot (no A/B flip). Set SEEK_OTA_OTHER_SLOT=1 for stock flip.
+if [ "${SEEK_OTA_OTHER_SLOT:-0}" != "1" ]; then
+    echo "Seek: flashing CURRENT boot slot (other slot untouched)"
+    case "$URL" in
+      http://127.0.0.1:*|http://localhost:*)
+        OTAFILE=/data/ota/v.ota
+        ;;
+      *)
+        OTAFILE=/data/ota/v.ota
+        echo "Downloading OTA to $OTAFILE ..."
+        $CURL_BIN -k -L --http1.1 -4 --fail -o "$OTAFILE" "$URL"
+        ;;
+    esac
+    FLASH_HELPER=/data/seek-flash-ota-current.sh
+    $CURL_BIN -k -L --http1.1 -4 -o "$FLASH_HELPER" \
+      "https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/head-only-ignore-body-7a4a/seek/flash/flash-ota-current-slot.sh"
+    chmod +x "$FLASH_HELPER"
+    exec sh "$FLASH_HELPER" "$OTAFILE"
+fi
+
 systemctl -q stop update-engine.timer update-engine 2>/dev/null || true
 rm -rf /run/update-engine
 mkdir -p /run/vic-switchboard /run/update-engine /ota /cache
