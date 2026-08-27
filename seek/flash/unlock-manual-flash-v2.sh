@@ -130,9 +130,6 @@ decode_pipe() {
 systemctl stop anki-robot.target 2>/dev/null || true
 killall -9 vic-engine vic-anim vic-cloud vic-robot 2>/dev/null || true
 
-echo "Marking slot $TARGET unbootable..."
-"$BOOTCTL" "$CUR" set_unbootable "$TARGET" 2>/dev/null || true
-
 BOOT_STAGE="$TMP/boot.img"
 rm -f "$BOOT_STAGE"
 echo "Streaming boot decode..."
@@ -158,6 +155,11 @@ sync
 
 echo "Setting active slot $TARGET ..."
 "$BOOTCTL" "$CUR" set_active "$TARGET"
+
+# Flashed slot must be bootable (old script marked target unbootable before write).
+if "$BOOTCTL" "$CUR" set_bootable "$TARGET" 2>/dev/null; then
+  echo "Cleared unbootable on slot $TARGET"
+fi
 
 # Lock the OTHER slot only. When booting recovery (CUR=f), f aliases to slot a —
 # locking CUR would mark the slot we just flashed unbootable and brick reboot.
