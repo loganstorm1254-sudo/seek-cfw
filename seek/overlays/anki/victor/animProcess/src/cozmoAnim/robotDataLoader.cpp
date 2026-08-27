@@ -178,7 +178,7 @@ void RobotDataLoader::LoadNonConfigData()
   // any AssetID's requested before/during loading
   _spritePathMap->CheckUnverifiedAssetIDs();
 
-  // Backpack light animations — Crypto OS uses WireOS-style RGB pack.
+  // Backpack light animations — DVT uses Anki green pack.
   {
     CannedAnimationLoader animLoader(_platform,
                                      _spriteSequenceContainer.get(), 

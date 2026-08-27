@@ -1,6 +1,5 @@
 #!/bin/sh
-# Crypto OS hotfix: WireOS look + Crypto branding + 898/899 skip (full motors).
-# BusyBox ash safe. Never abort the whole install on optional rootfs bits (rampost).
+# DVT hotfix: Anki DVT look + green CCIS info + 898/899 skip (full motors).
 set -e
 HOTFIX_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$HOTFIX_DIR"
@@ -59,7 +58,6 @@ install_bin() {
   log "installed $dest"
 }
 
-# Optional rootfs binaries (rampost often lives only in initramfs — may be absent).
 install_root_bin_optional() {
   dest="$1"
   name="$(basename "$dest")"
@@ -74,7 +72,6 @@ install_root_bin_optional() {
   fi
   remount_rw
   backup_once "$name" "$dest"
-  # Prefer in-place replace when target exists; otherwise try create.
   if [ -f "$dest" ] || [ -L "$dest" ]; then
     tmp="${dest}.seeknew"
     if cp -f "$src" "$tmp" 2>/dev/null; then
@@ -95,21 +92,21 @@ install_root_bin_optional() {
 }
 
 install_lights() {
-  src="$HOTFIX_DIR/backpackLightsWireOS"
-  dest="/anki/data/assets/cozmo_resources/config/engine/lights/backpackLightsWireOS"
+  src="$HOTFIX_DIR/backpackLightsAnki"
+  dest="/anki/data/assets/cozmo_resources/config/engine/lights/backpackLightsAnki"
   if [ ! -d "$src" ]; then
     return 0
   fi
   remount_rw
   mkdir -p "$dest"
   cp -a "$src/." "$dest/"
-  log "installed WireOS backpack lights"
+  # Force Anki green lights path
+  rm -f /data/data/enableankilights 2>/dev/null || true
+  touch /data/data/enableankilights 2>/dev/null || true
+  log "installed Anki green backpack lights"
 }
 
 install_boot_anim() {
-  # bootAnim prefers /persist/boot_anim.raw over stock paths. WireOS leaves that
-  # file; always writing 184x96 there breaks 160x80 displays. Clear the override
-  # so LCD-correct stock paths (boot_anim.raw / boot_anim_20.raw) are used.
   SANTEK_FRAME=$((184 * 96 * 2))
   MIDAS_FRAME=$((160 * 80 * 2))
   remount_rw
@@ -129,7 +126,6 @@ install_boot_anim() {
     log "found WireOS override /persist/boot_anim.raw ($old_sz bytes) — removing"
     rm -f /persist/boot_anim.raw 2>/dev/null || true
     if [ -f /persist/boot_anim.raw ]; then
-      log "WARN: delete failed — overwriting with size-matched Crypto anim"
       match=""
       if [ $((old_sz % MIDAS_FRAME)) -eq 0 ] && [ $((old_sz % SANTEK_FRAME)) -ne 0 ]; then
         match="$HOTFIX_DIR/boot_anim_20.raw"
@@ -139,7 +135,7 @@ install_boot_anim() {
       if [ -n "$match" ] && [ -f "$match" ]; then
         cp -f "$match" /persist/boot_anim.raw.seeknew
         mv -f /persist/boot_anim.raw.seeknew /persist/boot_anim.raw
-        log "installed /persist/boot_anim.raw from $(basename "$match")"
+        log "overwrote /persist/boot_anim.raw with DVT anim"
       else
         echo "ERROR: could not clear WireOS /persist/boot_anim.raw" >&2
         exit 1
@@ -153,10 +149,8 @@ install_boot_anim() {
 }
 
 remount_rw
-log "hotfix dir=$HOTFIX_DIR"
-log "rampost present on rootfs? $(ls -la /usr/bin/rampost /bin/rampost 2>&1 || true)"
+log "hotfix dir=$HOTFIX_DIR (DVT)"
 
-# Boot branding first so a later optional failure cannot skip it.
 install_boot_anim
 install_lights
 
@@ -165,10 +159,7 @@ if [ -f "$HOTFIX_DIR/vic-anim" ]; then
   install_bin /anki/bin/vic-anim
 fi
 install_root_bin_optional /usr/bin/fault-code-handler
-# Early splash binary is usually initramfs-only on WireOS; never fail the install.
 install_root_bin_optional /usr/bin/rampost
-
-rm -f /data/data/enableankilights 2>/dev/null || true
 
 sync
 systemctl daemon-reload 2>/dev/null || true
@@ -176,5 +167,5 @@ systemctl restart vic-robot
 sleep 1
 systemctl restart vic-engine 2>/dev/null || true
 systemctl restart vic-anim 2>/dev/null || true
-echo CRYPTO_OS_OK
-log "reboot to see CRYPTO OS boot movie (face menu: OS: Crypto OS)"
+echo DVT_OK
+log "reboot for DVT splash; double-click+lift → green info; backpack cycles screens"

@@ -75,8 +75,20 @@ patch_bin "$HOTFIX/vic-anim" /anki/bin/vic-anim
 patch_bin "$HOTFIX/rampost" /usr/bin/rampost
 patch_bin "$HOTFIX/fault-code-handler" /usr/bin/fault-code-handler
 
+# DVT boot movie (stock paths — bootAnim picks by LCD)
+if [[ -f "$HOTFIX/boot_anim.raw" ]]; then
+  patch_bin "$HOTFIX/boot_anim.raw" \
+    /anki/data/assets/cozmo_resources/config/engine/animations/boot_anim.raw
+fi
+if [[ -f "$HOTFIX/boot_anim_20.raw" ]]; then
+  patch_bin "$HOTFIX/boot_anim_20.raw" \
+    /anki/data/assets/cozmo_resources/config/engine/animations/boot_anim_20.raw
+fi
+
 # Ensure head_only is not forced on fresh flash.
 debugfs -w -R "rm /data/seek/head_only" "$SYSIMG" 2>/dev/null || true
+# Clear WireOS persist boot override if present in image
+debugfs -w -R "rm /persist/boot_anim.raw" "$SYSIMG" 2>/dev/null || true
 
 echo "Recompressing system image..."
 gzip -9 -c "$SYSIMG" > apq8009-robot-sysfs.img.gz.plain

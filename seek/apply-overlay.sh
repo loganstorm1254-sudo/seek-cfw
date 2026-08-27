@@ -22,9 +22,9 @@ echo "Applying Seek CFW overlay..."
 # branding is owned by this repo under seek/overlays).
 cp -a "${OVERLAY}/." "${ROOT}/"
 
-# Keep Crypto OS purple splash as the boot movie.
-if [[ -x "${ROOT}/seek/tools/gen-crypto-boot-anim.py" ]] || [[ -f "${ROOT}/seek/tools/gen-crypto-boot-anim.py" ]]; then
-  python3 "${ROOT}/seek/tools/gen-crypto-boot-anim.py"
+# Keep authentic Anki DVT proprietary splash as the boot movie.
+if [[ -x "${ROOT}/seek/tools/gen-dvt-boot-anim.py" ]] || [[ -f "${ROOT}/seek/tools/gen-dvt-boot-anim.py" ]]; then
+  python3 "${ROOT}/seek/tools/gen-dvt-boot-anim.py"
 fi
 
 echo "Seek overlay applied."

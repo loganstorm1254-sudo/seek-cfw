@@ -44,12 +44,25 @@ namespace {
 u32 _pin = 123456;
 
 const f32 kRobotNameScale = 0.7f;
-// Stock WireOS purple pairing color
-const ColorRGBA   kColor(0.9f, 0.5f, 0.9f, 1.f);
+// Authentic Anki DVT pairing: white text
+const ColorRGBA   kColor(1.f, 1.f, 1.f, 1.f);
 
 const char* kShowPinScreenSpriteName = "pairing_icon_key";
 
 bool s_enteredAnyScreen = false;
+
+// Display name: Vector-XXXX → Victor-XXXX (keep suffix) — stock Anki DVT style
+std::string DisplayRobotName()
+{
+  std::string name = OSState::getInstance()->GetRobotName();
+  const std::string from = "Vector";
+  const std::string to = "Victor";
+  const auto pos = name.find(from);
+  if (pos != std::string::npos) {
+    name.replace(pos, from.size(), to);
+  }
+  return name;
+}
 }
 
 // Draws BLE name and url to screen
@@ -67,7 +80,8 @@ bool DrawStartPairingScreen(Anim::AnimationStreamer* animStreamer)
   auto* img = new Vision::ImageRGBA(FACE_DISPLAY_HEIGHT, FACE_DISPLAY_WIDTH);
   img->FillWith(Vision::PixelRGBA(0, 0));
 
-  img->DrawTextCenteredHorizontally(robotName, cv::QT_FONT_NORMAL, kRobotNameScale, 1, kColor, 15, false);
+  // Top line only: Victor-XXXX (no portal URL)
+  img->DrawTextCenteredHorizontally(DisplayRobotName(), cv::QT_FONT_NORMAL, kRobotNameScale, 1, kColor, 15, false);
 
   auto handle = std::make_shared<Vision::SpriteWrapper>(img);
   const bool overrideAllSpritesToEyeHue = false;
@@ -94,8 +108,8 @@ void DrawShowPinScreen(Anim::AnimationStreamer* animStreamer, const Anim::AnimCo
             (FACE_DISPLAY_HEIGHT - key.GetNumRows())/2);
   img->DrawSubImage(key, p);
 
-  // Top line: Vector-XXXX (stock WireOS), key icon, PIN — purple text
-  img->DrawTextCenteredHorizontally(OSState::getInstance()->GetRobotName(),
+  // Top line: Victor-XXXX (replace Vector→Victor), then key icon, then PIN
+  img->DrawTextCenteredHorizontally(DisplayRobotName(),
                                     cv::QT_FONT_NORMAL, kRobotNameScale, 1, kColor, 15, false);
 
   img->DrawTextCenteredHorizontally(pin, cv::QT_FONT_NORMAL, 0.8f, 1, kColor, FACE_DISPLAY_HEIGHT-5, false);

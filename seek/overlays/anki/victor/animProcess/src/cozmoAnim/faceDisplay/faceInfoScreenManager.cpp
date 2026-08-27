@@ -73,9 +73,9 @@
 #include <sys/reboot.h>
 #endif
 
-// Crypto OS branding (WireOS-style face menu)
-const std::string OSProject = "Crypto OS";
-const std::string Creator = "By Crypto";
+// Authentic Anki DVT face menu branding (double-click → lift → Main)
+const std::string OSProject = "Anki";
+const std::string Creator = "";
 const std::string CreatorWebsite = "";
 
 // Log options
@@ -316,7 +316,9 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   SET_EXIT_ACTION(CustomText, customTextExitFcn);
 
   // === Main screen ===
+  // DVT: unlock backpack-button debug info chain immediately (Network → sensors → motors …)
   auto mainEnterFcn = [this]() {
+    _debugInfoScreensUnlocked = true;
     DrawMain();
   };
   SET_ENTER_ACTION(Main, mainEnterFcn);
@@ -1404,7 +1406,7 @@ void FaceInfoScreenManager::DrawMain()
 
   const std::string hwVer    = "HW: "   + std::to_string(IsXray() ? 8 : Factory::GetEMR()->fields.HW_VER);
 
-  // Double-click → lift arm → Main: show OS + version clearly (WireOS used to show OS: WireOS here).
+  // Double-click → lift arm → Main: stock Anki DVT CCIS layout (green eng text).
   const std::string osProject = "OS: " + OSProject;
   std::string osVer = "VER: " + osstate->GetOSBuildVersion();
   if (osVer == "VER: " || osVer == "VER:") {
@@ -1419,7 +1421,7 @@ void FaceInfoScreenManager::DrawMain()
   }
 
   // ESN + HW on one line; then OS / VER / SSID / IP (stock Anki CCIS Main layout).
-  ColoredTextLines lines = { { {serialNo}, {hwVer, NamedColors::WHITE, false} },
+  ColoredTextLines lines = { { {serialNo}, {hwVer, NamedColors::GREEN, false} },
                              {osProject},
                              {osVer},
                              {ssid}, 

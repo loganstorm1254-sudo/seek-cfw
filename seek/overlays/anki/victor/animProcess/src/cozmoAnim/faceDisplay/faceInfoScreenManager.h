@@ -218,8 +218,9 @@ private:
   static const f32 kDefaultTextScale;
 
   // Helper methods for drawing debug data to face
+  // DVT look: default green text on black (classic Anki eng / CustomVectors style)
   void DrawTextOnScreen(const std::vector<std::string>& textVec, 
-                        const ColorRGBA& textColor = NamedColors::WHITE,
+                        const ColorRGBA& textColor = NamedColors::GREEN,
                         const ColorRGBA& bgColor = NamedColors::BLACK,
                         const Point2f& loc = kDefaultTextStartingLoc_pix,
                         u32 textSpacing_pix = kDefaultTextSpacing_pix,
@@ -227,7 +228,7 @@ private:
 
   struct ColoredText {
     ColoredText(const std::string& text,
-                const ColorRGBA& color = NamedColors::WHITE,
+                const ColorRGBA& color = NamedColors::GREEN,
                 bool leftAlign = true)
     : text(text)
     , color(color)

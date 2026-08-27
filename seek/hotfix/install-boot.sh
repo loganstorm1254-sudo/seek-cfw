@@ -1,9 +1,5 @@
 #!/bin/sh
-# Crypto OS boot: Samsung-style CRYPTO OS splash.
-#
-# WireOS leaves /persist/boot_anim.raw which OVERRIDES stock paths in bootAnim.
-# Remove that override (or size-match replace). Do not require /usr/bin/rampost —
-# on WireOS it often exists only in initramfs, not on the running rootfs.
+# DVT boot: authentic Anki proprietary splash + clear WireOS persist override.
 set -e
 HOTFIX_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$HOTFIX_DIR"
@@ -32,7 +28,6 @@ install_file() {
 
 remount_rw
 
-# Early splash (optional — often initramfs-only; never abort)
 if [ -f "$HOTFIX_DIR/rampost" ]; then
   remount_rw
   if [ -f /usr/bin/rampost ] || [ -L /usr/bin/rampost ]; then
@@ -53,20 +48,17 @@ if [ -f "$HOTFIX_DIR/rampost" ]; then
   fi
 fi
 
-# Linux boot movie — stock paths (bootAnim picks by LCD type)
 install_file "$HOTFIX_DIR/boot_anim.raw" \
   /anki/data/assets/cozmo_resources/config/engine/animations/boot_anim.raw
 install_file "$HOTFIX_DIR/boot_anim_20.raw" \
   /anki/data/assets/cozmo_resources/config/engine/animations/boot_anim_20.raw
 
-# Kill WireOS override so stock (correctly sized) paths are used.
 remount_rw
 if [ -f /persist/boot_anim.raw ]; then
   old_sz=$(wc -c < /persist/boot_anim.raw)
   log "found WireOS override /persist/boot_anim.raw ($old_sz bytes)"
   rm -f /persist/boot_anim.raw 2>/dev/null || true
   if [ -f /persist/boot_anim.raw ]; then
-    log "WARN: could not delete — trying size-matched overwrite"
     match=""
     if [ $((old_sz % MIDAS_FRAME)) -eq 0 ] && [ $((old_sz % SANTEK_FRAME)) -ne 0 ]; then
       match="$HOTFIX_DIR/boot_anim_20.raw"
@@ -80,17 +72,11 @@ if [ -f /persist/boot_anim.raw ]; then
       exit 1
     fi
   else
-    log "removed WireOS /persist/boot_anim.raw (stock paths will be used)"
+    log "removed WireOS /persist/boot_anim.raw"
   fi
 else
-  log "no /persist/boot_anim.raw (good — stock paths used)"
+  log "no /persist/boot_anim.raw (good)"
 fi
 
-log "--- boot sources ---"
-ls -la /persist/boot_anim.raw 2>/dev/null || log "no /persist/boot_anim.raw (OK)"
-ls -la /anki/data/assets/cozmo_resources/config/engine/animations/boot_anim.raw 2>/dev/null || true
-ls -la /anki/data/assets/cozmo_resources/config/engine/animations/boot_anim_20.raw 2>/dev/null || true
-
 sync
-echo CRYPTO_BOOT_OK
-log "Reboot now — expect black screen + white CRYPTO OS (not WireOS)"
+echo DVT_BOOT_OK
