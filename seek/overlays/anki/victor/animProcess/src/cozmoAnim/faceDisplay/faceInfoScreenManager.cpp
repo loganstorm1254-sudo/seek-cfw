@@ -73,9 +73,9 @@
 #include <sys/reboot.h>
 #endif
 
-// Stock Anki-style face menu branding (double-click → lift → Main)
-const std::string OSProject = "Anki";
-const std::string Creator = "";
+// Crypto OS branding (WireOS-style face menu)
+const std::string OSProject = "Crypto OS";
+const std::string Creator = "By Crypto";
 const std::string CreatorWebsite = "";
 
 // Log options

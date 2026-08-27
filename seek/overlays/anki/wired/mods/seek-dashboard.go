@@ -102,14 +102,14 @@ func (modu *SeekDashboard) Description() string {
 func (m *SeekDashboard) Load() error {
 	m.touchActivity()
 	m.initLink()
-	// Stock Anki backpack lights on every boot (clear WireOS/Seek red pack overrides).
+	// Crypto OS: keep WireOS-style backpack lights (do not force Anki green).
 	hadCustom := false
 	if st, err := os.Stat(seekCustomLightsDir); err == nil && st.IsDir() {
 		hadCustom = true
 	}
-	_ = m.ensureAnkiLightsQuiet()
+	_ = hadCustom
 	// Triple-click mute persists on /data across OTAs and silences dash audio.
-	if clearedMute := clearSoundMuteFile(); clearedMute || hadCustom {
+	if clearedMute := clearSoundMuteFile(); clearedMute {
 		softRestartLights()
 	}
 	m.idleOnce.Do(func() {

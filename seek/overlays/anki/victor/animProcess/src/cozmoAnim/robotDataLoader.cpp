@@ -53,7 +53,9 @@ const char* kPathToExternalIndependentSprites = "assets/sprites/independentSprit
 const char* kPathToEngineIndependentSprites = "config/sprites/independentSprites/";
 const char* kPathToExternalSpriteSequences = "assets/sprites/spriteSequences/";
 const char* kPathToEngineSpriteSequences   = "config/sprites/spriteSequences/";
+const char* kPathToEngineBackpackLightsWireOS = "config/engine/lights/backpackLightsWireOS/";
 const char* kPathToEngineBackpackLightsAnki = "config/engine/lights/backpackLightsAnki/";
+const char* kPathToEngineBackpackLightsUser = "../../../../data/data/customBackpackLights/";
 const char* kProceduralAnimName = "_PROCEDURAL_";
 
 }
@@ -176,15 +178,22 @@ void RobotDataLoader::LoadNonConfigData()
   // any AssetID's requested before/during loading
   _spritePathMap->CheckUnverifiedAssetIDs();
 
-  // Backpack light animations — DVT always stock Anki green pack.
-  // Never WireOS RGB / never /data custom overrides.
+  // Backpack light animations — Crypto OS uses WireOS-style RGB pack.
   {
     CannedAnimationLoader animLoader(_platform,
                                      _spriteSequenceContainer.get(), 
                                      _loadingCompleteRatio, _abortLoad);
 
-    const auto& fileInfo = animLoader.CollectAnimFiles({kPathToEngineBackpackLightsAnki});
-    LoadBackpackLightAnimations(fileInfo);
+    if(_ankilights()){
+      const auto& fileInfo = animLoader.CollectAnimFiles({kPathToEngineBackpackLightsAnki});
+      LoadBackpackLightAnimations(fileInfo);
+    } else if(_userlights()) {
+      const auto& fileInfo = animLoader.CollectAnimFiles({kPathToEngineBackpackLightsUser});
+      LoadBackpackLightAnimations(fileInfo);
+    } else {
+      const auto& fileInfo = animLoader.CollectAnimFiles({kPathToEngineBackpackLightsWireOS});
+      LoadBackpackLightAnimations(fileInfo);
+    }
   }
 
   {
