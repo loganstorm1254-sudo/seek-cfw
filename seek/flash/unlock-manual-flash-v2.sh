@@ -179,6 +179,21 @@ touch /data/seek/slot_lock
 sync
 rm -rf "$TMP"
 
+# Avoid fault 920 (NO_GATEWAY_CERT) on first Seek boot.
+mkdir -p /data/etc /data/vic-gateway
+if [ ! -f /data/etc/robot.pem ]; then
+  openssl genrsa -out /data/etc/robot.pem 2048 2>/dev/null || true
+fi
+if [ -f /data/etc/robot.pem ] && [ ! -f /data/vic-gateway/gateway.cert ]; then
+  RNAME=$(getprop anki.robot.name 2>/dev/null | tr ' ' '-')
+  [ -n "$RNAME" ] || RNAME=Vector-N9U1
+  openssl req -x509 -new -nodes -days 36500 \
+    -key /data/etc/robot.pem -out /data/vic-gateway/gateway.cert \
+    -subj "/C=US/ST=California/L=SF/O=Anki/CN=$RNAME" 2>/dev/null || true
+fi
+chmod 440 /data/etc/robot.pem /data/vic-gateway/gateway.cert 2>/dev/null || true
+chown net:anki /data/etc/robot.pem /data/vic-gateway/gateway.cert 2>/dev/null || true
+
 echo ""
 echo "FLASH OK — rebooting. Keep charger connected."
 sleep 2
