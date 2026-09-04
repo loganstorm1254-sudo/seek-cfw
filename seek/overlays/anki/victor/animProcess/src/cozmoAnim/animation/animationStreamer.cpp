@@ -888,6 +888,7 @@ namespace Anim {
 
       // If we get to KeepFaceAlive with this flag set, we'll stream neutral face for safety.
       _wasAnimationInterruptedWithNothing = true;
+      UnlockTrack(AnimTrackFlag::FACE_TRACK);
     }
     _relativeStreamTime_ms = 0;
     _lockFaceTrackAtEndOfStreamingAnimation = false;
@@ -1279,7 +1280,7 @@ namespace Anim {
 
 #endif // ANKI_DEV_CHEATS
 
-    // SeekOS: persistent mute icon while all sounds are muted (triple-click)
+    // Brief red mute icon after triple-click mute (1s, then gone)
     FaceInfoScreenManager::getInstance()->DrawSoundMuteIcon(faceImg565);
 
     if (SHOULD_SEND_DISPLAYED_FACE_TO_ENGINE)
@@ -1685,6 +1686,10 @@ namespace Anim {
           }
 
           _streamingAnimation = nullptr;
+          // Animation ended with no follow-up — restore neutral after idle timeout
+          // (especially when keepalive was disabled during the behavior).
+          _wasAnimationInterruptedWithNothing = true;
+          _lastAnimationStreamTime = BaseStationTimer::getInstance()->GetCurrentTimeInSeconds();
         }
 
       } // if (IsStreamingAnimFinished())
@@ -1736,10 +1741,17 @@ namespace Anim {
     //       first animation of any kind is sent.
     const bool haveStreamingAnimation = _streamingAnimation != nullptr;
     const bool haveStreamedAnything   = _lastAnimationStreamTime > 0.f;
-    const bool longEnoughSinceStream  = (BaseStationTimer::getInstance()->GetCurrentTimeInSeconds() - _lastAnimationStreamTime) > _longEnoughSinceLastStreamTimeout_s;
+    // When keepalive is off (petting, pairing screens, SDK anims), wait a bit longer
+    // before forcing neutral so back-to-back behavior anims don't flash idle eyes.
+    const f32 idleBeforeNeutral_s = s_enableKeepFaceAlive
+      ? _longEnoughSinceLastStreamTimeout_s
+      : 2.0f;
+    const bool longEnoughSinceStream  = (BaseStationTimer::getInstance()->GetCurrentTimeInSeconds() - _lastAnimationStreamTime) > idleBeforeNeutral_s;
+    const bool holdCCISPairingFace = FaceInfoScreenManager::getInstance()->IsHoldingCCISPairingFace();
     if (!haveStreamingAnimation &&
          haveStreamedAnything &&
-         longEnoughSinceStream)
+         longEnoughSinceStream &&
+         !holdCCISPairingFace)
     {
       if (!FACTORY_TEST)
       {
@@ -1750,6 +1762,7 @@ namespace Anim {
           // got neutral face back on the screen
           if (_wasAnimationInterruptedWithNothing)
           {
+            UnlockTrack(AnimTrackFlag::FACE_TRACK);
             SetStreamingAnimation(_neutralFaceAnimation, kNotAnimatingTag);
             _wasAnimationInterruptedWithNothing = false;
           }
@@ -1758,6 +1771,9 @@ namespace Anim {
         }
         else
         {
+          // Keepalive off (sleep, pairing, petting, SDK): hold the last face keyframe.
+          // Do NOT stream neutral here — that reopens eyes while sleeping.
+          // Neutral is restored when keepalive is re-enabled.
           _proceduralTrackComponent->KeepFaceTheSame();
         }
       }
@@ -1765,6 +1781,7 @@ namespace Anim {
       {
         if (_wasAnimationInterruptedWithNothing)
         {
+          UnlockTrack(AnimTrackFlag::FACE_TRACK);
           SetStreamingAnimation(_neutralFaceAnimation, kNotAnimatingTag);
           _wasAnimationInterruptedWithNothing = false;
         }
@@ -1893,6 +1910,9 @@ namespace Anim {
 
   void AnimationStreamer::EnableKeepFaceAlive(bool enable, u32 disableTimeout_ms)
   {
+    if (enable && FaceInfoScreenManager::getInstance()->IsHoldingCCISPairingFace()) {
+      return;
+    }
     if (s_enableKeepFaceAlive && !enable)
     {
       _proceduralTrackComponent->RemoveKeepFaceAlive(_relativeStreamTime_ms, disableTimeout_ms);
@@ -1904,6 +1924,7 @@ namespace Anim {
       {
         // The last animation ended without a replacement, but neutral eyes weren't inserted because
         // keepalive was disabled. Now that they're re-enabled, set the neutral eyes.
+        UnlockTrack(AnimTrackFlag::FACE_TRACK);
         SetStreamingAnimation(_neutralFaceAnimation, kNotAnimatingTag);
         _wasAnimationInterruptedWithNothing = false;
       }

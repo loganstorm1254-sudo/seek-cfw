@@ -1,0 +1,24 @@
+[Unit]
+Description=Silly wire daemon
+SourcePath=/usr/bin/wired
+Requires=ankiinit.service
+After=ankiinit.service vic-cloud.service anki-robot.target
+Wants=vic-cloud.service
+
+ConditionFileIsExecutable=/usr/bin/logwrapper
+ConditionFileIsExecutable=/usr/bin/wired
+
+[Service]
+# WireOS-style `update-os <url>`: bash-interpret /data/update-os.sh (noexec-safe).
+ExecStartPre=/bin/sh -c 'if [ -f /data/update-os.sh ]; then umount /usr/sbin/update-os 2>/dev/null; mount -o remount,rw / 2>/dev/null; printf "%s\n" "#!/bin/bash" "exec /bin/bash /data/update-os.sh \"\$@\"" >/usr/sbin/update-os; chmod 755 /usr/sbin/update-os; fi; exit 0'
+# Wait for SDK auth token so dashboard APIs work after reboot.
+# Still start if it never appears so the web UI can load and show status.
+ExecStartPre=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do [ -s /run/vic-cloud/perRuntimeToken ] && exit 0; sleep 1; done; exit 0'
+ExecStart=/usr/bin/logwrapper /usr/bin/wired
+Restart=on-failure
+RestartSec=4
+StartLimitBurst=12
+StartLimitIntervalSec=180
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Cozmo brand: warm orange on near-black (not Vector blue / purple AI defaults) -->
+    <color name="cozmo_orange">#FFFF6A00</color>
+    <color name="cozmo_orange_dim">#FFCC5500</color>
+    <color name="cozmo_bg">#FF12100E</color>
+    <color name="cozmo_panel">#FF1E1A16</color>
+    <color name="cozmo_text">#FFFFE8D6</color>
+    <color name="cozmo_muted">#FF9A8A7A</color>
+</resources>

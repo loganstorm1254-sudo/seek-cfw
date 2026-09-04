@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#eef3f7">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Vector</title>
+    <link rel="stylesheet" href="css/anki-dash.css?v=9d1">
+</head>
+<body>
+    <div class="bg" aria-hidden="true"></div>
+    <main class="page">
+        <header class="hero">
+            <p class="brand">VECTOR</p>
+            <h1>Control</h1>
+            <p class="lede">Same Wi‑Fi as Vector. Eye overlay, volume, and drive.</p>
+            <div id="netInfoBox" class="sr-only" aria-hidden="true">
+                <p id="netSsid"></p>
+                <p id="netLanIp" hidden></p>
+                <p id="netPhoneUrl" hidden></p>
+                <p id="netPhoneUrl8080" hidden></p>
+                <p id="netHotspotHint" hidden></p>
+                <ul id="netAddrList"></ul>
+            </div>
+        </header>
+
+        <nav class="tabs" role="tablist">
+            <button type="button" class="tab active" data-tab="look" role="tab">Eyes</button>
+            <button type="button" class="tab" data-tab="volume" role="tab">Volume</button>
+            <button type="button" class="tab" data-tab="drive" role="tab">Drive</button>
+        </nav>
+
+        <p id="seekStatus" class="status" hidden></p>
+
+        <section id="tab-look" class="panel active" role="tabpanel">
+            <h2>Eye color</h2>
+            <div class="grid2">
+                <label class="field">
+                    <span>Mode</span>
+                    <select id="eyeMode">
+                        <option value="custom">Custom</option>
+                        <option value="preset">Preset</option>
+                    </select>
+                </label>
+                <div id="eyePresetControls" class="field" hidden>
+                    <span>Preset</span>
+                    <select id="eyePreset">
+                        <option value="0">Tip Over Teal</option>
+                        <option value="1">Overfit Orange</option>
+                        <option value="2">Uncanny Yellow</option>
+                        <option value="3">Non Linear Lime</option>
+                        <option value="4">Singularity Sapphire</option>
+                        <option value="5">False Positive Purple</option>
+                        <option value="6">Confusion Matrix Green</option>
+                        <option value="7">Rainbow Eyes</option>
+                        <option value="8">Robot Red</option>
+                    </select>
+                </div>
+            </div>
+            <div id="eyeCustomControls" class="stack">
+                <label class="field">
+                    <span>Hue <b id="eyeHueVal">0.35</b></span>
+                    <input type="range" id="eyeHue" min="0" max="1" step="0.01" value="0.35">
+                </label>
+                <label class="field">
+                    <span>Saturation <b id="eyeSatVal">1.00</b></span>
+                    <input type="range" id="eyeSat" min="0" max="1" step="0.01" value="1">
+                </label>
+            </div>
+            <button type="button" class="primary" id="btnEye">Apply eyes</button>
+
+            <h2 class="spaced">Eye overlay</h2>
+            <p class="hint">Any image — resized to the face and painted on his eyes (blinks still work).</p>
+            <label class="field">
+                <span>Image</span>
+                <input type="file" id="eyeOverlayFile" accept="image/*">
+            </label>
+            <canvas id="eyeOverlayPreview" width="184" height="96" class="eye-overlay-preview" hidden></canvas>
+            <p id="eyeOverlayStatus" class="hint"></p>
+            <div class="actions">
+                <button type="button" class="primary" id="btnEyeOverlayApply">Apply overlay</button>
+                <button type="button" class="ghost danger" id="btnEyeOverlayClear">Clear</button>
+            </div>
+        </section>
+
+        <section id="tab-volume" class="panel" role="tabpanel" hidden>
+            <h2>Volume</h2>
+            <label class="field">
+                <span>Master volume</span>
+                <select id="masterVolume">
+                    <option value="0">Mute</option>
+                    <option value="1">Low</option>
+                    <option value="2">Medium Low</option>
+                    <option value="3" selected>Medium</option>
+                    <option value="4">Medium High</option>
+                    <option value="5">High</option>
+                </select>
+            </label>
+            <button type="button" class="primary" id="btnVolume">Apply volume</button>
+            <p class="hint">Triple‑click the backpack to mute/unmute sounds on the robot.</p>
+        </section>
+
+        <section id="tab-drive" class="panel" role="tabpanel" hidden>
+            <h2>Drive</h2>
+            <p class="hint">1) Take control · 2) Hold the pad or WASD · Camera optional</p>
+            <div id="driveArmed" class="drive-armed">Not armed — tap Take control</div>
+            <div class="drive-layout">
+                <div class="drive-pads">
+                    <div class="touch-pad" id="touchPad" aria-label="Drive pad">
+                        <button type="button" class="pad-btn pad-n" data-f="1" data-t="0">▲</button>
+                        <button type="button" class="pad-btn pad-w" data-f="0" data-t="1">◀</button>
+                        <button type="button" class="pad-btn pad-s" data-f="-1" data-t="0">▼</button>
+                        <button type="button" class="pad-btn pad-e" data-f="0" data-t="-1">▶</button>
+                        <button type="button" class="pad-btn pad-stop" data-f="0" data-t="0">■</button>
+                    </div>
+                    <p class="hint">Desktop: WASD · Q/E head · R/F lift · Space stop</p>
+                </div>
+                <label class="field">
+                    <span>Speed <b id="driveSpeedVal">60</b> mm/s</span>
+                    <input type="range" id="driveSpeed" min="20" max="120" step="5" value="60">
+                </label>
+                <div class="actions">
+                    <button type="button" class="primary" id="btnArmDrive">Take control</button>
+                    <button type="button" class="ghost danger" id="btnRelease">Release</button>
+                </div>
+                <div class="cam-box">
+                    <img id="cameraView" alt="Vector camera" width="640" height="360">
+                    <div class="actions">
+                        <button type="button" class="ghost" id="btnCamStart">Camera on</button>
+                        <button type="button" class="ghost" id="btnCamStop">Camera off</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Hidden stubs so existing seek-dashboard.js bindings stay quiet -->
+        <div hidden aria-hidden="true">
+            <input type="file" id="otaFile">
+            <progress id="otaProgress" max="100" value="0"></progress>
+            <p id="otaStatus"></p>
+            <button type="button" id="btnOtaInstall"></button>
+            <button type="button" id="btnApplyAnkiLights"></button>
+            <button type="button" id="btnApplySeekLights"></button>
+            <p id="seekLightsStatus"></p>
+            <select id="seekVoice"><option value="robot">robot</option></select>
+            <input type="text" id="sayText">
+            <button type="button" id="btnSay"></button>
+            <input type="password" id="ovalKey">
+            <p id="ovalKeyStatus"></p>
+            <button type="button" id="btnSaveOval"></button>
+            <button type="button" id="btnClearOval"></button>
+            <button type="button" id="btnTestOval"></button>
+            <input type="password" id="openaiKey">
+            <p id="openaiKeyStatus"></p>
+            <button type="button" id="btnSaveOpenAI"></button>
+            <button type="button" id="btnClearOpenAI"></button>
+            <button type="button" id="btnTestOpenAI"></button>
+            <input type="text" id="houndifyClientId">
+            <input type="password" id="houndifyClientKey">
+            <p id="houndifyStatus"></p>
+            <button type="button" id="btnSaveHoundify"></button>
+            <button type="button" id="btnClearHoundify"></button>
+            <button type="button" id="btnTestHoundify"></button>
+            <input type="text" id="askAIText">
+            <button type="button" id="btnAskAI"></button>
+            <button type="button" id="btnAskAIMic"></button>
+            <textarea id="askAIAnswer"></textarea>
+            <button type="button" id="btnCopyAIAnswer"></button>
+            <input type="file" id="audioFile">
+            <input type="range" id="audioPlayVolume" min="0" max="100" value="100">
+            <b id="audioPlayVolVal">100</b>
+            <button type="button" id="btnAudio"></button>
+            <input type="file" id="videoFile">
+            <input type="number" id="videoFps" value="5">
+            <select id="videoFit"><option value="cover">cover</option></select>
+            <select id="videoWithAudio"><option value="1">1</option></select>
+            <button type="button" id="videoPlayBtn"></button>
+            <button type="button" id="btnStopMedia"></button>
+            <canvas id="seekVideoCanvas" width="184" height="96"></canvas>
+            <input type="checkbox" id="linkMasterToggle">
+            <p id="linkStatus"></p>
+            <div id="linkPeerList"></div>
+            <button type="button" id="btnLinkRefresh"></button>
+            <input type="text" id="linkManualIP">
+            <button type="button" id="btnLinkAddIP"></button>
+            <button type="button" id="btnMacarena"></button>
+            <button type="button" id="btnMacarenaStop"></button>
+            <p id="macarenaSyncHint"></p>
+            <button type="button" id="btnListen"></button>
+            <div id="movesFavorites"></div>
+            <input type="text" id="meetName" value="friend">
+            <button type="button" id="btnMeet"></button>
+            <div id="movesIntents"></div>
+            <div id="movesAnims"></div>
+            <button type="button" id="btnDoomStart"></button>
+            <button type="button" id="btnDoomStop"></button>
+            <input type="checkbox" id="doomSfx">
+            <div id="doomPad"></div>
+        </div>
+    </main>
+    <noscript><p class="status err">JavaScript is required.</p></noscript>
+    <script src="js/seek-dashboard.js?v=9d1" onerror="(function(){var e=document.getElementById('seekStatus');if(e){e.hidden=false;e.className='status err';e.textContent='Failed to load dashboard script — hard refresh.';}})();"></script>
+    <script>
+    setTimeout(function () {
+        if (!window.__seekLoaded) {
+            var e = document.getElementById('seekStatus');
+            if (e) {
+                e.hidden = false;
+                e.className = 'status err';
+                e.textContent = 'Script did not run. Hard-refresh on the same Wi‑Fi as Vector.';
+            }
+        }
+    }, 2500);
+    </script>
+</body>
+</html>

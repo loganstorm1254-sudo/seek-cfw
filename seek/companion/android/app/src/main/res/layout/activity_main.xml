@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/cozmo_bg"
+    android:padding="20dp">
+
+    <TextView
+        android:id="@+id/brand"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:fontFamily="sans-serif-black"
+        android:letterSpacing="0.08"
+        android:text="COZMO"
+        android:textColor="@color/cozmo_orange"
+        android:textSize="42sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <TextView
+        android:id="@+id/subtitle"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="for Vector · Seek CFW"
+        android:textColor="@color/cozmo_muted"
+        android:textSize="14sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/brand" />
+
+    <EditText
+        android:id="@+id/ipInput"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="28dp"
+        android:background="@color/cozmo_panel"
+        android:hint="@string/ip_hint"
+        android:inputType="text"
+        android:padding="14dp"
+        android:textColor="@color/cozmo_text"
+        android:textColorHint="@color/cozmo_muted"
+        app:layout_constraintEnd_toStartOf="@id/connectBtn"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/subtitle" />
+
+    <Button
+        android:id="@+id/connectBtn"
+        android:layout_width="wrap_content"
+        android:layout_height="0dp"
+        android:layout_marginStart="8dp"
+        android:backgroundTint="@color/cozmo_orange"
+        android:text="@string/connect"
+        android:textColor="@color/cozmo_bg"
+        app:layout_constraintBottom_toBottomOf="@id/ipInput"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@id/ipInput" />
+
+    <TextView
+        android:id="@+id/status"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="@string/status_idle"
+        android:textColor="@color/cozmo_muted"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/ipInput" />
+
+    <LinearLayout
+        android:id="@+id/pad"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="36dp"
+        android:gravity="center"
+        android:orientation="vertical"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/status">
+
+        <Button
+            android:id="@+id/btnForward"
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:backgroundTint="@color/cozmo_panel"
+            android:text="▲"
+            android:textColor="@color/cozmo_orange"
+            android:textSize="28sp" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnLeft"
+                android:layout_width="96dp"
+                android:layout_height="96dp"
+                android:backgroundTint="@color/cozmo_panel"
+                android:text="◀"
+                android:textColor="@color/cozmo_orange"
+                android:textSize="28sp" />
+
+            <Button
+                android:id="@+id/btnStop"
+                android:layout_width="96dp"
+                android:layout_height="96dp"
+                android:backgroundTint="@color/cozmo_orange_dim"
+                android:text="■"
+                android:textColor="@color/cozmo_bg"
+                android:textSize="24sp" />
+
+            <Button
+                android:id="@+id/btnRight"
+                android:layout_width="96dp"
+                android:layout_height="96dp"
+                android:backgroundTint="@color/cozmo_panel"
+                android:text="▶"
+                android:textColor="@color/cozmo_orange"
+                android:textSize="28sp" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnBack"
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:backgroundTint="@color/cozmo_panel"
+            android:text="▼"
+            android:textColor="@color/cozmo_orange"
+            android:textSize="28sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/driveHint"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="@string/drive_hint"
+        android:textColor="@color/cozmo_muted"
+        android:textSize="12sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/pad" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

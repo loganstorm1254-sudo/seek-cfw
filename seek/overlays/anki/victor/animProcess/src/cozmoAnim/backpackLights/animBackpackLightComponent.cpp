@@ -1,0 +1,599 @@
+/**
+ * File: animBackpackLightComponent.cpp
+ *
+ * Author: Al Chaussee
+ * Created: 1/23/2017
+ *
+ * Description: Manages various lights on Vector's body.
+ *              Currently this includes the backpack lights.
+ *
+ * Copyright: Anki, Inc. 2017
+ *
+ **/
+
+#include "cozmoAnim/backpackLights/animBackpackLightComponent.h"
+
+#include "coretech/common/engine/utils/data/dataPlatform.h"
+#include "coretech/common/engine/utils/timer.h"
+#include "cozmoAnim/animTimeStamp.h"
+#include "cozmoAnim/animComms.h"
+#include "cozmoAnim/micData/micDataSystem.h"
+#include "cozmoAnim/robotDataLoader.h"
+#include "clad/robotInterface/messageEngineToRobot.h"
+#include "clad/types/robotStatusAndActions.h"
+#include "util/console/consoleInterface.h"
+#include "util/fileUtils/fileUtils.h"
+#include "util/internetUtils/internetUtils.h"
+
+#include "osState/osState.h"
+
+#define DEBUG_LIGHTS 0
+
+namespace Anki {
+namespace Vector {
+namespace Anim {
+
+CONSOLE_VAR(u32, kOfflineTimeBeforeLights_ms, "Backpacklights", (1000*60*2));
+CONSOLE_VAR(u32, kOfflineCheckFreq_ms,        "Backpacklights", 5000);
+
+// Dock contact rail is ~5V. 4.2V avoids false "on charger" from spine/ADC noise off-dock.
+static constexpr float kMinChargerSenseVolts = 4.2f;
+  
+enum class BackpackLightSourcePrivate : BackpackLightSourceType
+{
+  Engine = Util::EnumToUnderlying(BackpackLightSource::Count),
+  Critical,
+  
+  Count
+};
+
+struct BackpackLightData
+{
+  BackpackLightAnimation::BackpackAnimation _lightConfiguration;
+};
+  
+BackpackLightComponent::BackpackLightComponent(const AnimContext* context)
+: _context(context)
+, _offlineAtTime_ms(0)
+{  
+  static_assert((int)LEDId::NUM_BACKPACK_LEDS == 3, "BackpackLightComponent.WrongNumBackpackLights");
+
+  // Add callbacks so we know when trigger word/audio stream are updated
+  _context->GetMicDataSystem()->AddTriggerWordDetectedCallback([this](bool willStream)
+    {
+      _willStreamOpen = willStream;
+
+      UpdateOfflineCheck(true);
+      
+      // If we are offline then trigger the offline lights
+      // immediately upon trigger word detected
+      if(_offlineAtTime_ms > 0)
+      {
+        _offlineAtTime_ms = 1;
+      }
+    });
+  
+  _context->GetMicDataSystem()->AddStreamUpdatedCallback([this](bool streamStart)
+    {
+      _isStreaming = streamStart;
+      _willStreamOpen = false;
+    });
+}
+
+
+void BackpackLightComponent::Init()
+{
+  _backpackLightContainer = std::make_unique<BackpackLightAnimationContainer>(
+    _context->GetDataLoader()->GetBackpackLightAnimations());
+
+  _backpackTriggerToNameMap = _context->GetDataLoader()->GetBackpackAnimationTriggerMap();
+
+  // DVT: boot to off — never inherit a stuck red/orange engine pack from a prior crash.
+  _mostRecentTrigger = BackpackAnimationTrigger::Off;
+  _internalCriticalLightsTrigger = BackpackAnimationTrigger::Off;
+  SendBackpackLights(BackpackAnimationTrigger::Off);
+}
+
+
+void BackpackLightComponent::UpdateCriticalBackpackLightConfig(bool isCloudStreamOpen, bool isMicMuted, bool isNotificationPending)
+{
+  const AnimTimeStamp_t curTime_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp();
+ 
+  // Check which, if any, backpack lights should be displayed
+  // Streaming, Low Battery, Offline, Charging, or Nothing
+  BackpackAnimationTrigger trigger = BackpackAnimationTrigger::Off;
+
+  // If we are currently streaming to the cloud
+  if(isCloudStreamOpen)
+  {
+    trigger = BackpackAnimationTrigger::Streaming;
+  }
+  else if( _isBatteryLow && !_isOnChargerContacts )
+  {
+    // we use _isOnChargerContacts as a proxy for the only case where
+    // we need to show the low battery lights, since we can only be
+    // off the charger contacts if we are !charging and !disconnected
+    // (and still be turned on)
+    //
+    // charging | disconnected | show low battery lights?
+    // Y        | Y            | N (faking charging bc disconnected)
+    // Y        | N            | N (actually charging)
+    // N        | Y            | N (happens after charging for too long (>25min))
+    // N        | N            | Y (no charging taking place)
+    trigger = BackpackAnimationTrigger::LowBattery;
+  }
+  else if(_selfTestRunning)
+  {
+    trigger = BackpackAnimationTrigger::Off;
+  }
+  // Stock: pulse only while actually charging. On-contacts alone is not
+  // enough — after full / charge-disconnect the green loop must stop.
+  // Also require live chargerVoltage so a stuck IS_CHARGING bit off-dock
+  // cannot leave the green pulse running forever.
+  // Still above mute/offline so triple-click does not hide a live charge.
+  else if(_isOnChargerContacts &&
+          _isBatteryCharging &&
+          !_isBatteryFull &&
+          !_isBatteryDisconnected &&
+          (_chargerVoltage >= kMinChargerSenseVolts))
+  {
+    trigger = BackpackAnimationTrigger::Charging;
+  }
+  // If we have been offline for long enough (only when not charging)
+  else if(_offlineAtTime_ms > 0 &&
+          ((TimeStamp_t)curTime_ms - _offlineAtTime_ms > kOfflineTimeBeforeLights_ms))
+  {
+    trigger = BackpackAnimationTrigger::Offline; 
+  }
+  else if(isMicMuted)
+  {
+    trigger = BackpackAnimationTrigger::Muted;
+  }
+  else if(isNotificationPending)
+  {
+    trigger = BackpackAnimationTrigger::AlexaNotification;
+  }
+
+  if(trigger != _internalCriticalLightsTrigger)
+  {
+    _internalCriticalLightsTrigger = trigger;
+    auto animName = _backpackTriggerToNameMap->GetValue(trigger);
+    const auto* anim = _backpackLightContainer->GetAnimation(animName);
+    if(anim == nullptr)
+    {
+      PRINT_NAMED_WARNING("BackpackLightComponent.UpdateChargingLightConfig.NullAnim",
+                          "Got null anim for trigger %s",
+                          EnumToString(trigger));
+      return;
+    }
+
+    PRINT_CH_INFO("BackpackLightComponent",
+                  "BackpackLightComponent.UpdateCriticalLightConfig",
+                  "%s", EnumToString(trigger));
+          
+    // All of the backpack lights set by the above checks (except for Off)
+    // take precedence over all other backpack lights so play them
+    // under the "critical" backpack light source
+    if(trigger != BackpackAnimationTrigger::Off)
+    {
+      // Stock Anki packs only (loaded via robotDataLoader) — idle Off, charging green pulse, etc.
+      StartBackpackAnimationInternal(*anim,
+                                     Util::EnumToUnderlying(BackpackLightSourcePrivate::Critical),
+                                     _criticalLightConfig);
+    }
+    else
+    {
+      StopBackpackAnimationInternal(_criticalLightConfig);
+      // Force LEDs dark immediately — do not wait for Update()'s null-config path,
+      // which can miss a frame and leave the last charging colors stuck.
+      SendBackpackLights(BackpackAnimationTrigger::Off);
+    }
+  }
+}
+
+
+void BackpackLightComponent::Update()
+{
+  UpdateOfflineCheck();
+
+  // Consider stream to be open when the trigger word is detected or we are actually
+  // streaming. Trigger word stays detected until the stream state is updated
+  const bool isCloudStreamOpen = (_willStreamOpen || _isStreaming || _alexaStreaming);
+  UpdateCriticalBackpackLightConfig(isCloudStreamOpen, _micMuted, _hasNotification);
+
+  // Anti-stick: re-send OFF while off-dock so a missed frame cannot leave green pulse.
+  if (_chargerVoltage < kMinChargerSenseVolts &&
+      _internalCriticalLightsTrigger == BackpackAnimationTrigger::Off) {
+    const AnimTimeStamp_t curTime_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp();
+    if (curTime_ms - _lastForceOffSent_ms > 2000) {
+      SendBackpackLights(BackpackAnimationTrigger::Off);
+      _lastForceOffSent_ms = curTime_ms;
+    }
+  }
+
+  UpdateSystemLightState(isCloudStreamOpen);
+  
+  BackpackLightDataRefWeak bestNewConfig = GetBestLightConfig();
+  
+  auto newConfig = bestNewConfig.lock();
+  auto curConfig = _curBackpackLightConfig.lock();
+
+  // Prevent spamming of off lights while both configs are null
+  static bool sBothConfigsWereNull = false;
+
+  // If the best config at this time is different from what we had, change it
+  if (newConfig != curConfig)
+  {
+    sBothConfigsWereNull = false;
+    // If the best config is still a thing, use it. Otherwise use the off config
+    if (newConfig != nullptr)
+    {
+      SendBackpackLights(newConfig->_lightConfiguration);
+    }
+    else
+    {
+      SendBackpackLights(BackpackAnimationTrigger::Off);
+    }
+    
+    _curBackpackLightConfig = bestNewConfig;
+  }
+  // Else if both new and cur configs are null then turn lights off
+  else if(newConfig == nullptr && curConfig == nullptr &&
+          !sBothConfigsWereNull)
+  {
+    sBothConfigsWereNull = true;
+    SendBackpackLights(BackpackAnimationTrigger::Off);
+  }
+}
+
+// Kept for API compat; DVT suppresses all engine behavior lights (see SetBackpackAnimation).
+bool BackpackLightComponent::IsBehaviorBackpackLightActive() const
+{
+  return false;
+}
+
+void BackpackLightComponent::SetBackpackAnimation(const BackpackLightAnimation::BackpackAnimation& lights)
+{
+  // DVT stock: only critical lights (charging/offline/etc.) — ignore engine/manual overrides.
+  _mostRecentTrigger = BackpackAnimationTrigger::Off;
+  StopBackpackAnimationInternal(_engineLightConfig);
+  (void)lights;
+}
+
+void BackpackLightComponent::SetBackpackAnimation(const BackpackAnimationTrigger& trigger)
+{
+  if(trigger == BackpackAnimationTrigger::Off)
+  {
+    _mostRecentTrigger = BackpackAnimationTrigger::Off;
+    StopBackpackAnimationInternal(_engineLightConfig);
+    return;
+  }
+
+  // DVT stock: suppress engine behavior lights (WorkingOnIt orange, SpinnerRed, etc.).
+  // These were the source of intermittent red/orange backpack glow during idle/voice/cube play.
+  _mostRecentTrigger = BackpackAnimationTrigger::Off;
+  StopBackpackAnimationInternal(_engineLightConfig);
+}
+ 
+void BackpackLightComponent::StartBackpackAnimationInternal(const BackpackLightAnimation::BackpackAnimation& lights,
+                                                            BackpackLightSourceType source,
+                                                            BackpackLightDataLocator& lightLocator_out)
+{
+  StopBackpackAnimationInternal(lightLocator_out);
+
+  _backpackLightMap[source].emplace_front(new BackpackLightData{lights});
+  
+  BackpackLightDataLocator result{};
+  result._mapIter = _backpackLightMap.find(source);
+  result._listIter = result._mapIter->second.begin();
+  result._dataPtr = std::weak_ptr<BackpackLightData>(*result._listIter);
+  
+  lightLocator_out = std::move(result);
+}
+  
+bool BackpackLightComponent::StopBackpackAnimationInternal(const BackpackLightDataLocator& lightDataLocator)
+{
+  if (!lightDataLocator.IsValid())
+  {
+    PRINT_CH_INFO("BackpackLightComponent",
+                  "BackpackLightComponent.StopBackpackAnimationInternal.InvalidLocator",
+                  "Trying to remove an invalid locator.");
+    return false;
+  }
+  
+  if(!lightDataLocator._mapIter->second.empty())
+  {
+    lightDataLocator._mapIter->second.erase(lightDataLocator._listIter);
+  }
+  else
+  {
+    PRINT_NAMED_WARNING("BackpackLightComponent.StopBackpackAnimationInternal.NoLocators",
+                        "Trying to remove supposedly valid locator but locator list is empty");
+    return false;
+  }
+  
+  if (lightDataLocator._mapIter->second.empty())
+  {
+    _backpackLightMap.erase(lightDataLocator._mapIter);
+  }
+  
+  return true;
+}
+
+Result BackpackLightComponent::SendBackpackLights(const BackpackLightAnimation::BackpackAnimation& lights)
+{
+  RobotInterface::SetBackpackLights setBackpackLights = lights.lights;
+  setBackpackLights.layer = EnumToUnderlyingType(BackpackLightLayer::BPL_USER);
+
+  const auto msg = RobotInterface::EngineToRobot(setBackpackLights);
+  const bool res = AnimComms::SendPacketToRobot((char*)msg.GetBuffer(), msg.Size());
+  return (res ? RESULT_OK : RESULT_FAIL);
+}
+
+Result BackpackLightComponent::SendBackpackLights(const BackpackAnimationTrigger& trigger)
+{
+  auto animName = _backpackTriggerToNameMap->GetValue(trigger);
+  auto anim = _backpackLightContainer->GetAnimation(animName);
+
+  if(anim == nullptr)
+  {
+    PRINT_NAMED_ERROR("BackpackLightComponent.SendBackpackLights.NoAnimForTrigger",
+                      "Could not find animation for trigger %s name %s",
+                      EnumToString(trigger), animName.c_str());
+    return RESULT_FAIL;
+  }
+
+  return SendBackpackLights(*anim);
+}
+
+
+std::vector<BackpackLightSourceType> BackpackLightComponent::GetLightSourcePriority()
+{
+  constexpr BackpackLightSourceType priorityOrder[] =
+  {
+    Util::EnumToUnderlying(BackpackLightSourcePrivate::Critical),
+    Util::EnumToUnderlying(BackpackLightSourcePrivate::Engine),
+  };
+  constexpr auto numElements = sizeof(priorityOrder) / sizeof(priorityOrder[0]);
+  static_assert(numElements == Util::EnumToUnderlying(BackpackLightSourcePrivate::Count),
+                "BackpackLightSource priority list does not contain an entry for each type of BackpackLightSource.");
+  
+  const auto* beginIter = &priorityOrder[0];
+  const auto* endIter = beginIter + numElements;
+  return std::vector<BackpackLightSourceType>(beginIter, endIter);
+}
+  
+BackpackLightDataRefWeak BackpackLightComponent::GetBestLightConfig()
+{
+  if (_backpackLightMap.empty())
+  {
+    return BackpackLightDataRef{};
+  }
+  
+  static const auto priorityList = GetLightSourcePriority();
+  for (const auto& source : priorityList)
+  {
+    auto iter = _backpackLightMap.find(source);
+    if (iter != _backpackLightMap.end())
+    {
+      const auto& listForSource = iter->second;
+      if (!listForSource.empty())
+      {
+        return *listForSource.begin();
+      }
+    }
+  }
+  
+  return BackpackLightDataRef{};
+}
+
+void BackpackLightComponent::SetPairingLight(bool isOn)
+{
+  _systemLightState = (isOn ? SystemLightState::Pairing : SystemLightState::Off);
+}
+
+void BackpackLightComponent::UpdateSystemLightState(bool isCloudStreamOpen)
+{
+  if(_systemLightState == SystemLightState::Off &&
+     _selfTestRunning)
+  {
+    _systemLightState = SystemLightState::SelfTest;
+  }
+  else if(_systemLightState == SystemLightState::SelfTest &&
+          !_selfTestRunning)
+  {
+    _systemLightState = SystemLightState::Off;
+  }
+
+  // Check if cloud streaming has changed
+  // Only show streaming system light if we are not showing anything else
+  // We don't want to accidentally override the pairing light. We will still
+  // indicate we are streaming with the other backpack lights.
+  if(_systemLightState == SystemLightState::Off &&
+     isCloudStreamOpen)
+  {
+    _systemLightState = SystemLightState::Streaming; 
+  }
+  else if(_systemLightState == SystemLightState::Streaming &&
+          !isCloudStreamOpen)
+  {
+    _systemLightState = SystemLightState::Off; 
+  }
+
+  static SystemLightState prevState = SystemLightState::Invalid;
+  if(prevState != _systemLightState)
+  {
+    prevState = _systemLightState;
+
+    LightState light;
+    switch(_systemLightState)
+    {
+      case SystemLightState::Invalid:
+      {
+        DEV_ASSERT(false, "BackpackLightComponent.UpdateSystemLightState.Invalid");
+        return;
+      }
+      break;
+      
+      case SystemLightState::Off:
+      {
+        light.onColor = 0x00000000;
+        light.offColor = 0x00000000;
+        light.onPeriod_ms = 960;
+        light.offPeriod_ms = 960;
+        light.transitionOnPeriod_ms = 0;
+        light.transitionOffPeriod_ms = 0;
+        light.offset_ms = 0;
+      }
+      break;
+
+      case SystemLightState::Pairing:
+      {
+        // Pulsing yellow (stock Anki)
+        light.onColor = 0xFFFF0000;
+        light.offColor = 0x00FF0000;
+        light.onPeriod_ms = 960;
+        light.offPeriod_ms = 960;
+        light.transitionOnPeriod_ms = 0;
+        light.transitionOffPeriod_ms = 0;
+        light.offset_ms = 0;
+      }
+      break;
+
+      case SystemLightState::Streaming:
+      {
+        // Pulsing cyan
+        light.onColor = 0x00FFFF00;
+        light.offColor = 0x00FFFF00;
+        light.onPeriod_ms = 960;
+        light.offPeriod_ms = 960;
+        light.transitionOnPeriod_ms = 0;
+        light.transitionOffPeriod_ms = 0;
+        light.offset_ms = 0;
+      }
+      break;
+
+      case SystemLightState::SelfTest:
+      {
+        // White
+        light.onColor = 0xFFFFFF00;
+        light.offColor = 0xFFFFFF00;
+        light.onPeriod_ms = 960;
+        light.offPeriod_ms = 960;
+        light.transitionOnPeriod_ms = 0;
+        light.transitionOffPeriod_ms = 0;
+        light.offset_ms = 0;
+      }
+      break;
+    }
+
+    // If user space is unsecure then mix white in
+    // to the system light as the off color (normally green)
+    if(!OSState::getInstance()->IsUserSpaceSecure())
+    {
+      light.offColor = 0xFFFFFF00;
+      light.onPeriod_ms = 960;
+      light.offPeriod_ms = 960;
+      light.transitionOnPeriod_ms = 0;
+      light.transitionOffPeriod_ms = 0;
+      light.offset_ms = 0;
+    }
+
+    const auto msg = RobotInterface::EngineToRobot(RobotInterface::SetSystemLight({light}));
+    AnimComms::SendPacketToRobot((char*)msg.GetBuffer(), msg.Size());
+  }
+}
+
+void BackpackLightComponent::UpdateOfflineCheck(bool force)
+{
+  static AnimTimeStamp_t lastCheck_ms = 0;
+  const AnimTimeStamp_t curTime_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp();
+
+  if((curTime_ms - lastCheck_ms > kOfflineCheckFreq_ms) || force)
+  {
+    lastCheck_ms = curTime_ms;
+    const std::string& ip = OSState::getInstance()->GetIPAddress(true);
+    const bool isValidIP = OSState::getInstance()->IsValidIPAddress(ip);
+
+    const bool wasOffline = (_offlineAtTime_ms > 0);
+
+    if(_offlineAtTime_ms == 0 && !isValidIP)
+    {
+      _offlineAtTime_ms = (TimeStamp_t)curTime_ms;
+    }
+    else if(_offlineAtTime_ms > 0 && isValidIP)
+    {
+      _offlineAtTime_ms = 0;
+    }
+
+    if(wasOffline != (_offlineAtTime_ms > 0))
+    {
+      _internalCriticalLightsTrigger = BackpackAnimationTrigger::Off;
+    }
+  }
+}
+
+void BackpackLightComponent::UpdateBatteryStatus(const RobotInterface::BatteryStatus& msg)
+{
+  _isBatteryLow = msg.isLow;
+  _isBatteryFull = msg.isBatteryFull;
+  _isBatteryDisconnected = msg.isBatteryDisconnected;
+
+  // Prefer live chargerVoltage gate from UpdateChargerSense for contacts/charging.
+  // Only apply BatteryStatus bits when sense agrees we are on energized contacts.
+  if (_chargerVoltage >= kMinChargerSenseVolts) {
+    _isBatteryCharging = msg.isCharging;
+    _isOnChargerContacts = msg.onChargerContacts;
+  } else {
+    _isBatteryCharging = false;
+    _isOnChargerContacts = false;
+  }
+}
+
+void BackpackLightComponent::ForceChargingLightsOff()
+{
+  _internalCriticalLightsTrigger = BackpackAnimationTrigger::Off;
+  StopBackpackAnimationInternal(_criticalLightConfig);
+  SendBackpackLights(BackpackAnimationTrigger::Off);
+}
+
+void BackpackLightComponent::UpdateChargerSense(float chargerVoltage, float batteryVoltage, uint32_t robotStatus)
+{
+  _chargerVoltage = chargerVoltage;
+  _batteryVoltage = batteryVoltage;
+
+  const bool statusOnCharger = (robotStatus & static_cast<uint32_t>(RobotStatusFlag::IS_ON_CHARGER)) != 0;
+  const bool statusCharging  = (robotStatus & static_cast<uint32_t>(RobotStatusFlag::IS_CHARGING)) != 0;
+  const bool statusDisc      = (robotStatus & static_cast<uint32_t>(RobotStatusFlag::IS_BATTERY_DISCONNECTED)) != 0;
+
+  // Contacts must be energized (~5V on dock). Below threshold → off dock.
+  const bool wasOnDock = _wasOnChargerContacts;
+  if (_chargerVoltage < kMinChargerSenseVolts) {
+    _isOnChargerContacts = false;
+    _isBatteryCharging = false;
+    if (wasOnDock || _internalCriticalLightsTrigger == BackpackAnimationTrigger::Charging) {
+      ForceChargingLightsOff();
+    }
+  } else {
+    _isOnChargerContacts = statusOnCharger;
+    _isBatteryCharging = statusCharging && statusOnCharger;
+  }
+  _wasOnChargerContacts = _isOnChargerContacts;
+
+  if (statusDisc) {
+    _isBatteryDisconnected = true;
+  }
+
+  // Full pack on dock: high voltage and not actively charging → kill green pulse.
+  if (!_isOnChargerContacts) {
+    _isBatteryFull = false; // stock: Full only while docked
+  } else if (_isBatteryCharging) {
+    _isBatteryFull = false;
+  } else if (_batteryVoltage >= 4.15f) {
+    _isBatteryFull = true;
+  }
+}
+
+}
+}
+}

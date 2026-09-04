@@ -93,10 +93,10 @@ public:
   // turn mute on or off (reason sent to DAS)
   void ToggleMute(const std::string& reason);
 
-  // SeekOS: triple-click backpack toggles all robot sounds (Wwise master volume)
+  // Triple-click backpack toggles all robot sounds (Wwise master volume)
   void ToggleSoundMute(const std::string& reason);
   bool IsSoundMuted() const { return _soundMuted; }
-  // Draw a small mute glyph into the top-right of a face frame (persistent while muted)
+  // Brief red mute glyph (top-right) for ~1s after mute; not persistent
   void DrawSoundMuteIcon(Vision::ImageRGB565& faceImg) const;
   
   void StartAlexaNotification();
@@ -130,6 +130,8 @@ public:
   // Forcibly exit any screen
   void ExitCCScreen(Anim::AnimationStreamer* animStreamer);
 
+  bool IsHoldingCCISPairingFace() const { return _ccisPairingFaceHeld; }
+
 private:
   const Anim::AnimContext* _context = nullptr;
   
@@ -147,19 +149,30 @@ private:
   // Called everytime the screen changes.
   void ResetObservedHeadAndLiftAngles();
 
-  // Detects various button events
-  // Beyond return pressed and released events it also detects when a single button press
-  // is detected vs. a double/triple button press. Multi-presses are confirmed after the
-  // inter-press window expires so double and triple don't collide.
+  // Detects backpack button gestures:
+  // 1 = wake word, 2 = CCIS key screen, 3 = sound mute, 4 = sleep
   void CheckForButtonEvent(const bool buttonPressed, 
                            bool& buttonPressedEvent,
                            bool& buttonReleasedEvent,
                            bool& singlePressDetected, 
                            bool& doublePressDetected,
-                           bool& triplePressDetected);
+                           bool& triplePressDetected,
+                           bool& quadruplePressDetected);
 
   void ApplySoundMuteState();
-  
+
+  void EnterCCISMainMenu(const char* reason);
+  void RequestSystemSleep(const char* reason);
+  // Inject a cloud intent over ai_sock (same path as system_sleep / vic-cloud).
+  bool InjectCloudIntent(const char* intentName, const char* sockSuffix);
+  // After 4-click sleep, backpack single-press must wake (touch/pickup often fail).
+  void RequestWakeFromSleep(const char* reason);
+
+  bool IsCozmoMode() const { return _cozmoMode; }
+  void LoadCozmoModeFlag();
+  void SetCozmoMode(bool enabled, const char* reason);
+  void ExitCozmoModeToVector(const char* reason);
+
   // Returns true if screenName is one of the screens that allow the user to enter pairing when
   // double pressing the backpack and on the charger
   bool CanEnterPairingFromScreen( const ScreenName& screenName) const;
@@ -189,11 +202,14 @@ private:
   FaceInfoScreen* _currScreen;
 
   // Internal draw functions that
+  void DrawFactoryMenu();
   void DrawFAC();
+  void DrawFactoryAlert();
   void DrawMain();
   void DrawNetwork();
   void DrawSensorInfo(const RobotState& state);
   void DrawBuildInfo();
+  void DrawFactoryInfo();
   void DrawIMUInfo(const RobotState& state);
   void DrawMotorInfo(const RobotState& state);
   void DrawCustomText();
@@ -214,8 +230,9 @@ private:
   static const f32 kDefaultTextScale;
 
   // Helper methods for drawing debug data to face
+  // DVT look: default green text on black (classic Anki eng / CustomVectors style)
   void DrawTextOnScreen(const std::vector<std::string>& textVec, 
-                        const ColorRGBA& textColor = NamedColors::WHITE,
+                        const ColorRGBA& textColor = NamedColors::GREEN,
                         const ColorRGBA& bgColor = NamedColors::BLACK,
                         const Point2f& loc = kDefaultTextStartingLoc_pix,
                         u32 textSpacing_pix = kDefaultTextSpacing_pix,
@@ -223,7 +240,7 @@ private:
 
   struct ColoredText {
     ColoredText(const std::string& text,
-                const ColorRGBA& color = NamedColors::WHITE,
+                const ColorRGBA& color = NamedColors::GREEN,
                 bool leftAlign = true)
     : text(text)
     , color(color)
@@ -255,10 +272,21 @@ private:
 
   std::string _sysconVersion = "";
 
-  // SeekOS sound mute (triple-click). Separate from mic mute (double-click).
+  // Sound mute (triple-click). Separate from mic mute (double-click).
   bool _soundMuted = false;
   // Previous Wwise Robot_Vic_Volume state id to restore on unmute (defaults to Medium)
   uint32_t _volumeBeforeSoundMute = 0;
+  // Show mute icon until this timestamp (ms); 0 = hidden
+  u32 _soundMuteIconUntil_ms = 0;
+
+  // CCIS double-press pairing face (Victor + key) held until lift confirms menu.
+  bool _ccisPairingFaceHeld = false;
+
+  // Set by 4-click sleep; cleared when button wakes him.
+  bool _awaitingWakeFromSleep = false;
+
+  // Cozmo mode (CCIS menu). Persisted at /data/seek/cozmo_mode.
+  bool _cozmoMode = false;
   
   // Reboot Linux
   void Reboot();

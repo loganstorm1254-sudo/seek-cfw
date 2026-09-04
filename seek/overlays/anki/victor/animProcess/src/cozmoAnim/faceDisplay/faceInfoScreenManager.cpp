@@ -32,10 +32,13 @@
 #include "audioEngine/audioTypeTranslator.h"
 #include "clad/audio/audioStateTypes.h"
 #include "clad/audio/audioParameterTypes.h"
+#include "clad/cloud/mic.h"
 
 #include "coretech/common/shared/array2d.h"
 #include "coretech/common/engine/utils/data/dataPlatform.h"
 #include "coretech/common/engine/utils/timer.h"
+#include "coretech/messaging/shared/LocalUdpClient.h"
+#include "coretech/messaging/shared/socketConstants.h"
 #include "coretech/vision/engine/image.h"
 #include "util/console/consoleInterface.h"
 #include "util/console/consoleSystem.h"
@@ -60,6 +63,7 @@
 
 #include <chrono>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <thread>
 #include <sys/stat.h>
@@ -70,10 +74,10 @@
 #include <sys/reboot.h>
 #endif
 
-// CHANGE THIS TO BE YOUR PROJECT'S STUFF
-const std::string OSProject = "SeekOS";
-const std::string Creator = "By Logan / Seek CFW";
-const std::string CreatorWebsite = "github.com/loganstorm1254-sudo/seek-cfw";
+// Authentic Anki DVT face menu branding (double-click → lift → Main)
+const std::string OSProject = "Anki";
+const std::string Creator = "";
+const std::string CreatorWebsite = "";
 
 // Log options
 #define LOG_CHANNEL    "FaceInfoScreenManager"
@@ -113,9 +117,9 @@ bool isDeployed() {
 namespace {
   // Number of tics that a wheel needs to be moving for before it registers
   // as a signal to move the menu cursor
-  const u32 kMenuCursorMoveCountThresh = 10;
+  const u32 kMenuCursorMoveCountThresh = 4;
 
-  const f32 kWheelMotionThresh_mmps = 3.f;
+  const f32 kWheelMotionThresh_mmps = 2.f;
 
   const f32 kMenuLiftRange_rad = DEG_TO_RAD(45);
   f32 _liftLowestAngle_rad;
@@ -150,8 +154,24 @@ namespace {
 #if ANKI_DEV_CHEATS
   // Fake one of several types of button presses. This value will get reset immediately, so to
   // run it again from the web interface, first set it to NoOp
-  CONSOLE_VAR_ENUM(int, kFakeButtonPressType, "FaceInfoScreenManager", 0, "NoOp,singlePressDetected,doublePressDetected,triplePressDetected");
+  CONSOLE_VAR_ENUM(int, kFakeButtonPressType, "FaceInfoScreenManager", 0, "NoOp,singlePressDetected,doublePressDetected,triplePressDetected,quadruplePressDetected");
 #endif
+
+  // Visual-only: read kernel serial for CCIS face (does not change EMR / cloud ESN).
+  std::string ReadAndroidBootSerial8()
+  {
+    std::ifstream infile("/proc/cmdline");
+    std::string line;
+    if (!std::getline(infile, line)) {
+      return {};
+    }
+    static const std::string kProp = "androidboot.serialno=";
+    const size_t index = line.find(kProp);
+    if (index == std::string::npos) {
+      return {};
+    }
+    return line.substr(index + kProp.length(), 8);
+  }
 }
 
 
@@ -182,6 +202,8 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   
   // allow us to send debug info out to the web server
   _webService = context->GetWebService();
+
+  LoadCozmoModeFlag();
 
   #define ADD_SCREEN(name, gotoScreen) \
     _screenMap.emplace(std::piecewise_construct, \
@@ -224,7 +246,9 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   ADD_SCREEN_WITH_TEXT(Recovery, Recovery, {"RECOVERY MODE"});
   ADD_SCREEN(None, None);
   ADD_SCREEN(Pairing, Pairing);
-  ADD_SCREEN(FAC, None);
+  ADD_SCREEN(FAC, FactoryMenu);
+  ADD_SCREEN(FactoryAlert, FactoryMenu);
+  ADD_SCREEN(FactoryMenu, Main);
   ADD_SCREEN(CustomText, None);
   ADD_SCREEN(Main, Network);
   ADD_SCREEN_WITH_TEXT(ClearUserData, Main, {"CLEAR OUT SOUL?"});
@@ -232,6 +256,8 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   ADD_SCREEN_WITH_TEXT(Rebooting, Rebooting, {"Vector will remember that..."});
   ADD_SCREEN_WITH_TEXT(SelfTest, Main, {"START SELF TEST?"});
   ADD_SCREEN(SelfTestRunning, SelfTestRunning)
+  ADD_SCREEN_WITH_TEXT(CozmoMode, Main, {"ENTER COZMO MODE?"});
+  ADD_SCREEN_WITH_TEXT(VectorMode, Main, {"BACK TO VECTOR?"});
   ADD_SCREEN(Network, SensorInfo);
   ADD_SCREEN(SensorInfo, IMUInfo);
   ADD_SCREEN(IMUInfo, MotorInfo);
@@ -263,7 +289,8 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
     ADD_SCREEN(Camera, BuildInfo);
   }
 
-  ADD_SCREEN(BuildInfo, Main); // Last screen cycles back to Main
+  ADD_SCREEN(BuildInfo, FactoryInfo);
+  ADD_SCREEN(FactoryInfo, Main); // Last screen cycles back to Main
 
 
   // ========== Screen Customization ========= 
@@ -287,12 +314,46 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   SET_ENTER_ACTION(None, noneEnterFcn);
   SET_EXIT_ACTION(None, noneExitFcn);
 
+  // Hold still in CCIS / factory preview: abort face anims and enable calm power.
+  auto ccisStillEnterFcn = [this](const std::function<void()>& drawScreen) {
+    if (_animationStreamer != nullptr) {
+      _animationStreamer->Abort();
+      _animationStreamer->EnableKeepFaceAlive(true, 0);
+    }
+    SendAnimToRobot(RobotInterface::StopAllMotors());
+    RobotInterface::CalmPowerMode calm;
+    calm.enable = true;
+    SendAnimToRobot(std::move(calm));
+    if (_context != nullptr) {
+      auto* audioController = _context->GetAudioController();
+      if (audioController != nullptr) {
+        audioController->StopAllAudioEvents();
+      }
+    }
+    if (drawScreen) {
+      drawScreen();
+    }
+  };
+
+  auto ccisStillExitFcn = []() {
+    RobotInterface::CalmPowerMode calm;
+    calm.enable = false;
+    SendAnimToRobot(std::move(calm));
+  };
+
   // === FAC screen ===
-  auto facEnterFcn = [this]() {
-    DrawFAC();
+  auto facEnterFcn = [this, ccisStillEnterFcn]() {
+    ccisStillEnterFcn([this]() { DrawFAC(); });
   };
   SET_ENTER_ACTION(FAC, facEnterFcn);
   DISABLE_TIMEOUT(FAC);
+
+  // === Factory alert (!) preview screen ===
+  auto factoryAlertEnterFcn = [this, ccisStillEnterFcn]() {
+    ccisStillEnterFcn([this]() { DrawFactoryAlert(); });
+  };
+  SET_ENTER_ACTION(FactoryAlert, factoryAlertEnterFcn);
+  DISABLE_TIMEOUT(FactoryAlert);
 
 
   // === Pairing screen ===
@@ -313,16 +374,52 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   SET_EXIT_ACTION(CustomText, customTextExitFcn);
 
   // === Main screen ===
-  auto mainEnterFcn = [this]() {
-    DrawMain();
+  // DVT: unlock backpack-button debug info chain immediately (Network → sensors → motors …)
+  auto mainEnterFcn = [this, ccisStillEnterFcn]() {
+    _debugInfoScreensUnlocked = true;
+    ccisStillEnterFcn([this]() { DrawMain(); });
   };
   SET_ENTER_ACTION(Main, mainEnterFcn);
+  SET_EXIT_ACTION(Main, ccisStillExitFcn);
 
   ADD_MENU_ITEM(Main, "EXIT", None);
 #if ENABLE_SELF_TEST
-  ADD_MENU_ITEM(Main, IsXray() ? "TEST" : "SELF TEST", SelfTest);
+  ADD_MENU_ITEM(Main, "TEST", SelfTest);
 #endif
-  ADD_MENU_ITEM(Main, IsXray() ? "CLEAR" : "CLEAR OUT SOUL", ClearUserData);
+  // Opens enter or exit confirm depending on current mode.
+  // Keep labels short — menu rows cover bottom of 96px face; IP is drawn first on Main.
+  FaceInfoScreen::MenuItemAction cozmoMenuAction = [this]() {
+    return IsCozmoMode() ? ScreenName::VectorMode : ScreenName::CozmoMode;
+  };
+  ADD_MENU_ITEM_WITH_ACTION(Main, "COZMO", cozmoMenuAction);
+  ADD_MENU_ITEM(Main, "CLEAR", ClearUserData);
+  ADD_MENU_ITEM(Main, "FACT", FactoryMenu);
+  ADD_MENU_ITEM(Main, "NET", Network);
+
+  // === Factory preview submenu (FAC / !) ===
+  auto factoryMenuEnterFcn = [this, ccisStillEnterFcn]() {
+    ccisStillEnterFcn([this]() { DrawFactoryMenu(); });
+  };
+  SET_ENTER_ACTION(FactoryMenu, factoryMenuEnterFcn);
+  SET_EXIT_ACTION(FactoryMenu, ccisStillExitFcn);
+  ADD_MENU_ITEM(FactoryMenu, "EXIT", Main);
+  ADD_MENU_ITEM(FactoryMenu, "FAC", FAC);
+  ADD_MENU_ITEM(FactoryMenu, "!", FactoryAlert);
+
+  // === Cozmo mode ===
+  ADD_MENU_ITEM(CozmoMode, "EXIT", Main);
+  FaceInfoScreen::MenuItemAction confirmCozmoMode = [this]() {
+    SetCozmoMode(true, "CCIS_MENU");
+    return ScreenName::None;
+  };
+  ADD_MENU_ITEM_WITH_ACTION(CozmoMode, "CONFIRM", confirmCozmoMode);
+
+  ADD_MENU_ITEM(VectorMode, "EXIT", Main);
+  FaceInfoScreen::MenuItemAction confirmVectorMode = [this]() {
+    ExitCozmoModeToVector("CCIS_MENU");
+    return ScreenName::None;
+  };
+  ADD_MENU_ITEM_WITH_ACTION(VectorMode, "CONFIRM", confirmVectorMode);
 
   // === Self test screen ===
   ADD_MENU_ITEM(SelfTest, "EXIT", Main);
@@ -542,9 +639,13 @@ bool FaceInfoScreenManager::IsDebugScreen(ScreenName screen) const
 {
   switch(screen) {
     case ScreenName::None:
-    case ScreenName::FAC:
     case ScreenName::CustomText:
       return false;
+#if FACTORY_TEST
+    case ScreenName::FAC:
+    case ScreenName::FactoryAlert:
+      return false;
+#endif
     default:
       return true;
   }
@@ -552,6 +653,7 @@ bool FaceInfoScreenManager::IsDebugScreen(ScreenName screen) const
 
 void FaceInfoScreenManager::SetScreen(ScreenName screen)
 {
+  ScreenName prevScreenName = ScreenName::None;
   bool prevScreenIsDebug = false;
   bool prevScreenNeedsWait = false;
   bool prevScreenWasMute = false;
@@ -562,10 +664,11 @@ void FaceInfoScreenManager::SetScreen(ScreenName screen)
     if (screen == GetCurrScreenName()) {
       return;
     }
+    prevScreenName = GetCurrScreenName();
+    prevScreenIsDebug = IsDebugScreen(prevScreenName);
+    prevScreenNeedsWait = ScreenNeedsWait(prevScreenName);
+    prevScreenWasMute = prevScreenName == ScreenName::ToggleMute;
     _currScreen->ExitScreen();
-    prevScreenIsDebug = IsDebugScreen(GetCurrScreenName());
-    prevScreenNeedsWait = ScreenNeedsWait(GetCurrScreenName());
-    prevScreenWasMute = GetCurrScreenName() == ScreenName::ToggleMute;
   }
 
   _currScreen = GetScreen(screen);
@@ -579,23 +682,45 @@ void FaceInfoScreenManager::SetScreen(ScreenName screen)
     _currScreen = GetScreen(ScreenName::FAC);
   }
 
-  // Tell engine if the screen changes so behaviors can be appropriately enabled/disabled
-  bool currScreenIsDebug = IsDebugScreen(GetCurrScreenName());
-  bool currScreenNeedsWait = ScreenNeedsWait(GetCurrScreenName());
-  if ((currScreenIsDebug != prevScreenIsDebug) || (currScreenNeedsWait != prevScreenNeedsWait)) {
+  const ScreenName currScreenName = GetCurrScreenName();
+
+  auto shouldPauseBehaviors = [this](ScreenName name) {
+    return IsDebugScreen(name)
+      || name == ScreenName::FAC
+      || name == ScreenName::FactoryAlert
+      || name == ScreenName::FactoryMenu;
+  };
+
+  const bool prevPauseBehaviors = shouldPauseBehaviors(prevScreenName);
+
+  bool currScreenIsDebug = IsDebugScreen(currScreenName);
+  bool currScreenNeedsWait = ScreenNeedsWait(currScreenName);
+  const bool currPauseBehaviors = shouldPauseBehaviors(currScreenName);
+
+  if ((currScreenIsDebug != prevScreenIsDebug)
+      || (currScreenNeedsWait != prevScreenNeedsWait)
+      || (currPauseBehaviors != prevPauseBehaviors)) {
     DebugScreenMode msg;
     msg.isDebug = currScreenIsDebug;
-    msg.needsWait = currScreenNeedsWait;
+    msg.needsWait = currPauseBehaviors || currScreenNeedsWait;
     // leaving the mute screen via single press may coincide with the start of a wake word trigger, so don't clear it
     msg.fromMute = prevScreenWasMute;
     RobotInterface::SendAnimToEngine(std::move(msg));
   }
 
 #ifndef SIMULATOR
-  // Enable/Disable lift
+  // Enable lift on CCIS menu screens (confirm with arm); keep disabled on sensor debug chain.
+  const bool ccisMenuLift =
+    (currScreenName == ScreenName::Main ||
+     currScreenName == ScreenName::FactoryMenu ||
+     currScreenName == ScreenName::CozmoMode ||
+     currScreenName == ScreenName::VectorMode ||
+     currScreenName == ScreenName::ClearUserData ||
+     currScreenName == ScreenName::SelfTest);
   RobotInterface::EnableMotorPower msg;
   msg.motorID = MotorID::MOTOR_LIFT;
   msg.enable = (!currScreenIsDebug ||
+                ccisMenuLift ||
                 GetCurrScreenName() == ScreenName::CameraMotorTest ||
                 GetCurrScreenName() == ScreenName::SelfTestRunning);
   SendAnimToRobot(std::move(msg));
@@ -625,15 +750,60 @@ void FaceInfoScreenManager::SetScreen(ScreenName screen)
 
 }
 
+void FaceInfoScreenManager::DrawFactoryMenu()
+{
+  auto* osstate = OSState::getInstance();
+  std::string ip = osstate->GetIPAddress();
+  if (ip.empty()) {
+    ip = "XXX.XXX.XXX.XXX";
+  }
+  ColoredTextLines lines = {
+    {"FACTORY"},
+#if FACTORY_TEST
+    {"IP: " + ip},
+#else
+    { {"IP: "}, {ip, (osstate->IsValidIPAddress(ip) ? NamedColors::GREEN : NamedColors::RED)} },
+#endif
+  };
+  DrawTextOnScreen(lines);
+}
+
 void FaceInfoScreenManager::DrawFAC()
 {
   DrawTextOnScreen({"FAC"},
                    NamedColors::BLACK,
-                   (Factory::GetEMR()->fields.PLAYPEN_PASSED_FLAG ? 
-		    NamedColors::GREEN : NamedColors::RED),
+                   NamedColors::ORANGE,
                    { 0, FACE_DISPLAY_HEIGHT-10 },
                    10,
                    3.f);
+}
+
+void FaceInfoScreenManager::DrawFactoryAlert()
+{
+  Vision::ImageRGB565& img = *_scratchDrawingImg;
+  img.FillWith({NamedColors::BLACK.r(), NamedColors::BLACK.g(), NamedColors::BLACK.b()});
+
+  static const ColorRGBA kGold(1.f, 0.78f, 0.f);
+  constexpr s32 kMarginX = 6;
+  constexpr s32 kMarginY = 4;
+  const Rectangle<s32> box(kMarginX, kMarginY,
+                           FACE_DISPLAY_WIDTH - kMarginX,
+                           FACE_DISPLAY_HEIGHT - kMarginY);
+  img.DrawFilledRect(box, kGold);
+
+  const std::string bang = "!";
+  const f32 scale = 4.f;
+  const int thick = 8;
+  const auto sz = Vision::Image::GetTextSize(bang, scale, thick);
+  const int baselineY = (FACE_DISPLAY_HEIGHT + sz.y()) / 2;
+  img.DrawTextCenteredHorizontally(bang,
+                                   cv::QT_FONT_NORMAL,
+                                   scale,
+                                   thick,
+                                   NamedColors::BLACK,
+                                   baselineY,
+                                   false);
+  DrawScratch();
 }
 
 void FaceInfoScreenManager::UpdateFAC()
@@ -950,7 +1120,8 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
                                                 bool& buttonReleasedEvent,
                                                 bool& singlePressDetected, 
                                                 bool& doublePressDetected,
-                                                bool& triplePressDetected)
+                                                bool& triplePressDetected,
+                                                bool& quadruplePressDetected)
 {
   static u32  lastReleaseTime_ms = 0;
   static u32  pressCount         = 0;
@@ -967,9 +1138,12 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
   singlePressDetected = false;
   doublePressDetected = false;
   triplePressDetected = false;
+  quadruplePressDetected = false;
 
-  // Max gap between releases that still counts as one multi-press gesture
-  static const u32 kMultiPressWindow_ms = 900;
+  // Gap between clicks that still counts as one multi-press gesture
+  static const u32 kMultiPressWindow_ms = 1200;
+  // After last release, wait this long before committing (so 2 vs 3 vs 4 resolve cleanly)
+  static const u32 kConfirmDelay_ms = 350;
 
   const u32 curTime_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp();
 
@@ -983,26 +1157,19 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
       pressCount = 1;
     }
     lastReleaseTime_ms = curTime_ms;
-
-    // Triple fires immediately on the 3rd release (no wait) so it feels responsive
-    // and doesn't lose the gesture to a delayed double-confirm.
-    if (pressCount >= 3) {
-      triplePressDetected = true;
-      pressCount = 0;
-      waitingConfirm = false;
-      lastReleaseTime_ms = 0;
-    } else {
-      waitingConfirm = true;
-    }
+    waitingConfirm = true;
     holdStartTime_ms = 0;
   }
 
-  // Confirm single/double after the window expires (triple already handled above)
-  if (waitingConfirm && (curTime_ms - lastReleaseTime_ms >= kMultiPressWindow_ms)) {
+  if (waitingConfirm && (curTime_ms - lastReleaseTime_ms >= kConfirmDelay_ms)) {
     if (pressCount == 1) {
       singlePressDetected = true;
     } else if (pressCount == 2) {
       doublePressDetected = true;
+    } else if (pressCount == 3) {
+      triplePressDetected = true;
+    } else if (pressCount >= 4) {
+      quadruplePressDetected = true;
     }
     pressCount = 0;
     waitingConfirm = false;
@@ -1024,6 +1191,7 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
     singlePressDetected = false;
     doublePressDetected = false;
     triplePressDetected = false;
+    quadruplePressDetected = false;
     shutdownSent = true;
   }
   
@@ -1036,6 +1204,9 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
     kFakeButtonPressType = 0;
   } else if( kFakeButtonPressType == 3 ) { // triple press
     triplePressDetected = true;
+    kFakeButtonPressType = 0;
+  } else if( kFakeButtonPressType == 4 ) { // quadruple press
+    quadruplePressDetected = true;
     kFakeButtonPressType = 0;
   }
 #endif
@@ -1050,6 +1221,123 @@ void FaceInfoScreenManager::ResetObservedHeadAndLiftAngles()
   _headHighestAngle_rad = std::numeric_limits<f32>::lowest();
 }
 
+void FaceInfoScreenManager::EnterCCISMainMenu(const char* reason)
+{
+  LOG_INFO("FaceInfoScreenManager.EnterCCISMainMenu", "%s", reason);
+  _ccisPairingFaceHeld = false;
+  _debugInfoScreensUnlocked = true;
+  if (_animationStreamer != nullptr) {
+    _animationStreamer->Abort();
+    _animationStreamer->EnableKeepFaceAlive(true, 0);
+  }
+  SendAnimToRobot(RobotInterface::StopAllMotors());
+  RobotInterface::CalmPowerMode calm;
+  calm.enable = true;
+  SendAnimToRobot(std::move(calm));
+  if (_context != nullptr) {
+    auto* audioController = _context->GetAudioController();
+    if (audioController != nullptr) {
+      audioController->StopAllAudioEvents();
+    }
+  }
+  SetScreen(ScreenName::Main);
+
+  DASMSG(robot_cc_screen_enter, "robot.cc_screen_enter", "Entered customer care screen");
+  DASMSG_SET(i1, _debugInfoScreensUnlocked ? 1 : 0, "Debug info screens unlocked");
+  DASMSG_SEND();
+}
+
+void FaceInfoScreenManager::RequestSystemSleep(const char* reason)
+{
+  LOG_INFO("FaceInfoScreenManager.RequestSystemSleep", "%s", reason);
+
+  // Inject system_sleep the same way vic-cloud does (UDP → engine ai_sock).
+  if (!InjectCloudIntent("intent_system_sleep", "_anim_ai_client_sleep")) {
+    return;
+  }
+  _awaitingWakeFromSleep = true;
+}
+
+bool FaceInfoScreenManager::InjectCloudIntent(const char* intentName, const char* sockSuffix)
+{
+  CloudMic::IntentResult intent;
+  intent.intent = intentName;
+  CloudMic::Message msg = CloudMic::Message::Createresult(std::move(intent));
+
+  LocalUdpClient client;
+  const std::string sockname = std::string(LOCAL_SOCKET_PATH) + sockSuffix;
+  const std::string peername = std::string(AI_SERVER_BASE_PATH);
+  if (!client.Connect(sockname, peername)) {
+    LOG_WARNING("FaceInfoScreenManager.InjectCloudIntent.ConnectFail",
+                "intent=%s peer=%s", intentName, peername.c_str());
+    return false;
+  }
+
+  std::vector<uint8_t> buf(msg.Size());
+  msg.Pack(buf.data(), buf.size());
+  const ssize_t sent = client.Send(reinterpret_cast<const char*>(buf.data()), buf.size());
+  client.Disconnect();
+  if (sent <= 0) {
+    LOG_WARNING("FaceInfoScreenManager.InjectCloudIntent.SendFail",
+                "intent=%s sent=%zd", intentName, sent);
+    return false;
+  }
+  return true;
+}
+
+void FaceInfoScreenManager::RequestWakeFromSleep(const char* reason)
+{
+  LOG_INFO("FaceInfoScreenManager.RequestWakeFromSleep", "%s", reason);
+
+  // Re-open eyes immediately — sleep holds the last closed-eye frame while keepalive is off.
+  if (_animationStreamer != nullptr) {
+    _animationStreamer->EnableKeepFaceAlive(true, 0);
+  }
+
+  // Deep sleep from system_sleep only always-wakes on VoiceCommand (pending intent).
+  // Touch/pickup often don't work with flaky spine — inject a greeting so SleepCycle wakes.
+  InjectCloudIntent("intent_greeting_goodmorning", "_anim_ai_client_wake");
+  _awaitingWakeFromSleep = false;
+}
+
+void FaceInfoScreenManager::LoadCozmoModeFlag()
+{
+  _cozmoMode = Util::FileUtils::FileExists("/data/seek/cozmo_mode");
+  LOG_INFO("FaceInfoScreenManager.LoadCozmoModeFlag", "cozmoMode=%d", _cozmoMode ? 1 : 0);
+}
+
+void FaceInfoScreenManager::SetCozmoMode(bool enabled, const char* reason)
+{
+  LOG_INFO("FaceInfoScreenManager.SetCozmoMode", "enabled=%d reason=%s", enabled ? 1 : 0, reason);
+  Util::FileUtils::CreateDirectory("/data/seek", false, true);
+  if (enabled) {
+    Util::FileUtils::WriteFile("/data/seek/cozmo_mode", "1");
+  } else {
+    Util::FileUtils::DeleteFile("/data/seek/cozmo_mode");
+  }
+  _cozmoMode = enabled;
+
+  const std::string line = enabled ? "COZMO CRT ON" : "VECTOR MODE";
+  RobotInterface::DrawTextOnScreen msg{};
+  msg.drawNow = true;
+  msg.textColor.r = NamedColors::GREEN.r();
+  msg.textColor.g = NamedColors::GREEN.g();
+  msg.textColor.b = NamedColors::GREEN.b();
+  msg.bgColor.r = NamedColors::BLACK.r();
+  msg.bgColor.g = NamedColors::BLACK.g();
+  msg.bgColor.b = NamedColors::BLACK.b();
+  std::copy(line.c_str(), line.c_str() + line.length(), &(msg.text[0]));
+  msg.text[line.length()] = '\0';
+  msg.text_length = static_cast<decltype(msg.text_length)>(line.length());
+  GetScreen(ScreenName::CustomText)->SetTimeout(2.f, ScreenName::None);
+  SetCustomText(msg);
+}
+
+void FaceInfoScreenManager::ExitCozmoModeToVector(const char* reason)
+{
+  SetCozmoMode(false, reason);
+}
+
 void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
 {
   const bool buttonIsPressed = static_cast<bool>(state.status & (uint32_t)RobotStatusFlag::IS_BUTTON_PRESSED);
@@ -1058,12 +1346,14 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
   bool singlePressDetected;
   bool doublePressDetected;
   bool triplePressDetected;
+  bool quadruplePressDetected;
   CheckForButtonEvent(buttonIsPressed, 
                       buttonPressedEvent, 
                       buttonReleasedEvent, 
                       singlePressDetected, 
                       doublePressDetected,
-                      triplePressDetected);
+                      triplePressDetected,
+                      quadruplePressDetected);
 
   const bool isOnCharger = static_cast<bool>(state.status & (uint32_t)RobotStatusFlag::IS_ON_CHARGER);
 
@@ -1078,33 +1368,43 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
       }
       EnableAlexaScreen(ScreenName::None,"","");
     } else if (currScreenName == ScreenName::None) {
-      // Fake trigger word on single press
+      if (_awaitingWakeFromSleep) {
+        // Wake from 4-click sleep (must work even when touch/pickup don't)
+        RequestWakeFromSleep("SINGLE_PRESS");
+      }
+      // Fake trigger word on single press (also helps SleepingTriggerWord path)
       LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotSinglePress", "Triggering wake word");
       _context->GetMicDataSystem()->FakeTriggerWordDetection();
     }
   }
 
-  // Check for conditions to enter BLE pairing mode
-  if (doublePressDetected && 
-      isOnCharger &&
-      // Only enter pairing from these three screens which include
-      // screens that are normally active during playpen test
-      CanEnterPairingFromScreen(currScreenName)) {
-    LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotDoublePress", "Entering pairing");
-    RobotInterface::SendAnimToEngine(SwitchboardInterface::EnterPairing());
-
-    if (FORCE_TRANSITION_TO_PAIRING) {
-      LOG_WARNING("FaceInfoScreenManager.ProcessMenuNavigation.ForcedPairing",
-                  "Remove FORCE_TRANSITION_TO_PAIRING when switchboard is working");
-      SetScreen(ScreenName::Pairing);
+  // If we put him to sleep via 4-click, any backpack press should wake first.
+  if (_awaitingWakeFromSleep &&
+      _engineLoaded &&
+      currScreenName == ScreenName::None &&
+      (singlePressDetected || doublePressDetected || triplePressDetected || quadruplePressDetected)) {
+    if (!singlePressDetected) {
+      RequestWakeFromSleep(doublePressDetected ? "DOUBLE_PRESS" :
+                           (triplePressDetected ? "TRIPLE_PRESS" : "QUAD_PRESS_WAKE"));
+      _context->GetMicDataSystem()->FakeTriggerWordDetection();
     }
   }
-  else if(doublePressDetected &&
-          !isOnCharger && // while user-facing instructions may say "pick up the robot and double press," it's really just off charger
-          _engineLoaded &&
-          CanEnterPairingFromScreen(currScreenName))
+  else if (doublePressDetected &&
+           _engineLoaded &&
+           (currScreenName == ScreenName::FAC ||
+            currScreenName == ScreenName::FactoryAlert))
   {
-    ToggleMute("DOUBLE_PRESS");
+    LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.ExitFactoryVisual", "");
+    SetScreen(ScreenName::FactoryMenu);
+  }
+  // Seek: double-press opens CCIS Main immediately (no pairing face / lift dance).
+  else if (doublePressDetected &&
+           _engineLoaded &&
+           CanEnterPairingFromScreen(currScreenName))
+  {
+    LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotDoublePress",
+             "Entering CCIS Main (direct)");
+    EnterCCISMainMenu("DOUBLE_PRESS");
   }
   else if(triplePressDetected &&
           _engineLoaded &&
@@ -1113,16 +1413,33 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
            currScreenName == ScreenName::FAC ||
            currScreenName == ScreenName::MirrorMode))
   {
-    // SeekOS: triple-click mutes/unmutes all robot sounds and shows a mute icon
-    // (works on or off charger; fires immediately on 3rd release)
+    // Triple-click mutes/unmutes all robot sounds
     ToggleSoundMute("TRIPLE_PRESS");
+  }
+  else if(quadruplePressDetected &&
+          _engineLoaded &&
+          (currScreenName == ScreenName::None ||
+           currScreenName == ScreenName::ToggleMute ||
+           currScreenName == ScreenName::FAC ||
+           currScreenName == ScreenName::MirrorMode))
+  {
+    if (IsCozmoMode()) {
+      // 4-click in Cozmo mode → back to Vector mode
+      ExitCozmoModeToVector("QUADRUPLE_PRESS");
+    } else {
+      // Quad-click: go to sleep
+      RequestSystemSleep("QUADRUPLE_PRESS");
+    }
   }
 
   // Check for button press to go to next debug screen
   if (buttonReleasedEvent) {
     if (_debugInfoScreensUnlocked &&
         (currScreenName != ScreenName::None &&
+          currScreenName != ScreenName::Main &&
+          currScreenName != ScreenName::FactoryMenu &&
           currScreenName != ScreenName::FAC &&
+          currScreenName != ScreenName::FactoryAlert &&
           currScreenName != ScreenName::Pairing &&
           currScreenName != ScreenName::Recovery) ) {
       SetScreen(_currScreen->GetButtonGotoScreen());
@@ -1199,20 +1516,49 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
       } else if (GetCurrScreenName() == ScreenName::Pairing) {
         LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.ExitPairing", "Going to Customer Service Main from Pairing");
         RobotInterface::SendAnimToEngine(SwitchboardInterface::ExitPairing());
-        SetScreen(ScreenName::Main);
-
-        // DAS msg for entering customer care screen
-        // Note: The debug info screens will only be reported unlocked here if they 
-        //       were unlocked the previous time the customer care screen was entered.
-        DASMSG(robot_cc_screen_enter, "robot.cc_screen_enter", "Entered customer care screen");
-        DASMSG_SET(i1, _debugInfoScreensUnlocked ? 1 : 0, "Debug info screens unlocked");
-        DASMSG_SEND();
+        EnterCCISMainMenu("LIFT_CONFIRM");
       }
     }
   }
   else
   {
     _liftTriggerReady = false;
+  }
+
+  // Head tilt menu scroll on CCIS menus (fallback if treads don't register).
+  if ((currScreenName == ScreenName::Main || currScreenName == ScreenName::FactoryMenu) &&
+      _currScreen->HasMenu()) {
+    static f32 headScrollLowest_rad = std::numeric_limits<f32>::max();
+    static f32 headScrollHighest_rad = std::numeric_limits<f32>::lowest();
+    static bool headScrollReady = false;
+    constexpr f32 kHeadMenuScrollRange_rad = DEG_TO_RAD(15);
+
+    const auto headAngle = state.headAngle;
+    if (headAngle > headScrollHighest_rad) {
+      headScrollHighest_rad = headAngle;
+    }
+    if (headAngle < headScrollLowest_rad) {
+      headScrollLowest_rad = headAngle;
+    }
+    const float headScrollRange_rad = headScrollHighest_rad - headScrollLowest_rad;
+
+    if (!headScrollReady && (headScrollRange_rad > kHeadMenuScrollRange_rad)) {
+      headScrollReady = true;
+    } else if (headScrollReady &&
+               (Util::Abs(headAngle - headScrollHighest_rad) < kMenuAngularTriggerThresh_rad)) {
+      headScrollReady = false;
+      headScrollLowest_rad = std::numeric_limits<f32>::max();
+      headScrollHighest_rad = std::numeric_limits<f32>::lowest();
+      _currScreen->MoveMenuCursorUp();
+      DrawScratch();
+    } else if (headScrollReady &&
+               (Util::Abs(headAngle - headScrollLowest_rad) < kMenuAngularTriggerThresh_rad)) {
+      headScrollReady = false;
+      headScrollLowest_rad = std::numeric_limits<f32>::max();
+      headScrollHighest_rad = std::numeric_limits<f32>::lowest();
+      _currScreen->MoveMenuCursorDown();
+      DrawScratch();
+    }
   }
 
   // Process head motion for going from Main screen to "hidden" debug info screens
@@ -1266,14 +1612,26 @@ void FaceInfoScreenManager::Update(const RobotState& state)
 
   switch(currScreenName) {
     case ScreenName::Main:
+    case ScreenName::FactoryMenu:
     {
-      static float lastTime = 0;
-      const float now = BaseStationTimer::getInstance()->GetCurrentTimeInSeconds();
-      if ( (now - lastTime) > kIPCheckPeriod_sec ) {
-        lastTime = now;
-        DrawMain();
+      static u32 lastStill_ms = 0;
+      const u32 now_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp();
+      if (now_ms - lastStill_ms > 1500) {
+        lastStill_ms = now_ms;
+        SendAnimToRobot(RobotInterface::StopAllMotors());
+        RobotInterface::CalmPowerMode calm;
+        calm.enable = true;
+        SendAnimToRobot(std::move(calm));
       }
-      break; 
+      if (currScreenName == ScreenName::Main) {
+        static float lastTime = 0;
+        const float now = BaseStationTimer::getInstance()->GetCurrentTimeInSeconds();
+        if ( (now - lastTime) > kIPCheckPeriod_sec ) {
+          lastTime = now;
+          DrawMain();
+        }
+      }
+      break;
     }
     case ScreenName::Network:
     {
@@ -1313,6 +1671,9 @@ void FaceInfoScreenManager::Update(const RobotState& state)
     case ScreenName::BuildInfo:
       DrawBuildInfo();
       break;
+    case ScreenName::FactoryInfo:
+      DrawFactoryInfo();
+      break;
     default:
       // Other screens are either updated once when SetScreen() is called
       // or updated by their own draw functions that are called externally
@@ -1324,30 +1685,14 @@ void FaceInfoScreenManager::DrawMain()
 {
   auto *osstate = OSState::getInstance();
 
-  std::string esn = osstate->GetSerialNumberAsString();
-  if(esn.empty())
-  {
-    // TODO Remove once DVT2s are phased out
-    // ESN is 0 assume this is a DVT2 with a fake birthcertificate
-    // so look for serial number in "/proc/cmdline"
-    static std::string serialNum = "";
-    if(serialNum == "")
-    {
-      std::ifstream infile("/proc/cmdline");
+  const auto* emr = Factory::GetEMR();
+  const bool dvt2Proto = (emr != nullptr && emr->fields.ESN == 0);
 
-      std::string line;
-      while(std::getline(infile, line))
-      {
-        static const std::string kProp = "androidboot.serialno=";
-        size_t index = line.find(kProp);
-        if(index != std::string::npos)
-        {
-          serialNum = line.substr(index + kProp.length(), 8);
-        }
-      }
-      infile.close();
-    }
-    esn =  serialNum;
+  // Visual-only: Main always shows zero ESN when birth-cert EMR ESN is fake zero.
+  // Real serial stays on Factory Info (BOOT line); EMR/cloud unchanged.
+  std::string esn = osstate->GetSerialNumberAsString();
+  if (dvt2Proto) {
+    esn = "000000";
   }
 
   std::transform(esn.begin(), esn.end(), esn.begin(),
@@ -1355,35 +1700,32 @@ void FaceInfoScreenManager::DrawMain()
 
   const std::string serialNo = "ESN: "  + esn;
 
-  const std::string hwVer    = "HW: "   + std::to_string(IsXray() ? 8 : Factory::GetEMR()->fields.HW_VER);
+  const std::string hwVer    = dvt2Proto
+    ? "HW: DVT2"
+    : ("HW: " + std::to_string(IsXray() ? 8 : emr->fields.HW_VER));
 
-  const std::string osProject    = "OS: " + OSProject;
-
-  // osVer will be sha if deployed build
-  std::string osVer = "VER: " + osstate->GetOSBuildVersion();
-
-  const std::string ssid     = "SSID: " + osstate->GetSSID(true);
-
-  if (isDeployed()) {
-    osVer      = "SHA: "  + osstate->GetBuildSha();
-  }
-
-  std::string ip             = osstate->GetIPAddress();
+  // IP first — bottom menu (EXIT/TEST/COZMO/CLEAR/FACT) covers lower lines on 96px face.
+  std::string ip = osstate->GetIPAddress();
   if (ip.empty()) {
     ip = "XXX.XXX.XXX.XXX";
   }
+  const std::string ssid = "SSID: " + osstate->GetSSID(true);
+  const std::string osProject = IsCozmoMode() ? "OS: Cozmo" : ("OS: " + OSProject);
+  std::string osVer = "VER: " + osstate->GetOSBuildVersion();
+  if (osVer == "VER: " || osVer == "VER:") {
+    osVer = "VER: unknown";
+  }
 
-  // ESN/serialNo and the HW version are drawn on the same line with serialNo default left aligned and
-  // HW version right aligned.
-  ColoredTextLines lines = { { {serialNo}, {hwVer, NamedColors::WHITE, false} },
-                             {osProject},
-                             {osVer},
-                             {ssid}, 
+  ColoredTextLines lines = {
 #if FACTORY_TEST
                              {"IP: " + ip},
 #else
                              { {"IP: "}, {ip, (osstate->IsValidIPAddress(ip) ? NamedColors::GREEN : NamedColors::RED)} },
 #endif
+                             {ssid},
+                             { {serialNo}, {hwVer, NamedColors::GREEN, false} },
+                             {osProject},
+                             {osVer},
                            };
 
   DrawTextOnScreen(lines);
@@ -1528,13 +1870,51 @@ void FaceInfoScreenManager::DrawSensorInfo(const RobotState& state)
 
 void FaceInfoScreenManager::DrawBuildInfo() {
   auto *osstate = OSState::getInstance();
-  const std::string osProject = "OS: " + OSProject;
-  const std::string branch = "BRANCH: " + osstate->GetBuildBranch();
+  // Build debug screen: OS name + version (same values as Main)
+  const std::string osProject = IsCozmoMode() ? "OS: Cozmo" : ("OS: " + OSProject);
   const std::string osVer = "VER: " + osstate->GetOSBuildVersion();
   const std::string sha = "SHA: " + osstate->GetBuildSha();
-  const std::string creator = Creator;
-  const std::string creatorWebsite = CreatorWebsite;
-  DrawTextOnScreen({osProject, branch, osVer, sha, creator, creatorWebsite});
+  const std::string mode = IsCozmoMode() ? "MODE: COZMO" : "MODE: VECTOR";
+  DrawTextOnScreen({osProject, osVer, mode, sha});
+}
+
+void FaceInfoScreenManager::DrawFactoryInfo()
+{
+  // Factory screen: real ESN (cmdline) + raw birth-cert EMR fields.
+  char temp[40] = "";
+  const auto* emr = Factory::GetEMR();
+
+  std::string realEsn = "ESN: --------";
+  const std::string bootSn = ReadAndroidBootSerial8();
+  if (!bootSn.empty()) {
+    realEsn = "ESN: " + bootSn;
+    std::transform(realEsn.begin() + 5, realEsn.end(), realEsn.begin() + 5,
+                   [](unsigned char c){ return std::tolower(c); });
+  } else if (emr != nullptr) {
+    sprintf(temp, "ESN: %08x", emr->fields.ESN);
+    realEsn = temp;
+  }
+
+  std::string emrEsn = "EMR: --------";
+  std::string hw = "HW: --";
+  std::string model = "MODEL: --";
+  std::string lot = "LOT: --";
+  std::string packed = "PACK: --";
+
+  if (emr != nullptr) {
+    sprintf(temp, "EMR: %08x", emr->fields.ESN);
+    emrEsn = temp;
+    sprintf(temp, "HW: %u", emr->fields.HW_VER);
+    hw = temp;
+    sprintf(temp, "MODEL: %u", emr->fields.MODEL);
+    model = temp;
+    sprintf(temp, "LOT: %u", emr->fields.LOT_CODE);
+    lot = temp;
+    sprintf(temp, "PACK: %u", emr->fields.PACKED_OUT_FLAG);
+    packed = temp;
+  }
+
+  DrawTextOnScreen({realEsn, emrEsn, hw, model, lot, packed});
 }
 
 void FaceInfoScreenManager::DrawIMUInfo(const RobotState& state)
@@ -2072,6 +2452,13 @@ void FaceInfoScreenManager::ToggleSoundMute(const std::string& reason)
   _soundMuted = !_soundMuted;
   ApplySoundMuteState();
 
+  // Brief red mute icon for 1s when muting; clear immediately on unmute
+  if (_soundMuted) {
+    _soundMuteIconUntil_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp() + 1000;
+  } else {
+    _soundMuteIconUntil_ms = 0;
+  }
+
   // Persist like mic mute
   std::string persistentFolder;
   if (_context != nullptr) {
@@ -2098,23 +2485,24 @@ void FaceInfoScreenManager::ToggleSoundMute(const std::string& reason)
 
 void FaceInfoScreenManager::DrawSoundMuteIcon(Vision::ImageRGB565& faceImg) const
 {
-  if (!_soundMuted) {
+  if (_soundMuteIconUntil_ms == 0) {
+    return;
+  }
+  const u32 now_ms = BaseStationTimer::getInstance()->GetCurrentTimeStamp();
+  if (now_ms > _soundMuteIconUntil_ms) {
     return;
   }
 
-  // Clear, high-contrast mute badge in the top-right
+  // Small red mute badge in the top-right (1 second flash)
   const s32 boxW = 22;
   const s32 boxH = 16;
   const s32 margin = 2;
   const s32 x0 = FACE_DISPLAY_WIDTH - boxW - margin;
   const s32 y0 = margin;
 
-  // Dark backdrop so it reads on bright eyes
   faceImg.DrawFilledRect(Rectangle<s32>(x0, y0, boxW, boxH), ColorRGBA(0.f, 0.f, 0.f));
-  // White speaker
   faceImg.DrawFilledRect(Rectangle<s32>(x0 + 3, y0 + 5, 6, 6), NamedColors::WHITE);
   faceImg.DrawFilledRect(Rectangle<s32>(x0 + 9, y0 + 3, 3, 10), NamedColors::WHITE);
-  // Red mute slash
   faceImg.DrawLine(Point2f((f32)(x0 + 2), (f32)(y0 + boxH - 3)),
                    Point2f((f32)(x0 + boxW - 3), (f32)(y0 + 2)),
                    NamedColors::RED,
@@ -2241,6 +2629,7 @@ bool FaceInfoScreenManager::CanEnterPairingFromScreen( const ScreenName& screenN
   {
     case ScreenName::None:
     case ScreenName::FAC:
+    case ScreenName::FactoryAlert:
     case ScreenName::CustomText:
     case ScreenName::Pairing:
     case ScreenName::MirrorMode:
@@ -2272,6 +2661,10 @@ bool FaceInfoScreenManager::IsAlexaScreen(const ScreenName& screenName) const
 bool FaceInfoScreenManager::ScreenNeedsWait(const ScreenName& screenName) const
 {
   switch (screenName) {
+    case ScreenName::Main:
+    case ScreenName::FactoryMenu:
+    case ScreenName::FAC:
+    case ScreenName::FactoryAlert:
     case ScreenName::AlexaPairing:
     case ScreenName::AlexaPairingSuccess:
     case ScreenName::AlexaPairingFailed:

@@ -1,0 +1,7 @@
+#!/bin/sh
+# Seek CFW: slot switching is disabled — the inactive slot is locked on purpose
+# so Vector cannot boot WireOS/stock left in the other A/B partition.
+echo "sysswitch: disabled on Seek CFW."
+echo "The other A/B slot is locked to prevent booting WireOS or stock firmware."
+echo "Use update-os to flash Seek to the inactive slot if you need to recover."
+exit 1
