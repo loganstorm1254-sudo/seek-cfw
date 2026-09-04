@@ -387,13 +387,14 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   ADD_MENU_ITEM(Main, "TEST", SelfTest);
 #endif
   // Opens enter or exit confirm depending on current mode.
-  // Keep labels short — 4 vertical menu rows must clear SSID/IP on the 96px face.
+  // Keep labels short — menu rows cover bottom of 96px face; IP is drawn first on Main.
   FaceInfoScreen::MenuItemAction cozmoMenuAction = [this]() {
     return IsCozmoMode() ? ScreenName::VectorMode : ScreenName::CozmoMode;
   };
   ADD_MENU_ITEM_WITH_ACTION(Main, "COZMO", cozmoMenuAction);
   ADD_MENU_ITEM(Main, "CLEAR", ClearUserData);
   ADD_MENU_ITEM(Main, "FACT", FactoryMenu);
+  ADD_MENU_ITEM(Main, "NET", Network);
 
   // === Factory preview submenu (FAC / !) ===
   auto factoryMenuEnterFcn = [this, ccisStillEnterFcn]() {
@@ -751,7 +752,19 @@ void FaceInfoScreenManager::SetScreen(ScreenName screen)
 
 void FaceInfoScreenManager::DrawFactoryMenu()
 {
-  const std::vector<std::string> lines = {"FACTORY", "PREVIEWS"};
+  auto* osstate = OSState::getInstance();
+  std::string ip = osstate->GetIPAddress();
+  if (ip.empty()) {
+    ip = "XXX.XXX.XXX.XXX";
+  }
+  ColoredTextLines lines = {
+    {"FACTORY"},
+#if FACTORY_TEST
+    {"IP: " + ip},
+#else
+    { {"IP: "}, {ip, (osstate->IsValidIPAddress(ip) ? NamedColors::GREEN : NamedColors::RED)} },
+#endif
+  };
   DrawTextOnScreen(lines);
 }
 
@@ -1708,33 +1721,28 @@ void FaceInfoScreenManager::DrawMain()
     ? "HW: DVT2"
     : ("HW: " + std::to_string(IsXray() ? 8 : emr->fields.HW_VER));
 
-  // Double-click → lift arm → Main: stock Anki DVT CCIS layout (green eng text).
-  // Keep to 5 content lines so the 4-item bottom menu (EXIT/TEST/COZMO/CLEAR)
-  // does not collide with SSID/IP on the 96px face. Cozmo vs Vector is shown
-  // on the OS line (no separate MODE line).
+  // IP first — bottom menu (EXIT/TEST/COZMO/CLEAR/FACT) covers lower lines on 96px face.
+  std::string ip = osstate->GetIPAddress();
+  if (ip.empty()) {
+    ip = "XXX.XXX.XXX.XXX";
+  }
+  const std::string ssid = "SSID: " + osstate->GetSSID(true);
   const std::string osProject = IsCozmoMode() ? "OS: Cozmo" : ("OS: " + OSProject);
   std::string osVer = "VER: " + osstate->GetOSBuildVersion();
   if (osVer == "VER: " || osVer == "VER:") {
     osVer = "VER: unknown";
   }
 
-  const std::string ssid     = "SSID: " + osstate->GetSSID(true);
-
-  std::string ip             = osstate->GetIPAddress();
-  if (ip.empty()) {
-    ip = "XXX.XXX.XXX.XXX";
-  }
-
-  // ESN + HW on one line; then OS / VER / SSID / IP (stock Anki CCIS Main layout).
-  ColoredTextLines lines = { { {serialNo}, {hwVer, NamedColors::GREEN, false} },
-                             {osProject},
-                             {osVer},
-                             {ssid}, 
+  ColoredTextLines lines = {
 #if FACTORY_TEST
                              {"IP: " + ip},
 #else
                              { {"IP: "}, {ip, (osstate->IsValidIPAddress(ip) ? NamedColors::GREEN : NamedColors::RED)} },
 #endif
+                             {ssid},
+                             { {serialNo}, {hwVer, NamedColors::GREEN, false} },
+                             {osProject},
+                             {osVer},
                            };
 
   DrawTextOnScreen(lines);
