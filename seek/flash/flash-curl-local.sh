@@ -12,27 +12,24 @@ MIN=200000000
 mount -o remount,rw / 2>/dev/null || true
 mkdir -p /data/ota /ota /data/seek 2>/dev/null || true
 
-CURL=""
-for c in /usr/bin/curl /bin/curl; do
-  if [ -x "$c" ] && [ "$(wc -c <"$c" 2>/dev/null || echo 0)" -gt 1000 ] && ! head -n 1 "$c" 2>/dev/null | grep -q '^#!'; then
-    CURL="$c"
-    break
-  fi
-done
-[ -n "$CURL" ] || { echo "ERROR: no working curl"; exit 1; }
+CURL=/usr/bin/curl
+[ -x "$CURL" ] || CURL=/bin/curl
+[ -x "$CURL" ] || { echo "ERROR: no curl"; exit 1; }
 
-# Prefer /ota for ~204MB; fall back only if huge free space on /data
-DEST=""
-if mkdir -p /ota 2>/dev/null && touch /ota/.w 2>/dev/null; then
-  rm -f /ota/.w
-  DEST=/ota/v.ota
-elif [ "$(df -k /data 2>/dev/null | awk 'NR==2{print $4}')" -gt 220000 ] 2>/dev/null; then
-  DEST=/data/ota/v.ota
-else
-  echo "ERROR: need writable /ota (or 220MB free on /data). df:"
-  df -h /ota /data /cache 2>/dev/null || true
+# Prefer /ota (often on rootfs). Need ~210MB free for the OTA.
+mount -o remount,rw / 2>/dev/null || true
+mkdir -p /ota /data/ota 2>/dev/null || true
+DEST=/ota/v.ota
+FREE_K=$(df -k /ota 2>/dev/null | awk 'NR==2{print $4}')
+if [ -z "$FREE_K" ] || [ "$FREE_K" -lt 220000 ]; then
+  echo "WARNING: /ota free=${FREE_K:-?}K (need ~220000K). Trying anyway."
+fi
+if ! touch /ota/.w 2>/dev/null; then
+  echo "ERROR: /ota not writable. df:"
+  df -h / /ota /data /cache 2>/dev/null || true
   exit 1
 fi
+rm -f /ota/.w
 
 echo "=== Seek curl-flash (bypass update-engine SSL) ==="
 echo "curl=$CURL"
