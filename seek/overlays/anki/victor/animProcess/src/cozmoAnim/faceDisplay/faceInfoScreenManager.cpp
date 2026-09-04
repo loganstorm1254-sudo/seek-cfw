@@ -1378,19 +1378,16 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
     }
   }
 
-  // Stock WireOS double-press: pairing on charger, mic mute off charger.
   // If we put him to sleep via 4-click, any backpack press should wake first.
   if (_awaitingWakeFromSleep &&
       _engineLoaded &&
       currScreenName == ScreenName::None &&
       (singlePressDetected || doublePressDetected || triplePressDetected || quadruplePressDetected)) {
-    // single already handled above; catch multi-press wake too
     if (!singlePressDetected) {
       RequestWakeFromSleep(doublePressDetected ? "DOUBLE_PRESS" :
                            (triplePressDetected ? "TRIPLE_PRESS" : "QUAD_PRESS_WAKE"));
       _context->GetMicDataSystem()->FakeTriggerWordDetection();
     }
-    // Don't also run mute/pairing/sleep while waking
   }
   else if (doublePressDetected &&
            _engineLoaded &&
@@ -1400,28 +1397,14 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
     LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.ExitFactoryVisual", "");
     SetScreen(ScreenName::FactoryMenu);
   }
+  // Seek: double-press opens CCIS Main immediately (no pairing face / lift dance).
   else if (doublePressDetected &&
-      isOnCharger &&
-      CanEnterPairingFromScreen(currScreenName)) {
-    LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotDoublePress", "Entering pairing");
-    _ccisPairingFaceHeld = true;
-    if (_animationStreamer != nullptr && _context != nullptr) {
-      ShowCCISPairingPromptEnter(_animationStreamer, _context);
-    }
-    RobotInterface::SendAnimToEngine(SwitchboardInterface::EnterPairing());
-
-    if (FORCE_TRANSITION_TO_PAIRING) {
-      LOG_WARNING("FaceInfoScreenManager.ProcessMenuNavigation.ForcedPairing",
-                  "Remove FORCE_TRANSITION_TO_PAIRING when switchboard is working");
-      SetScreen(ScreenName::Pairing);
-    }
-  }
-  else if(doublePressDetected &&
-          !isOnCharger &&
-          _engineLoaded &&
-          CanEnterPairingFromScreen(currScreenName))
+           _engineLoaded &&
+           CanEnterPairingFromScreen(currScreenName))
   {
-    ToggleMute("DOUBLE_PRESS");
+    LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotDoublePress",
+             "Entering CCIS Main (direct)");
+    EnterCCISMainMenu("DOUBLE_PRESS");
   }
   else if(triplePressDetected &&
           _engineLoaded &&
