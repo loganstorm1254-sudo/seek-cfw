@@ -6,7 +6,7 @@
 #   sh flash-16-rebuild.sh <ota-url>
 set -e
 
-OTA_URL="${1:-https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v1.6.1.80d-errorsafe/vicos-1.6.1.80d.ota}"
+OTA_URL="${1:-https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v1.6.1.81d-errorsafe/vicos-1.6.1.81d.ota}"
 BRANCH="cursor/16-rebuild-errorsafe-7a4a"
 RAW="https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/${BRANCH}"
 

@@ -12,7 +12,7 @@ set KEY=%TEMP%\vector_dev_key
 set OTA=%TEMP%\vicos-1.6.1.0079d.ota
 set FLASH=%TEMP%\unlock-manual-flash-v2.sh
 set BRANCH=cursor/16-rebuild-errorsafe-7a4a
-set OTA_URL=https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v1.6.1.80d-errorsafe/vicos-1.6.1.80d.ota
+set OTA_URL=https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v1.6.1.81d-errorsafe/vicos-1.6.1.81d.ota
 set RAW=https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/%BRANCH%/seek/flash
 set SSH_OPTS=-i %KEY% -o PubkeyAcceptedAlgorithms=+ssh-rsa -o HostKeyAlgorithms=+ssh-rsa -o StrictHostKeyChecking=no
 
