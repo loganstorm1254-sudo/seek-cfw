@@ -5,22 +5,21 @@
  *
  * Board: DOIT ESP32 DEVKIT V1 (esp32doit-devkit-v1)
  *
- * Wiring:
- *   Fan black  -> GND  (keep this)
- *   Fan red    -> D32 (GPIO32)
+ * Wiring (keep the 2-pin plug together — do not split the fan wires):
  *
- * VN (GPIO39) is input-only and cannot drive a fan. Move the red wire
- * two output-capable pins up from VN: skip 34 and 35, land on D32.
+ * On DOIT DevKit V1 the right header is: VIN, GND, D13, ...
+ * You are on VIN + GND. That pair is always 5V and cannot be toggled.
  *
- * If the fan is 5V or the board resets when it starts, use a MOSFET:
- *   Fan red -> VIN (5V)
- *   Fan black -> MOSFET drain
- *   MOSFET source -> GND
- *   MOSFET gate -> D32
+ * Unplug the whole 2-pin connector and shift it one pin so it sits on
+ * GND + D13. Fan + must land on D13, fan - on GND. If the fan does not
+ * spin, rotate the plug 180 degrees on those same two pins.
+ *
+ * If you leave it on VIN + GND, the fan stays on whenever USB is plugged
+ * in. BOOT cannot switch VIN.
  */
 
 static const int kBootPin = 0; /* onboard BOOT button */
-static const int kFanPin = 32; /* D32 — not VN */
+static const int kFanPin = 13; /* D13, next to GND on the VIN header */
 static const int kLedPin = 2;  /* onboard LED on DOIT DevKit V1 */
 static const unsigned long kDebounceMs = 50;
 
