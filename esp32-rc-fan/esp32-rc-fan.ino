@@ -6,17 +6,17 @@
  * Board: DOIT ESP32 DEVKIT V1 (esp32doit-devkit-v1)
  *
  * Fan plug (keep the 2-pin connector together):
- *   Fan +  -> D13
+ *   Fan +  -> D15
  *   Fan -  -> GND
  *
- * On the right header those two pins are next to each other
- * (VIN, GND, D13). Do not use VIN or VN.
+ * Left header, other side from VIN: 3V3, GND, D15.
+ * Plug into GND + D15. Do not use 3V3, VIN, or VN.
  *
- * If the fan does not spin, rotate the plug 180 degrees on D13+GND.
+ * If the fan does not spin, rotate the plug 180 degrees on D15+GND.
  */
 
 static const int kBootPin = 0; /* onboard BOOT button */
-static const int kFanPin = 13; /* D13 */
+static const int kFanPin = 15; /* D15 */
 static const int kLedPin = 2;  /* onboard LED */
 static const unsigned long kDebounceMs = 50;
 
