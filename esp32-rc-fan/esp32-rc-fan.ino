@@ -1,35 +1,19 @@
 /*
- * RC-car fan on/off toggle from the ESP32 BOOT button.
- * Single-file sketch — paste this whole file into Arduino IDE
- * (or replace ESP_NAT.ino). No extra headers.
+ * RC-car fan on/off from BOOT. Two ESP32 pins only. No MOSFET.
  *
- * Board: DOIT ESP32 DEVKIT V1 (esp32doit-devkit-v1)
+ *   Fan +  -> D15
+ *   Fan -  -> GND
  *
- * D15 cannot power the fan. A GPIO is 3.3V and only a few mA; an RC
- * fan needs 5V from VIN. BOOT drives D15, D15 drives a MOSFET, the
- * MOSFET switches the fan.
- *
- * Fan 2-pin plug stays together:
- *   Fan +  -> VIN
- *   Fan -  -> MOSFET drain (center/left pin on a typical N-MOSFET)
- *
- * MOSFET:
- *   drain  -> fan -
- *   source -> GND
- *   gate   -> D15
- *
- * Logic-level N-MOSFET (AO3400, IRLZ44N, or a cheap IRF520 module).
- * Do not wire the fan between VIN and D15 — that will kill the pin.
- *
- * Fan starts OFF. Press BOOT. Onboard LED on = MOSFET/fan on.
+ * Paste into ESP_NAT.ino. Board: DOIT ESP32 DEVKIT V1.
+ * Fan starts ON so you can see if it spins. Press BOOT to toggle.
  */
 
 static const int kBootPin = 0;
-static const int kFanPin = 15; /* MOSFET gate, not fan power */
+static const int kFanPin = 15;
 static const int kLedPin = 2;
 static const unsigned long kDebounceMs = 50;
 
-static bool gFanOn = false;
+static bool gFanOn = true;
 static int gLastReading = HIGH;
 static int gLastStable = HIGH;
 static unsigned long gLastChangeMs = 0;
@@ -47,9 +31,8 @@ void setup() {
   Serial.begin(115200);
   gLastReading = digitalRead(kBootPin);
   gLastStable = gLastReading;
-  applyFan(false);
-  Serial.println("fan off — press BOOT to toggle");
-  Serial.println("LED on means D15 HIGH (MOSFET/fan on)");
+  applyFan(true);
+  Serial.println("fan on — press BOOT to toggle");
 }
 
 void loop() {
