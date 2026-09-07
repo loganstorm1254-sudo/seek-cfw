@@ -1,44 +1,54 @@
 /*
- * BOOT toggles the RC fan.
+ * BOOT toggles fan on one GPIO + GND. No MOSFET.
+ * Change kFanPin and re-upload to try another port.
  *
- * Fan needs 5V from VIN. D15 only flips a MOSFET on/off.
+ * Fan + -> the pin below
+ * Fan - -> any GND
  *
- * Wiring:
- *   Fan +           -> VIN
- *   Fan -           -> MOSFET drain
- *   MOSFET source   -> GND
- *   MOSFET gate     -> D15
+ * Try these (all can be outputs):
+ *   15, 2, 4, 16, 17, 5, 18, 19, 21, 22, 23
+ *   13, 14, 27, 26, 25, 33, 32
  *
- * Use a logic-level N-MOSFET (AO3400, IRLZ44N, IRF520 module).
- * Paste into ESP_NAT.ino. Board: DOIT ESP32 DEVKIT V1.
- * Fan starts OFF. Press BOOT to toggle. LED follows.
+ * Skip: 0 (BOOT), 34, 35, 36 (VP), 39 (VN) — not usable as outputs
+ * Skip: VIN, 3V3 — always on, BOOT cannot switch them
+ * Careful: 12 (strapping) — can mess with boot
+ *
+ * Pairs next to GND on DOIT DevKit V1:
+ *   left:  GND + 15
+ *   right: GND + 13
  */
 
 static const int kBootPin = 0;
-static const int kFanPin = 15; /* MOSFET gate */
+static const int kFanPin = 15; /* change this: 15, 2, 4, 16, 17, 5, 18, 19, 21, 22, 23, 13, 14, 27, 26, 25, 33, 32 */
 static const int kLedPin = 2;
 static const unsigned long kDebounceMs = 50;
 
-static bool gFanOn = false;
+static bool gFanOn = true;
 static int gLastReading = HIGH;
 static int gLastStable = HIGH;
 static unsigned long gLastChangeMs = 0;
 
 static void applyFan(bool on) {
   digitalWrite(kFanPin, on ? HIGH : LOW);
-  digitalWrite(kLedPin, on ? HIGH : LOW);
+  if (kFanPin != kLedPin) {
+    digitalWrite(kLedPin, on ? HIGH : LOW);
+  }
 }
 
 void setup() {
   pinMode(kBootPin, INPUT_PULLUP);
   pinMode(kFanPin, OUTPUT);
-  pinMode(kLedPin, OUTPUT);
+  if (kFanPin != kLedPin) {
+    pinMode(kLedPin, OUTPUT);
+  }
 
   Serial.begin(115200);
   gLastReading = digitalRead(kBootPin);
   gLastStable = gLastReading;
-  applyFan(false);
-  Serial.println("fan off — press BOOT to toggle");
+  applyFan(true);
+  Serial.print("fan pin GPIO");
+  Serial.print(kFanPin);
+  Serial.println(" ON — press BOOT to toggle");
 }
 
 void loop() {
