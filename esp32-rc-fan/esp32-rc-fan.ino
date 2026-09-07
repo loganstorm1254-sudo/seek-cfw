@@ -1,7 +1,11 @@
 /*
  * RC-car fan on/off toggle from the ESP32 BOOT button.
+ * Single-file sketch — paste this whole file into Arduino IDE
+ * (or replace ESP_NAT.ino). No extra headers.
  *
- * Wiring (ESP32 DevKit):
+ * Board: DOIT ESP32 DEVKIT V1 (esp32doit-devkit-v1)
+ *
+ * Wiring:
  *   Fan black  -> GND  (keep this)
  *   Fan red    -> D32 (GPIO32)
  *
@@ -13,18 +17,17 @@
  *   Fan black -> MOSFET drain
  *   MOSFET source -> GND
  *   MOSFET gate -> D32
- *
- * Flash with Arduino IDE: ESP32 Dev Module, upload, then press BOOT
- * to toggle. Onboard LED (GPIO2) follows the fan.
  */
-
-#include "fan_toggle.h"
 
 static const int kBootPin = 0; /* onboard BOOT button */
 static const int kFanPin = 32; /* D32 — not VN */
-static const int kLedPin = 2;  /* onboard LED on most DevKit boards */
+static const int kLedPin = 2;  /* onboard LED on DOIT DevKit V1 */
+static const unsigned long kDebounceMs = 50;
 
-static FanToggle gToggle;
+static bool gFanOn = false;
+static int gLastReading = HIGH;
+static int gLastStable = HIGH;
+static unsigned long gLastChangeMs = 0;
 
 static void applyFan(bool on) {
   digitalWrite(kFanPin, on ? HIGH : LOW);
@@ -37,15 +40,33 @@ void setup() {
   pinMode(kLedPin, OUTPUT);
 
   Serial.begin(115200);
-  fan_toggle_init(&gToggle, digitalRead(kBootPin));
+  gLastReading = digitalRead(kBootPin);
+  gLastStable = gLastReading;
   applyFan(false);
   Serial.println("fan off — press BOOT to toggle");
 }
 
 void loop() {
   const int reading = digitalRead(kBootPin);
-  if (fan_toggle_update(&gToggle, reading, millis())) {
-    applyFan(gToggle.fan_on);
-    Serial.println(gToggle.fan_on ? "fan on" : "fan off");
+  const unsigned long now = millis();
+
+  if (reading != gLastReading) {
+    gLastChangeMs = now;
+    gLastReading = reading;
   }
+  if ((now - gLastChangeMs) < kDebounceMs) {
+    return;
+  }
+  if (reading == gLastStable) {
+    return;
+  }
+
+  gLastStable = reading;
+  if (gLastStable != LOW) {
+    return;
+  }
+
+  gFanOn = !gFanOn;
+  applyFan(gFanOn);
+  Serial.println(gFanOn ? "fan on" : "fan off");
 }
