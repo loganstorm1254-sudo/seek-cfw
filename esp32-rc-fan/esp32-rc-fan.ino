@@ -1,48 +1,32 @@
 /*
- * RC-car fan on/off toggle from the ESP32 BOOT button.
- * Single-file sketch — paste this whole file into Arduino IDE
- * (or replace ESP_NAT.ino). No extra headers.
+ * BOOT button toggle for DOIT ESP32 DEVKIT V1.
  *
- * Board: DOIT ESP32 DEVKIT V1 (esp32doit-devkit-v1)
+ * The fan stays on VIN + GND. Those are the 5V supply pins, not a GPIO,
+ * so this sketch cannot turn the fan off. BOOT only toggles the onboard
+ * LED so you can confirm the button works.
  *
- * Wiring (keep the 2-pin plug together — do not split the fan wires):
- *
- * On DOIT DevKit V1 the right header is: VIN, GND, D13, ...
- * You are on VIN + GND. That pair is always 5V and cannot be toggled.
- *
- * Unplug the whole 2-pin connector and shift it one pin so it sits on
- * GND + D13. Fan + must land on D13, fan - on GND. If the fan does not
- * spin, rotate the plug 180 degrees on those same two pins.
- *
- * If you leave it on VIN + GND, the fan stays on whenever USB is plugged
- * in. BOOT cannot switch VIN.
+ * Single-file sketch — paste into ESP_NAT.ino. No extra headers.
  */
 
-static const int kBootPin = 0; /* onboard BOOT button */
-static const int kFanPin = 13; /* D13, next to GND on the VIN header */
-static const int kLedPin = 2;  /* onboard LED on DOIT DevKit V1 */
+static const int kBootPin = 0;
+static const int kLedPin = 2;
 static const unsigned long kDebounceMs = 50;
 
-static bool gFanOn = false;
+static bool gLedOn = false;
 static int gLastReading = HIGH;
 static int gLastStable = HIGH;
 static unsigned long gLastChangeMs = 0;
 
-static void applyFan(bool on) {
-  digitalWrite(kFanPin, on ? HIGH : LOW);
-  digitalWrite(kLedPin, on ? HIGH : LOW);
-}
-
 void setup() {
   pinMode(kBootPin, INPUT_PULLUP);
-  pinMode(kFanPin, OUTPUT);
   pinMode(kLedPin, OUTPUT);
+  digitalWrite(kLedPin, LOW);
 
   Serial.begin(115200);
   gLastReading = digitalRead(kBootPin);
   gLastStable = gLastReading;
-  applyFan(false);
-  Serial.println("fan off — press BOOT to toggle");
+  Serial.println("BOOT toggles the LED only");
+  Serial.println("fan on VIN/GND cannot be switched in software");
 }
 
 void loop() {
@@ -65,7 +49,7 @@ void loop() {
     return;
   }
 
-  gFanOn = !gFanOn;
-  applyFan(gFanOn);
-  Serial.println(gFanOn ? "fan on" : "fan off");
+  gLedOn = !gLedOn;
+  digitalWrite(kLedPin, gLedOn ? HIGH : LOW);
+  Serial.println(gLedOn ? "led on" : "led off");
 }
