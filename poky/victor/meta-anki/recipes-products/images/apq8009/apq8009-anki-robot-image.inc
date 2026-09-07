@@ -11,7 +11,7 @@ IMAGE_INSTALL += "wipe-all-wifi-configs"
 
 # Victor stuff
 IMAGE_INSTALL += "vic-anim"
-IMAGE_INSTALL += "${@oe.utils.conditional('CLOUDLESS', '1', 'vic-cloudless', 'vic-cloud', d)}"
+IMAGE_INSTALL += "vic-cloudswitch"
 IMAGE_INSTALL += "vic-engine"
 IMAGE_INSTALL += "vic-gateway-cert"
 IMAGE_INSTALL += "vic-init"
@@ -35,6 +35,11 @@ IMAGE_INSTALL += "rebooter"
 IMAGE_INSTALL += "${@oe.utils.conditional('USER_BUILD', '1', '', 'update-os', d)}"
 IMAGE_INSTALL += "anki-update-engine"
 IMAGE_INSTALL += "fault-code"
+
+# Rebuild related
+IMAGE_INSTALL += "save-eye-color"
+IMAGE_INSTALL += "update-engine-rebuild"
+IMAGE_INSTALL += "vic-verbose"
 
 #IMAGE_INSTALL += "python3-netclient"
 #IMAGE_INSTALL += "python3-compression"

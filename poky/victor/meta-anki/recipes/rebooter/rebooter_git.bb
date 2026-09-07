@@ -22,8 +22,8 @@ do_install() {
    if ${@bb.utils.contains('DISTRO_FEATURES', 'systemd', 'true', 'false', d)}; then
       install -d ${SYSTEM_DIR}/
       install -d ${SYSTEM_DIR}/multi-user.target.wants/
-      install -m 0644 ${S}/rebooter.service -D ${SYSTEM_DIR}/rebooter.service
-      install -m 0644 ${S}/rebooter.timer -D ${SYSTEM_DIR}/rebooter.timer
+      install -m 0644 ${S}/rebooter.service.1.6 -D ${SYSTEM_DIR}/rebooter.service
+      install -m 0644 ${S}/rebooter.timer.1.6 -D ${SYSTEM_DIR}/rebooter.timer
       ln -sf /etc/systemd/system/rebooter.timer ${SYSTEM_DIR}/multi-user.target.wants/rebooter.timer
   fi
 }

@@ -49,7 +49,7 @@ if [ -z "${CMDLINE##*dm=*}" ]; then
 	ROOTFS_OPTS="-o ro,noatime,noload,exec"
 
 	echo "Setting up DM Verity device: $DM"
-	dmsetup create system -r --table "$DM_TABLE" || fatal "ERROR: dmsetup failed"
+	dmsetup create system -r --table "$DM_TABLE" # || fatal "ERROR: dmsetup failed"
 else
 	set -e
 	ROOTFS_OPTS="-o ro,noatime,exec"

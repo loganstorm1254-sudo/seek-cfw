@@ -270,6 +270,7 @@ RampostErr dfu_sequence(const char* dfu_file, bool force_update)
 {
   const uint8_t* installed_version = NULL;
   int tries = 0;
+  force_update = false;
   // try 5 times, accounting for prototype bodyboards
   while (tries < 5 && !installed_version) {
       installed_version = dfu_get_version();
@@ -286,6 +287,9 @@ RampostErr dfu_sequence(const char* dfu_file, bool force_update)
     DAS_LOG(DAS_EVENT, "dfu.success", "ignoring DevBuild");
     return err_OK;
   }
+  // if (strstr((const char*)installed_version, "Ws00000009c263e")) {
+  //   force_update = true;
+  // }
   if (!installed_version) {
     return err_DFU_NO_VERSION;
   }

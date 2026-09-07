@@ -1,0 +1,8 @@
+[Unit]
+Description=Checks for update, made by Emily for 1.6 rebuild, only to be called by victor
+After=network-online.target
+
+[Service]
+Type=simple
+
+ExecStart=/bin/bash /sbin/update-engine-rebuild -c

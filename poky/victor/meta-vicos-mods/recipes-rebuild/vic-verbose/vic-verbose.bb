@@ -1,46 +1,22 @@
-DESCRIPTION = "Victor Cloud Services daemon"
+DESCRIPTION = "Victor Boot Animator Verbose"
 LICENSE = "Anki-Inc.-Proprietary"                                                                   
 LIC_FILES_CHKSUM = "file://${COREBASE}/../victor/meta-qcom/files/anki-licenses/\                           
 Anki-Inc.-Proprietary;md5=4b03b8ffef1b70b13d869dbce43e8f09"
 
-SERVICE_FILE = "vic-cloud.service"
-# GOINSTALLER="go1.15.6.linux-amd64.tar.gz"
-
-SRC_URI = "file://${SERVICE_FILE}"
 S = "${UNPACKDIR}"
 #UNPACKDIR = "${S}"
 
-inherit systemd
-
 DEPENDS = "pkgconfig-native"
-
-do_install:append () {
-   if ${@bb.utils.contains('DISTRO_FEATURES', 'systemd', 'true', 'false', d)}; then
-       install -d ${D}${systemd_unitdir}/system/
-       install -m 0644 ${S}/${SERVICE_FILE} -D ${D}${systemd_unitdir}/system/${SERVICE_FILE}
-   fi
-}
-
-FILES:${PN} += "${systemd_unitdir}/system/"
-SYSTEMD_SERVICE:${PN} = "${SERVICE_FILE}"
 
 inherit externalsrc
 
-EXTERNALSRC = "${WORKSPACE}/anki/vic-cloudless"
-
-GID_ANKI      = '2901'
-GID_CLOUD     = '888'
-GID_ANKINET   = '2905'
-
-UID_NET       = "${GID_ANKINET}"
-UID_CLOUD     = "${GID_CLOUD}"
+EXTERNALSRC = "${WORKSPACE}/anki/vic-verbose"
 
 do_clean:append() {
-    s = d.getVar('S')
-    os.system('cd "%s" && rm -rf build/vic-cloud build/vic-gateway build/libvosk.so build/libopus*' % s)
+    os.system('cd $EXTERNALSRC && git clean -ffdx && git submodule foreach --recursive git clean -ffdx')
 }
 
-run_victor() {
+build_verbose() {
   export -n CCACHE_DISABLE
   export CCACHE_DIR="${HOME}/.ccache"
   env \
@@ -114,34 +90,16 @@ run_victor() {
 do_compile[pseudo] = "0"
 
 do_compile() {
-    # mkdir -p "${GOPATH}"
-    # mkdir -p "${GOEXEPATH}"
-
-    # if [ ! -f "${GOEXEPATH}/bin/go" ]; then
-    #    wget -P "${WORKDIR}" "https://golang.org/dl/${GOINSTALLER}"
-    #    tar zxvf "${WORKDIR}/${GOINSTALLER}" -C "${GOEXEPATH}"
-    # fi
-
     cd "${EXTERNALSRC}"
-    # export GOPATH="${GOPATH}"
-    # export PATH="${GOEXEPATH}/go/bin:${PATH}"
-    # using system Go
-    run_victor make
+    build_verbose ./build.sh
 }
 
 do_install() {
-    install -d ${D}/anki/bin
-    install -d ${D}/anki/lib
-    install -d ${D}/anki/data/assets/cozmo_resources/cloudless
-    install -d ${D}/etc/sudoers.d
-    install -d ${D}/usr/sbin
+    install -d ${D}/bin
+    install -d ${D}/lib
 
-    install -m 0755 ${WORKSPACE}/anki/vic-cloudless/build/vic-* ${D}/anki/bin/
-    install -m 0644 ${WORKSPACE}/anki/vic-cloudless/build/lib* ${D}/anki/lib/
-    cp -r ${WORKSPACE}/anki/vic-cloudless/build/en-US ${D}/anki/data/assets/cozmo_resources/cloudless/
-
-    install -m 0440 ${WORKSPACE}/anki/vic-cloudless/extra/cloud.sudoers ${D}/etc/sudoers.d/cloud
-    install -m 0755 ${WORKSPACE}/anki/vic-cloudless/extra/setfreq ${D}/usr/sbin/
+    install -m 0755 ${WORKSPACE}/anki/vic-verbose/build/vic-* ${D}/bin/vic-verbose
+    install -m 0644 ${WORKSPACE}/anki/vic-verbose/build/lib* ${D}/lib/
 }
 
 do_package_qa[noexec] = "1"
@@ -149,9 +107,5 @@ do_package_qa[noexec] = "1"
 INSANE_SKIP:${PN} = " already-stripped ldflags dev-elf"
 EXCLUDE_FROM_SHLIBS = "1"
 
-FILES:${PN} += "anki/bin"
-FILES:${PN} += "anki/bin"
-FILES:${PN} += "anki/lib"
-FILES:${PN} += "anki/data/assets/cozmo_resources/cloudless"
-FILES:${PN} += "usr/sbin"
-FILES:${PN} += "etc/sudoers.d"
+FILES:${PN} += "bin/"
+FILES:${PN} += "lib/"
