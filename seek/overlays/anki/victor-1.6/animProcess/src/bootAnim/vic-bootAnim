@@ -1,0 +1,10 @@
+#!/bin/bash
+# Seek error-safe: stock boot anim only (vic-verbose paints journal "Failed" on face).
+# Opt-in verbose: touch /etc/use-vic-verbose
+if [ -f /etc/use-vic-verbose ] && [ -x /bin/vic-verbose ]; then
+  exec /bin/vic-verbose
+fi
+if [ -x /anki/bin/vic-bootAnim-stock ]; then
+  exec /anki/bin/vic-bootAnim-stock
+fi
+exit 0
