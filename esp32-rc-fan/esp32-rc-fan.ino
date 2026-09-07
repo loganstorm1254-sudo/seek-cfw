@@ -1,32 +1,45 @@
 /*
- * BOOT button toggle for DOIT ESP32 DEVKIT V1.
+ * RC-car fan on/off toggle from the ESP32 BOOT button.
+ * Single-file sketch — paste this whole file into Arduino IDE
+ * (or replace ESP_NAT.ino). No extra headers.
  *
- * The fan stays on VIN + GND. Those are the 5V supply pins, not a GPIO,
- * so this sketch cannot turn the fan off. BOOT only toggles the onboard
- * LED so you can confirm the button works.
+ * Board: DOIT ESP32 DEVKIT V1 (esp32doit-devkit-v1)
  *
- * Single-file sketch — paste into ESP_NAT.ino. No extra headers.
+ * Fan plug (keep the 2-pin connector together):
+ *   Fan +  -> D13
+ *   Fan -  -> GND
+ *
+ * On the right header those two pins are next to each other
+ * (VIN, GND, D13). Do not use VIN or VN.
+ *
+ * If the fan does not spin, rotate the plug 180 degrees on D13+GND.
  */
 
-static const int kBootPin = 0;
-static const int kLedPin = 2;
+static const int kBootPin = 0; /* onboard BOOT button */
+static const int kFanPin = 13; /* D13 */
+static const int kLedPin = 2;  /* onboard LED */
 static const unsigned long kDebounceMs = 50;
 
-static bool gLedOn = false;
+static bool gFanOn = false;
 static int gLastReading = HIGH;
 static int gLastStable = HIGH;
 static unsigned long gLastChangeMs = 0;
 
+static void applyFan(bool on) {
+  digitalWrite(kFanPin, on ? HIGH : LOW);
+  digitalWrite(kLedPin, on ? HIGH : LOW);
+}
+
 void setup() {
   pinMode(kBootPin, INPUT_PULLUP);
+  pinMode(kFanPin, OUTPUT);
   pinMode(kLedPin, OUTPUT);
-  digitalWrite(kLedPin, LOW);
 
   Serial.begin(115200);
   gLastReading = digitalRead(kBootPin);
   gLastStable = gLastReading;
-  Serial.println("BOOT toggles the LED only");
-  Serial.println("fan on VIN/GND cannot be switched in software");
+  applyFan(false);
+  Serial.println("fan off — press BOOT to toggle");
 }
 
 void loop() {
@@ -49,7 +62,7 @@ void loop() {
     return;
   }
 
-  gLedOn = !gLedOn;
-  digitalWrite(kLedPin, gLedOn ? HIGH : LOW);
-  Serial.println(gLedOn ? "led on" : "led off");
+  gFanOn = !gFanOn;
+  applyFan(gFanOn);
+  Serial.println(gFanOn ? "fan on" : "fan off");
 }
