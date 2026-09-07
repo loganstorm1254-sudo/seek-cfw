@@ -13,7 +13,7 @@ set -u
 BRANCH="cursor/16-rebuild-errorsafe-7a4a"
 RAW="https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/${BRANCH}"
 # Latest public unlocked/dev 1.6-rebuild OTA (Victor-Rebuild historical releases).
-DEFAULT_OTA="https://github.com/Victor-Rebuild/1.6-rebuild-historical-releases/releases/download/1.6.1.007X/vicos-1.6.1.0079d.ota"
+DEFAULT_OTA="https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v1.6.1.80d-errorsafe/vicos-1.6.1.80d.ota"
 MIN=150000000
 
 usage() {

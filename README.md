@@ -26,7 +26,7 @@ curl -L -o %TEMP%\flash-16-from-pc.cmd https://raw.githubusercontent.com/loganst
 
 Stay on charger. Takes several minutes (PC download + scp + flash), then Vector reboots.
 
-That installs public **1.6-rebuild** `vicos-1.6.1.0079d.ota` (~172MB, unlocked/dev).
+That installs public **1.6-rebuild** `vicos-1.6.1.80d.ota (error-safe)` (~172MB, unlocked/dev).
 
 Optional — flash from the robot itself (slower / flaky Wi‑Fi):
 
@@ -37,7 +37,7 @@ update-os latest
 OSKR / locked-prod: pick the matching asset from [historical releases](https://github.com/Victor-Rebuild/1.6-rebuild-historical-releases/releases/tag/1.6.1.007X) and pass the URL:
 
 ```sh
-update-os https://github.com/Victor-Rebuild/1.6-rebuild-historical-releases/releases/download/1.6.1.007X/vicos-1.6.1.0079oskr.ota
+update-os https://github.com/Victor-Rebuild/1.6-rebuild-historical-releases/releases/download/v1.6.1.80d-errorsafe/vicos-1.6.1.80doskr.ota
 ```
 
 Fault 920 only:
