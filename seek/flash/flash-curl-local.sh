@@ -6,7 +6,7 @@ set -e
 OTA_URL="${1:-https://github.com/Victor-Rebuild/1.6-rebuild-historical-releases/releases/download/1.6.1.007X/vicos-1.6.1.0079d.ota}"
 BRANCH="cursor/16-rebuild-errorsafe-7a4a"
 RAW="https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/${BRANCH}"
-MIN=200000000
+MIN=150000000
 
 mount -o remount,rw / 2>/dev/null || true
 mkdir -p /data/ota /ota /data/seek 2>/dev/null || true

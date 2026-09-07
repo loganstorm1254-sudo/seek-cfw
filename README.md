@@ -17,26 +17,22 @@ See [FORKING.md](FORKING.md) to fork submodule repos under your account (agent c
 
 ## Install on robot now (no rebuild)
 
-Stay on charger. From a real SSH shell (CMD on Windows):
+**Preferred (Windows CMD):** download the OTA on your PC, then upload + flash. Vector does **not** download from GitHub.
 
 ```cmd
-ssh -i %TEMP%\vector_dev_key -o PubkeyAcceptedAlgorithms=+ssh-rsa -o HostKeyAlgorithms=+ssh-rsa root@ROBOT_IP
+curl -L -o %TEMP%\flash-16-from-pc.cmd https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/16-rebuild-errorsafe-7a4a/seek/flash/flash-16-from-pc.cmd
+%TEMP%\flash-16-from-pc.cmd 192.168.42.111
 ```
 
-Then on the robot:
+Stay on charger. Takes several minutes (PC download + scp + flash), then Vector reboots.
 
-```sh
-curl -k -L -o /data/flash-16.sh https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/16-rebuild-errorsafe-7a4a/seek/flash/flash-16-rebuild.sh
-sh /data/flash-16.sh
-```
+That installs public **1.6-rebuild** `vicos-1.6.1.0079d.ota` (~172MB, unlocked/dev).
 
-Or if `update-os` from this branch is already on the robot:
+Optional — flash from the robot itself (slower / flaky Wi‑Fi):
 
 ```sh
 update-os latest
 ```
-
-That installs public **1.6-rebuild** `vicos-1.6.1.0079d.ota` (unlocked/dev).
 
 OSKR / locked-prod: pick the matching asset from [historical releases](https://github.com/Victor-Rebuild/1.6-rebuild-historical-releases/releases/tag/1.6.1.007X) and pass the URL:
 

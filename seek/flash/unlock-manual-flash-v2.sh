@@ -24,9 +24,9 @@ echo "temp: $TMP"
 df -h /data /cache 2>/dev/null || true
 
 # Reject truncated/corrupt OTA (full release is ~204MB).
-MIN_OTA=200000000
+MIN_OTA=150000000
 if [ "$SZ" -lt "$MIN_OTA" ]; then
-  echo "FATAL: OTA too small ($SZ bytes). Need complete ~204MB file."
+  echo "FATAL: OTA too small ($SZ bytes). Need complete OTA (>=150MB)."
   echo "Re-upload / re-download before flashing."
   exit 1
 fi
