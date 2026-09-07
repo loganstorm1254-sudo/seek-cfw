@@ -5,19 +5,28 @@
  *
  * Board: DOIT ESP32 DEVKIT V1 (esp32doit-devkit-v1)
  *
- * Fan plug (keep the 2-pin connector together):
- *   Fan +  -> D15
- *   Fan -  -> GND
+ * D15 cannot power the fan. A GPIO is 3.3V and only a few mA; an RC
+ * fan needs 5V from VIN. BOOT drives D15, D15 drives a MOSFET, the
+ * MOSFET switches the fan.
  *
- * Left header, other side from VIN: 3V3, GND, D15.
- * Plug into GND + D15. Do not use 3V3, VIN, or VN.
+ * Fan 2-pin plug stays together:
+ *   Fan +  -> VIN
+ *   Fan -  -> MOSFET drain (center/left pin on a typical N-MOSFET)
  *
- * If the fan does not spin, rotate the plug 180 degrees on D15+GND.
+ * MOSFET:
+ *   drain  -> fan -
+ *   source -> GND
+ *   gate   -> D15
+ *
+ * Logic-level N-MOSFET (AO3400, IRLZ44N, or a cheap IRF520 module).
+ * Do not wire the fan between VIN and D15 — that will kill the pin.
+ *
+ * Fan starts OFF. Press BOOT. Onboard LED on = MOSFET/fan on.
  */
 
-static const int kBootPin = 0; /* onboard BOOT button */
-static const int kFanPin = 15; /* D15 */
-static const int kLedPin = 2;  /* onboard LED */
+static const int kBootPin = 0;
+static const int kFanPin = 15; /* MOSFET gate, not fan power */
+static const int kLedPin = 2;
 static const unsigned long kDebounceMs = 50;
 
 static bool gFanOn = false;
@@ -40,6 +49,7 @@ void setup() {
   gLastStable = gLastReading;
   applyFan(false);
   Serial.println("fan off — press BOOT to toggle");
+  Serial.println("LED on means D15 HIGH (MOSFET/fan on)");
 }
 
 void loop() {
