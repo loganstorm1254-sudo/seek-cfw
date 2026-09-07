@@ -1,19 +1,25 @@
 /*
- * RC-car fan on/off from BOOT. Two ESP32 pins only. No MOSFET.
+ * BOOT toggles the RC fan.
  *
- *   Fan +  -> D15
- *   Fan -  -> GND
+ * Fan needs 5V from VIN. D15 only flips a MOSFET on/off.
  *
+ * Wiring:
+ *   Fan +           -> VIN
+ *   Fan -           -> MOSFET drain
+ *   MOSFET source   -> GND
+ *   MOSFET gate     -> D15
+ *
+ * Use a logic-level N-MOSFET (AO3400, IRLZ44N, IRF520 module).
  * Paste into ESP_NAT.ino. Board: DOIT ESP32 DEVKIT V1.
- * Fan starts ON so you can see if it spins. Press BOOT to toggle.
+ * Fan starts OFF. Press BOOT to toggle. LED follows.
  */
 
 static const int kBootPin = 0;
-static const int kFanPin = 15;
+static const int kFanPin = 15; /* MOSFET gate */
 static const int kLedPin = 2;
 static const unsigned long kDebounceMs = 50;
 
-static bool gFanOn = true;
+static bool gFanOn = false;
 static int gLastReading = HIGH;
 static int gLastStable = HIGH;
 static unsigned long gLastChangeMs = 0;
@@ -31,8 +37,8 @@ void setup() {
   Serial.begin(115200);
   gLastReading = digitalRead(kBootPin);
   gLastStable = gLastReading;
-  applyFan(true);
-  Serial.println("fan on — press BOOT to toggle");
+  applyFan(false);
+  Serial.println("fan off — press BOOT to toggle");
 }
 
 void loop() {
