@@ -9,6 +9,7 @@ SRC_URI = "file://anki/rampost/"
 
 TARGET_CFLAGS += "-Os -Wall -Wno-unused-result -Wno-strict-aliasing -fPIC"
 TARGET_CFLAGS += "${@' -DOSKR' if d.getVar('OSKR') == '1' else ''}"
+TARGET_CFLAGS += "${@' -DPROD' if d.getVar('PROD') == '1' else ''}"
 
 S = "${UNPACKDIR}/anki/rampost"
 ##UNPACKDIR = "${S}"

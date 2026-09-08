@@ -67,6 +67,9 @@ IMAGE_INSTALL += "${@oe.utils.conditional('USER_BUILD', '1', '', 'procps', d)}"
 IMAGE_INSTALL += "${@oe.utils.conditional('USER_BUILD', '1', '', 'net-tools', d)}"
 IMAGE_INSTALL += "${@oe.utils.conditional('USER_BUILD', '1', '', 'util-linux-dmesg', d)}"
 
+# Emily - I also want pigz to use in update-engine
+IMAGE_INSTALL += "${@oe.utils.conditional('USER_BUILD', '1', '', 'pigz', d)}"
+
 # skittle
 IMAGE_INSTALL += "purplpkg"
 

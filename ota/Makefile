@@ -154,6 +154,7 @@ OSKR_BOOT_KEY ?= qtioskrpri.encrypted.key
 DEV_BOOT_KEY = vble-qti.key
 
 prodsign: $(NON_SECURE_KERNEL)
+	echo "Prod-signing ota"
 	openssl dgst -sha256 -binary $(NON_SECURE_KERNEL) > $(NON_SECURE_KERNEL).sha256
 	openssl pkeyutl -sign -in $(NON_SECURE_KERNEL).sha256 -passin env:BOOT_IMAGE_SIGNING_PASSWORD -inkey $(BOOT_KEY) -out $(NON_SECURE_KERNEL).sig -pkeyopt digest:sha256 -pkeyopt rsa_padding_mode:pkcs1
 	dd if=/dev/zero of=$(NON_SECURE_KERNEL).sig.padded bs=2048 count=1
@@ -194,13 +195,13 @@ resign-dev: $(BUILD)/$(BOOT_STEM).img
 
 verify-boot-oskr:
 	openssl pkeyutl -verify -in  $(NON_SECURE_KERNEL).sha256  -sigfile $(NON_SECURE_KERNEL).sig -inkey $(OSKR_BOOT_KEY).pub -pubin -pkeyopt digest:sha256 -pkeyopt rsa_padding_mode:pkcs1 | grep "Signature Verified Successfully"
-	echo "BOOT CHECK PASSED. CORRECT IMG SIGNATURE"
+	echo "BOOT CHECK PASSED. CORRECT OSKR IMG SIGNATURE"
 
 verify-boot-prod:
 	openssl pkeyutl -verify -in  $(NON_SECURE_KERNEL).sha256  -sigfile $(NON_SECURE_KERNEL).sig -inkey $(BOOT_KEY).pub -pubin -pkeyopt digest:sha256 -pkeyopt rsa_padding_mode:pkcs1 | grep "Signature Verified Successfully"
-	echo "BOOT CHECK PASSED. CORRECT IMG SIGNATURE"
+	echo "BOOT CHECK PASSED. CORRECT PROD IMG SIGNATURE"
 
 verify-boot-dev:
 	openssl pkeyutl -verify -in  $(NON_SECURE_KERNEL).sha256  -sigfile $(NON_SECURE_KERNEL).sig -inkey vble-qti.key.pub -pubin -pkeyopt digest:sha256 -pkeyopt rsa_padding_mode:pkcs1 | grep "Signature Verified Successfully"
-	echo "BOOT CHECK PASSED. CORRECT IMG SIGNATURE"
+	echo "BOOT CHECK PASSED. CORRECT DEV IMG SIGNATURE"
 

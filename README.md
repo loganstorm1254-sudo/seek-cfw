@@ -1,114 +1,69 @@
-# SeekOS (Seek CFW)
+# Seek CFW — 1.6-rebuild (error-safe)
 
-Custom firmware for **Anki Vector 1.0** (and 2.0), based on [WireOS](https://github.com/os-vector/wire-os).
+**1:1 remake** of [Victor-Rebuild 1.6-rebuild](https://github.com/Victor-Rebuild/vicos-oelinux-1.6-rebuild-2).
 
-This repo follows the [Make Your Own CFW](https://os-vector.github.io/vector-docs/6.-Make-Your-Own-CFW/1.%20prerequisites.html) guide: WireOS is the base OS tree; Seek-specific identity lives under `seek/` and is applied at build time.
+No Seek branding, boot splash, CCIS, or head-only changes. The only deltas are **error prevention** for OTA install:
 
-## Branding
-
-CCIS face-info strings (guide step in `faceInfoScreenManager.cpp`):
-
-| Field | Value |
+| Problem | Fix |
 | --- | --- |
-| OSProject | `SeekOS` |
-| Creator | `By Logan / Seek CFW` |
-| CreatorWebsite | `github.com/loganstorm1254-sudo/seek-cfw` |
+| GitHub / SSL download fails (`CERTIFICATE_VERIFY_FAILED`, broken `curl.anki`) | `update-os` uses real `curl -k` → `/ota/v.ota` |
+| Truncated OTA bricks flash | Reject OTA &lt; 200MB |
+| Recovery flash marked wrong slot unbootable | Lock **other** slot only; `set_bootable` on target |
+| Fault **920** `NO_GATEWAY_CERT` after OS switch | Auto-create `gateway.cert` before reboot |
 
-Source of truth: `seek/overlays/anki/victor/animProcess/src/cozmoAnim/faceDisplay/faceInfoScreenManager.cpp`
+Upstream personality lives in submodule `anki/victor-1.6` → [victor-1.6-rebuild-2](https://github.com/Victor-Rebuild/victor-1.6-rebuild-2).
 
+See [FORKING.md](FORKING.md) to fork submodule repos under your account (agent cannot create GitHub forks).
 
+## Install on robot now (no rebuild)
 
-## Backpack button
+**Preferred (Windows CMD):** download the OTA on your PC, then upload + flash. Vector does **not** download from GitHub.
 
-| Gesture | Action |
-| --- | --- |
-| Single click | Wake word / attention |
-| Double click (off charger) | Mic mute/unmute |
-| **Triple click** (3 quick taps) | **Mute/unmute all sounds** + mute icon top-right |
+```cmd
+curl -L -o %TEMP%\flash-16-from-pc.cmd https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/16-rebuild-errorsafe-7a4a/seek/flash/flash-16-from-pc.cmd
+%TEMP%\flash-16-from-pc.cmd 192.168.42.111
+```
 
-## Boot splash
+Stay on charger. Takes several minutes (PC download + scp + flash), then Vector reboots.
 
-The first static early-boot screen (rampost `anki_dev_unit`) is the **SeekAra** wordmark.
+That installs public **1.6-rebuild** `vicos-1.6.1.80d.ota (error-safe)` (~172MB, unlocked/dev).
 
-- Source: `seek/assets/seekara-boot-184x96.png`
-- Overlay: `seek/overlays/anki/rampost/anki_dev_unit.h` (184×96 RGB565)
-- Applied automatically by `seek/apply-overlay.sh` before `./build/build.sh`
+Optional — flash from the robot itself (slower / flaky Wi‑Fi):
 
-## Prerequisites
+```sh
+update-os latest
+```
 
-- Linux x86_64 (recommended) with **git**, **docker**, **wget**
-- Comfortable build box: 16GB+ RAM, plenty of disk (100GB+ free)
-- An unlocked Vector to flash/test
+OSKR / locked-prod: pick the matching asset from [historical releases](https://github.com/Victor-Rebuild/1.6-rebuild-historical-releases/releases/tag/1.6.1.007X) and pass the URL:
 
-See the [official prerequisites](https://os-vector.github.io/vector-docs/6.-Make-Your-Own-CFW/1.%20prerequisites.html).
+```sh
+update-os https://github.com/Victor-Rebuild/1.6-rebuild-historical-releases/releases/download/v1.6.1.80d-errorsafe/vicos-1.6.1.80doskr.ota
+```
 
-## Clone
+Fault 920 only:
+
+```sh
+sh /usr/sbin/fix-error-920
+# or
+curl -k -L -o /data/fix-920.sh https://raw.githubusercontent.com/loganstorm1254-sudo/seek-cfw/cursor/16-rebuild-errorsafe-7a4a/seek/flash/fix-error-920.sh
+sh /data/fix-920.sh
+```
+
+After install, set up with the 1.6-rebuild server: https://anki2.ca/1.6/
+
+## Build your own OTA (optional)
+
+Same as upstream 1.6-rebuild:
 
 ```bash
-git clone https://github.com/loganstorm1254-sudo/seek-cfw --recurse-submodules
+git clone https://github.com/loganstorm1254-sudo/seek-cfw --recurse-submodules -b cursor/16-rebuild-errorsafe-7a4a
 cd seek-cfw
-```
-
-If you already cloned without submodules:
-
-```bash
-git submodule update --init --recursive
-```
-
-## Build a Vector OTA (SeekOS)
-
-Docker method (x86_64):
-
-```bash
 ./build/build.sh -bt dev -v 1
+# output: ./_build/1.6.1.1.ota  (version scheme follows ANKI_VERSION=1.6.1)
 ```
-
-- `-bt dev` — unlocked / “dev” robot type (typical for CFW)
-- `-v 1` — build increment → OTA version `3.0.1.1`
-
-Output (after a successful build):
-
-```text
-./_build/vicos-3.0.1.1d.ota
-```
-
-
-### Cloud / nested-container Docker tip
-
-If `docker build` fails with an overlay mount `invalid argument` error (common when Docker runs inside another overlay filesystem), configure the VFS storage driver:
-
-```bash
-sudo mkdir -p /etc/docker
-echo '{"storage-driver":"vfs"}' | sudo tee /etc/docker/daemon.json
-sudo systemctl restart docker   # or restart dockerd
-```
-
-Bare metal (no Docker):
-
-```bash
-./build/build.sh -nd -bt dev -v 1
-```
-
-## Develop personality code (/anki)
-
-Most day-to-day work is in `anki/victor` (WireOS victor submodule). After editing, you can build/deploy just `/anki` from that tree (`./build/build-v.sh` / `./build/deploy-v.sh`) once a compatible base OTA is on the robot — see the [how-to-develop](https://os-vector.github.io/vector-docs/6.-Make-Your-Own-CFW/3.%20how.html) docs.
-
-Seek branding is re-applied whenever you run `./build/build.sh` via `seek/apply-overlay.sh`.
-
-## Fork layout note
-
-The upstream guide recommends three repos (`*-os`, `*-os-victor`, `*-os-externals`). This cloud environment can only write to **seek-cfw**, so Seek uses:
-
-- **seek-cfw** — OS / OTA builder (this repo, WireOS-based)
-- **anki/victor** — still the upstream `wire-os-victor` submodule
-- **Seek deltas** — `seek/overlays` + `seek/patches` (instead of a separate victor fork)
-
-If you later create `seek-cfw-victor` and `seek-cfw-externals` under your account, point the submodules at them as described in [Forking](https://os-vector.github.io/vector-docs/6.-Make-Your-Own-CFW/2.%20forking.html).
 
 ## Upstream
 
-SeekOS tracks [os-vector/wire-os](https://github.com/os-vector/wire-os) and its submodules. WireOS is the maintained base CFW from Wire/kercre123 — please credit upstream and sync their fixes when you can.
-
-## License
-
-Same as upstream WireOS / Anki-derived sources in this tree. See `LICENSE` and `LICENSE-README`.
+- OS: [vicos-oelinux-1.6-rebuild-2](https://github.com/Victor-Rebuild/vicos-oelinux-1.6-rebuild-2)
+- Personality: [victor-1.6-rebuild-2](https://github.com/Victor-Rebuild/victor-1.6-rebuild-2)
+- Docs / install: https://anki2.ca/1.6-rebuild

@@ -11,10 +11,12 @@ BUILDSRC = "${S}/_build/vicos/Release"
 FILESEXTRAPATHS:prepend := "${THISDIR}/${PN}:"
 
 inherit externalsrc
-EXTERNALSRC = "${WORKSPACE}/anki/victor"
+EXTERNALSRC = "${WORKSPACE}/anki/victor-1.6"
 
 export SSH_AUTH_SOCK
 export ANKI_BUILD_VERSION
+
+REBUILD_COMMIT = "$(cat ${WORKSPACE}/anki/victor-1.6-version)"
 
 # Prevent yocto from splitting out debug files for this recipe
 INHIBIT_PACKAGE_DEBUG_SPLIT = '1'
@@ -93,15 +95,8 @@ USERADD_PARAM:${PN} = " -u ${UID_ANKI} -g ${GID_ANKI} -s /bin/false anki; \
 
 do_package_qa[noexec] = "1"
 
-#do_clean:append() {
-#    dir = bb.data.expand("${S}", d)
-#    os.chdir(dir)
-#    os.system('git clean -Xfd')
-#}
-
 do_clean:append() {
-    s = d.getVar('S')
-    os.system('git -C "%s" clean -Xfd' % s)
+    os.system('cd $EXTERNALSRC && git clean -ffdx && git submodule foreach --recursive git clean -ffdx')
 }
 
 do_compile[pseudo] = "0"
@@ -180,54 +175,24 @@ run_victor() {
 }
 
 do_compile () {
-  cd ${S}
+  cd ${WORKSPACE}/anki/victor-1.6
+
+  #if [[ ! -d victor-1.6 ]]; then
+  #  git clone --recursive https://github.com/Victor-Rebuild/victor-1.6-rebuild victor-1.6/
+  #fi
+
+  #cd victor-1.6/
+
+  #git checkout Main
+
+  #git pull --recurse-submodules
+
+  #git checkout $REBUILD_COMMIT
 
   TOPLEVEL=$(run_victor bash -c 'source ./project/victor/envsetup.sh && gettop')
   export TOPLEVEL
 
-  if [[ "${ANKI_AMAZON_ENDPOINTS_ENABLED}" == "1" ]]; then
-    if [[ "${USER_BUILD}" == "1" ]]; then
-      if [[ "${DEV}" == "1" ]]; then
-        if [[ "${BETA}" == "1" ]]; then
-          run_victor ./project/victor/scripts/victor_build_alexa_beta.sh
-        elif [[ "${ANKI_RESOURCE_ESCAPEPOD}" == "1" ]]; then
-          run_victor ./project/victor/scripts/victor_build_escape_pod_userdev.sh
-        else
-          run_victor ./project/victor/scripts/victor_build_alexa_userdev.sh
-        fi
-      else
-        run_victor ./project/victor/scripts/victor_build_alexa_shipping.sh
-      fi
-    elif [[ "${ANKI_RESOURCE_ESCAPEPOD}" == "1" ]]; then
-      run_victor ./project/victor/scripts/victor_build_escape_pod_userdev.sh
-    else
-      run_victor ./project/victor/scripts/victor_build_alexa_release.sh
-    fi
-  else
-    if [[ "${USER_BUILD}" == "1" ]]; then
-      if [[ "${DEV}" == "1" ]]; then
-        if [[ "${BETA}" == "1" ]]; then
-          run_victor ./project/victor/scripts/victor_build_beta.sh
-        elif [[ "${ANKI_RESOURCE_ESCAPEPOD}" == "1" ]]; then
-          run_victor ./project/victor/scripts/victor_build_escape_pod_userdev.sh
-        else
-          run_victor ./project/victor/scripts/victor_build_userdev.sh
-        fi
-      elif [[ "${ANKI_RESOURCE_ESCAPEPOD}" == "1" ]]; then
-        run_victor ./project/victor/scripts/victor_build_escape_pod_shipping.sh
-      else
-        run_victor ./project/victor/scripts/victor_build_shipping.sh
-      fi
-    else
-      if [[ "${OSKR}" == "1" ]]; then
-        run_victor ./project/victor/scripts/victor_build_oskr.sh
-      elif [[ "${ANKI_RESOURCE_ESCAPEPOD}" == "1" ]]; then
-        run_victor ./project/victor/scripts/victor_build_escape_pod_release.sh
-      else
-        run_victor ./project/victor/scripts/victor_build_release.sh
-      fi
-    fi
-  fi
+  run_victor ./project/victor/scripts/victor_build_release.sh -g Ninja
 }
 
 do_compile[nostamp] = "1"
@@ -241,6 +206,7 @@ do_install () {
   install -m 0755 ${D}/anki/lib/libunwind.so.1 ${D}/usr/lib/
   # no need to ship these twice
   rm -f ${D}/anki/lib/libc++.so.1 ${D}/anki/lib/libc++abi.so.1 ${D}/anki/lib/libunwind.so.1
+  rm -f ${D}/anki/bin/vic-cloud
 }
 
 do_generate_victor_canned_fs_config () {
@@ -284,6 +250,10 @@ EOF
     find ${D}/anki/$i -type f \
       -printf "anki/$i/%P  ${UID_ANKI} ${GID_ANKI} 0440\n" >> ${CANNED_FS_CONFIG_PATH}
   done
+}
+
+do_generate_victor_canned_fs_config:append () {
+  sed -i '/anki\/bin\/vic-cloud /d' ${DEPLOY_DIR_IMAGE}/victor_canned_fs_config
 }
 
 addtask generate_victor_canned_fs_config after do_install before do_package

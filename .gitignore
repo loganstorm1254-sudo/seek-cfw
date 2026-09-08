@@ -10,3 +10,17 @@ bb-files.txt
 /vm-deps-installed
 /anki-deps
 /old-toolchain
+#/anki/victor-1.6
+latest
+/filesystems/bin/target/mtd-utils/checkfs/checkfs
+/filesystems/bin/target/mtd-utils/checkfs/makefiles
+/filesystems/bin/target/mtd-utils/ubi-tests/integ
+/filesystems/bin/target/mtd-utils/ubi-tests/io_basic
+/filesystems/bin/target/mtd-utils/ubi-tests/io_paral
+/filesystems/bin/target/mtd-utils/ubi-tests/io_read
+/filesystems/bin/target/mtd-utils/ubi-tests/io_update
+/filesystems/bin/target/mtd-utils/ubi-tests/mkvol_bad
+/filesystems/bin/target/mtd-utils/ubi-tests/mkvol_basic
+/filesystems/bin/target/mtd-utils/ubi-tests/mkvol_paral
+/filesystems/bin/target/mtd-utils/ubi-tests/rsvol
+/filesystems/bin/target/mtd-utils/ubi-tests/volrefcnt

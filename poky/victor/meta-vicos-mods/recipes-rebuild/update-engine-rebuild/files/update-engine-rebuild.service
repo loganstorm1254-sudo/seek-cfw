@@ -1,0 +1,22 @@
+[Unit]
+Description=Hourly checks for update, made by Emily for 1.6 rebuild
+After=network-online.target
+
+[Service]
+Type=simple
+
+# This service needs just over 1 hour to get started or systemd will
+# time it out.  Look below and you will see that we can sleep for a random
+# amount of time up to 1 hour before starting /anki/bin/update-engine.
+TimeoutStartSec=3630
+
+# By default, we will sleep for a maximum of 3600 seconds (aka 1 hour).  This
+# value can be overridden by the EnvironmentFiles below
+Environment=UPDATE_ENGINE_MAX_SLEEP=3600
+
+# We sleep (aka delay) a random amount of time between 1 second and 1 hour here
+# so that we don't have our entire population of robots hitting the OTA server
+# at exactly the same time.
+ExecStartPre=/bin/bash -c 'sleep $(( RANDOM % $UPDATE_ENGINE_MAX_SLEEP ))'
+
+ExecStart=/bin/bash /sbin/update-engine-rebuild

@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly checks for update, made by Emily for 1.6 rebuild
+Requires=update-engine-rebuild.service
+
+[Timer]
+OnCalendar=*-*-* *:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

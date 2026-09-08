@@ -1,3 +1,5 @@
+engine ALL = (root, root) NOPASSWD: /usr/sbin/save-eye-color *
 engine ALL = (root, root) NOPASSWD: /usr/sbin/set-timezone *
+engine ALL = (root, root) NOPASSWD: /usr/sbin/reboot *
 engine ALL = (root, root) NOPASSWD: /sbin/export-gpio 94
 engine ALL = (root, root) NOPASSWD: /sbin/export-gpio 0

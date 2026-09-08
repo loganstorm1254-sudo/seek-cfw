@@ -8,14 +8,16 @@ set -e
 # Hidden env vars:
 # 1. AUTO_UPDATE: set to 1 if you want to inhibit the -au interaction
 
-CREATOR="Seek"
+CREATOR="Emily"
 
 CURRENT_CONTAINER_NAME="vic-yocto-builder-7"
 
+REBUILD_COMMIT="$(cat anki/victor-1.6-version)"
+
 function usage() {
     echo "$1"
-    echo "Usage: ./build/build.sh -bt <dev/oskr/devcloudless> -s -op <OTA-pw> -bp <boot-passwd> -v <build-increment> -ui <ui-option>"
-    echo "Usage (no signing): ./build/build.sh -bt <dev/oskr/devcloudless> -bp <boot-passwd> -v <build-increment> -ui <ui-option>"
+    echo "Usage: ./build/build.sh -bt <dev/oskr/devcloudless> -s -op <OTA-pw> -bp <boot-passwd> -v <build-increment> -ir <indev/release> -ui <ui-option>"
+    echo "Usage (no signing): ./build/build.sh -bt <dev/oskr/devcloudless> -bp <boot-passwd> -v <build-increment> -ir <indev/release> -ui <ui-option>"
     echo "Valid UI options are: knotty, ncurses, taskexp_ncurses, or teamcity. Default is knotty."
     exit 1
 }
@@ -61,10 +63,6 @@ function check_sign_ota() {
 
 function check_submodules() {
 	BAD_SUBMODULE=0
-	if [[ ! -d anki/victor/engine ]]; then
-		errorMsg "The anki/victor submodule doesn't exist."
-		BAD_SUBMODULE=1
-	fi
 	if [[ ! -d poky/openembedded-core/meta ]]; then
 		errorMsg "The poky/openembedded-core submodule doesn't exist."
 		BAD_SUBMODULE=1
@@ -104,11 +102,11 @@ function errorMsg() {
 }
 
 function is_victor_there_and_compatible() {
-	if [[ ! -d anki/victor/engine ]]; then
-		errorMsg "anki/victor/engine not found. You likely don't have the victor submodule correctly configured."
+	if [[ ! -d anki/victor-1.6/engine ]]; then
+		errorMsg "anki/victor-1.6/engine not found. Please properly reclone this repository or run `git submodule update --init --recursive` in the root of this repo."
 		exit 1
 	fi
-	VICTOR_COMPAT="$(cat anki/victor/VICTOR_COMPAT_VERSION)"
+	VICTOR_COMPAT="$(cat anki/victor-1.6/VICTOR_COMPAT_VERSION)"
 	OELINUX_COMPAT="$(cat VICTOR_COMPAT_VERSION)"
 	if [[ ! "${VICTOR_COMPAT}" == "${OELINUX_COMPAT}" ]]; then
 		errorMsg "OELinux and victor compat versions are not the same."
@@ -116,10 +114,16 @@ function is_victor_there_and_compatible() {
 		errorMsg "victor: ${VICTOR_COMPAT}"
 		errorMsg "OELinux: ${OELINUX_COMPAT}"
 		echo
-		errorMsg "Make sure you have synced all upstream WireOS changes into SeekOS."
+		errorMsg "Make sure you have synced all WireOS changes into your OS."
 		exit 1
 	fi
 	echo "OELinux and victor compat versions are the same"
+    echo "Pulling victor"
+    #cd anki/victor-1.6
+    #git checkout master
+    #git pull --recurse-submodules
+    #git checkout $REBUILD_COMMIT
+    #cd ../../
 }
 
 #knotty, ncurses, taskexp_ncurses or teamcity - default knotty
@@ -143,6 +147,7 @@ while [ $# -gt 0 ]; do
         -bp) BOOT_PASSWORD="$2"; shift ;;
         -s) DO_SIGN=1 ;;
         -v) BUILD_INCREMENT="$2"; shift ;;
+        -ir) STACK="$2"; shift ;;
         -au) are_you_wire; AUTO_UPDATE=1 ;;
         -ui) what_ui "$2"; shift ;;
         -nd) NO_DOCKER=1 ;;
@@ -160,17 +165,10 @@ fi
 
 check_submodules
 
-# Apply Seek CFW branding overlay (CCIS final screen + related identity)
-if [[ -x ./seek/apply-overlay.sh ]]; then
-	./seek/apply-overlay.sh
-elif [[ -f ./seek/apply-overlay.sh ]]; then
-	bash ./seek/apply-overlay.sh
-fi
-
 is_victor_there_and_compatible
 
-if [[ "$BOT_TYPE" != "oskr" && "$BOT_TYPE" != "dev" && "$BOT_TYPE" != "prod" && "$BOT_TYPE" != "devcloudless" ]]; then
-    usage "BOT_TYPE (-bt) should be 'oskr' or 'dev', got: $BOT_TYPE"
+if [[ "$BOT_TYPE" != "oskr" && "$BOT_TYPE" != "dev" && "$BOT_TYPE" != "prod" && "$BOT_TYPE" != "devcloudless" && "$BOT_TYPE" != "oskrcloudless" && "$BOT_TYPE" != "prodcloudless" && "$BOT_TYPE" != "proddev" ]]; then
+    usage "BOT_TYPE (-bt) should be 'oskr', 'dev', 'devcloudless', prod, or proddev, got: $BOT_TYPE"
 fi
 
 if [[ "$DO_SIGN" == 1 && "$OTA_SIGNING_KEY_PASSWORD" == "" ]]; then
@@ -191,6 +189,12 @@ fi
 
 if [[ ! $BUILD_INCREMENT =~ ^-?[0000-9999]+$ ]]; then
     usage "Build increment is not an int between 0-9999."
+fi
+
+if [[ ! "$STACK" == "indev" && ! "$STACK" == "release" && ! "$STACK" == "internal" ]]; then
+    echo $STACK
+    echo "Stack is not indev, release, or internal. Assuming internal, one-off build."
+    STACK="internal"
 fi
 
 if [[ "${NO_DOCKER}" != "1" && "$(uname -a)" == *"aarch64" ]]; then
@@ -229,10 +233,10 @@ export BOOT_IMAGE_SIGNING_PASSWORD="${BOOT_PASSWORD}"
 
 ANKIDEV=1
 
-if [[ $BOT_TYPE == "oskr" ]]; then
+if [[ $BOT_TYPE == "oskr" || $BOT_TYPE == "oskrcloudless" ]]; then
     export BOOT_IMAGE_SIGNING_PASSWORD="${BOOT_PASSWORD}"
 	BOOT_MAKE_COMMAND="make oskrsign"
-elif [[ $BOT_TYPE == "prod" ]]; then
+elif [[ $BOT_TYPE == "prod" || $BOT_TYPE == "proddev" || $BOT_TYPE == "prodcloudless" ]]; then
     export BOOT_IMAGE_SIGNING_PASSWORD="${BOOT_PASSWORD}"
 	BOOT_MAKE_COMMAND="make prodsign"
 	ANKIDEV=0
@@ -247,6 +251,8 @@ if [[ $DO_SIGN == 1 ]]; then
     export DO_SIGN=$DO_SIGN
 fi
 
+rm -rf _build/*.ota
+
 if [[ "${NO_DOCKER}" != "1" ]]; then
     if [[ -z $(docker images -q ${CURRENT_CONTAINER_NAME}) ]]; then
         docker build --build-arg DIR_PATH="${DIRPATH}" --build-arg USER_NAME=$USER --build-arg UID=$(id -u $USER) --build-arg GID=$(id -u $USER) -t ${CURRENT_CONTAINER_NAME} build/
@@ -256,12 +262,7 @@ if [[ "${NO_DOCKER}" != "1" ]]; then
 fi
 
 function run_with_docker() {
-    # Use -it only when a TTY is available (local terminals). Cloud/CI builds need -i alone.
-    local docker_tty_flags="-i"
-    if [[ -t 0 && -t 1 ]]; then
-        docker_tty_flags="-it"
-    fi
-    docker run ${docker_tty_flags} --rm \
+    docker run -i --rm \
     -v $(pwd)/anki-deps:/home/$USER/.anki \
     -v $(pwd):$(pwd) \
     -v $(pwd)/build/cache:/home/$USER/.ccache \
@@ -274,6 +275,7 @@ FINAL_BUILD_INVOCATION="cd $(pwd)/poky && \
     source build/conf/set_bb_env.sh && \
     export ANKI_BUILD_VERSION=$BUILD_INCREMENT && \
     export AUTO_UPDATE=${AUTO_UPDATE} && \
+    export INDEV_OR_RELEASE=${STACK} && \
     ${YOCTO_CLEAN_COMMAND} && \
     sleep 2 && \
     ${YOCTO_BUILD_COMMAND} && \
@@ -290,6 +292,8 @@ if [[ ${NO_DOCKER} == "1" ]]; then
 else
     run_with_docker "${FINAL_BUILD_INVOCATION}"
 fi
+
+#RUN_FROM_MAIN=1 INCREMENT=$BUILD_INCREMENT PRODorOSKR=$BOT_TYPE ./build/inject-anki.sh
 
 echo
 echo -e "\033[1;32mCompleted successfully. Output is in ./_build.\033[0m"
