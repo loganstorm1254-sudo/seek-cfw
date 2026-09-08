@@ -41,15 +41,15 @@ esac
 mount -o remount,rw / 2>/dev/null || true
 mkdir -p /ota /data/ota /data/seek /run/update-engine
 
-# Real curl only (skip empty/broken curl.anki stubs).
+# Prefer a real curl; accept PATH curl (recovery often has a working one).
 CURL=""
-for c in /usr/bin/curl /bin/curl; do
-  if [ -x "$c" ]; then
-    SZ=$(wc -c <"$c" 2>/dev/null || echo 0)
-    if [ "$SZ" -gt 1000 ] 2>/dev/null; then
-      CURL="$c"
-      break
-    fi
+for c in /usr/bin/curl /bin/curl "$(command -v curl 2>/dev/null)"; do
+  [ -n "$c" ] && [ -x "$c" ] || continue
+  SZ=$(wc -c <"$c" 2>/dev/null || echo 0)
+  # Skip empty curl.anki stubs (~0 bytes); keep anything else that runs.
+  if [ "$SZ" -gt 100 ] 2>/dev/null; then
+    CURL="$c"
+    break
   fi
 done
 [ -n "$CURL" ] || { echo "ERROR: no working curl binary"; exit 1; }
@@ -69,11 +69,13 @@ fi
 echo "Current OS Version: $(getprop ro.anki.version 2>/dev/null || echo unknown)"
 echo "1.6-rebuild update-os (curl + safe manual flash)"
 echo "OTA: $URL"
+echo "curl=$CURL"
 df -h /ota /data 2>/dev/null || true
 
+DEST=/ota/v.ota
 if ! touch /ota/.w 2>/dev/null; then
-  echo "ERROR: /ota not writable — remount / rw failed?"
-  exit 1
+  echo "WARNING: /ota not writable — using /data/ota"
+  DEST=/data/ota/v.ota
 fi
 rm -f /ota/.w
 
@@ -88,10 +90,10 @@ case "$URL" in
     ;;
 esac
 
-echo "Downloading OTA to /ota/v.ota ..."
-rm -f /ota/v.ota
-$CURL -k -L --http1.1 -4 --connect-timeout 120 -f -o /ota/v.ota "$URL"
-SZ=$(wc -c </ota/v.ota)
+echo "Downloading OTA to $DEST ..."
+rm -f "$DEST"
+$CURL -k -L --http1.1 -4 --connect-timeout 120 -f -o "$DEST" "$URL"
+SZ=$(wc -c <"$DEST")
 echo "OTA size=$SZ"
 if [ "$SZ" -lt "$MIN" ]; then
   echo "FATAL: OTA too small (need >= $MIN) — download incomplete"
@@ -105,4 +107,4 @@ killall -9 vic-engine vic-anim vic-cloud vic-robot 2>/dev/null || true
 
 echo "Flashing inactive slot (stay on charger)..."
 rm -f /data/unbrick
-exec sh "$FLASH" /ota/v.ota
+exec sh "$FLASH" "$DEST"
