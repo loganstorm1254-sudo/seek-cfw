@@ -70,10 +70,11 @@
 #include <sys/reboot.h>
 #endif
 
-// CHANGE THIS TO BE YOUR PROJECT'S STUFF
-const std::string OSProject = "SeekOS";
-const std::string Creator = "By Logan / Seek CFW";
-const std::string CreatorWebsite = "github.com/loganstorm1254-sudo/seek-cfw";
+// ChosonOS identity. Static boot is the passport cover; moving boot is the Orville clip.
+// Top-of-cover text: 조선민주주의인민공화국 / DEMOCRATIC PEOPLE'S REPUBLIC OF KOREA
+const std::string OSProject = "CHOSON";
+const std::string Creator = "DEMOCRATIC PEOPLE'S";
+const std::string CreatorWebsite = "REPUBLIC OF KOREA";
 
 // Log options
 #define LOG_CHANNEL    "FaceInfoScreenManager"
