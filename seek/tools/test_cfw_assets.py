@@ -50,11 +50,21 @@ def main() -> None:
 
     if not wav.is_file() or wav.stat().st_size < 10000:
         fail("boot-music.wav missing or tiny")
-    if b"RIFF" not in wav.read_bytes()[:4]:
+    if wav.read_bytes()[:4] != b"RIFF":
         fail("boot-music.wav is not a WAV")
+    # tinyplay does not resample; MSM codec wants 48 kHz stereo S16LE.
+    import wave
+    with wave.open(str(wav), "rb") as w:
+        if w.getnchannels() != 2 or w.getframerate() != 48000 or w.getsampwidth() != 2:
+            fail(f"boot-music.wav must be 48k stereo s16, got {w.getnchannels()}ch {w.getframerate()}Hz")
     wrap_txt = wrap.read_text()
     if "tinyplay" not in wrap_txt or "boot-music.wav" not in wrap_txt:
         fail("vic-boot-wrap does not loop boot music")
+    if "boot_adsp" not in wrap_txt:
+        fail("vic-boot-wrap does not boot ADSP during the clip")
+    audio_unit = REPO / "seek/overlays/etc/systemd/system/init_audio.service"
+    if "sysinit.target" not in audio_unit.read_text():
+        fail("init_audio.service is not pulled in at sysinit")
 
     handler_txt = handler.read_text()
     if "890" not in handler_txt or "899" not in handler_txt or "exit 0" not in handler_txt:
@@ -69,7 +79,7 @@ def main() -> None:
 
     print(
         f"ok: stretched portrait rampost, ordinary-life boot_anim frames={len(boot_bytes)//FRAME}, "
-        "wav+wrap, 890/899, MYLIFE"
+        "48k wav+early ADSP wrap, 890/899, MYLIFE"
     )
 
 

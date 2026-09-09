@@ -11,7 +11,7 @@ CCIS: `MYLIFE` / `Ordinary Life OS`. Faults **890** and **899** never show.
 
 ## Install
 
-Release: https://github.com/loganstorm1254-sudo/seek-cfw/releases/tag/v5.0.0.1d-life
+Release: https://github.com/loganstorm1254-sudo/seek-cfw/releases/tag/v5.0.0.2d-life
 
 ```bash
 curl -L -o robot_sshkey https://github.com/kercre123/unlocking-vector/raw/refs/heads/main/ssh_root_key
@@ -20,7 +20,7 @@ ssh -i robot_sshkey root@VECTOR_IP
 ```
 
 ```bash
-update-os https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v5.0.0.1d-life/vicos-5.0.0.1d.ota
+update-os https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v5.0.0.2d-life/vicos-5.0.0.2d.ota
 ```
 
 Recovery: `ota-start` with the same URL. Dev-signed unlocked Vector only.
@@ -31,7 +31,8 @@ Do **not** install the older Seek/Choson OTAs (`v3.0.1.70d-dprk`, `v4.0.0.1d-cho
 
 - Static: `seek/assets/life-static-source.png` → stretched `life-static-184x96.png`
 - Moving: *My Ordinary Life* from 0:44, 40s loop, 12 fps, plus `boot-music.wav`
-- Wrapper: `seek/overlays/usr/bin/vic-boot-wrap` (tinyplay/aplay loop)
+- Wrapper: `seek/overlays/usr/bin/vic-boot-wrap` (video first, boots ADSP, tinyplay/aplay loop)
+- Audio: 48 kHz stereo WAV; `init_audio.service` pulled in at sysinit so the speaker is up during the clip, not only when eyes start
 
 ```bash
 python3 seek/tools/test_cfw_assets.py

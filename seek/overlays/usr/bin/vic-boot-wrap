@@ -1,10 +1,16 @@
 #!/bin/sh
-# LIFE OS: show moving boot anim and loop boot music until vic-anim takes over.
-# Video starts immediately. Audio starts once ALSA card0 is up.
+# LIFE OS: show the moving clip immediately, and bring the speaker up during
+# that same window. WireOS only boots the Hexagon ADSP at multi-user, which is
+# also when vic-anim kills bootAnim — that is why 5.0.0.1d only chirped.
 
 ANIM=/anki/bin/vic-bootAnim
 WAV=/anki/data/assets/boot-music.wav
+[ -f "$WAV" ] || WAV=/anki/data/boot-music.wav
 MUS_PID=""
+
+log() {
+  echo "vic-boot-wrap: $*" > /dev/kmsg 2>/dev/null
+}
 
 cleanup() {
   if [ -n "$MUS_PID" ]; then
@@ -16,27 +22,45 @@ cleanup() {
 }
 trap cleanup EXIT TERM INT
 
+# Face first so the clip is not delayed for audio.
 "$ANIM" &
 ANIM_PID=$!
 
 (
+  log "audio helper start"
   i=0
   while [ ! -e /sys/class/sound/card0 ]; do
-    sleep 0.2
+    # Do not call systemctl here: during sysinit it can block until multi-user.
+    if [ -e /sys/kernel/boot_adsp/boot ]; then
+      echo 1 > /sys/kernel/boot_adsp/boot 2>/dev/null || true
+    fi
+    if [ -x /etc/initscripts/init_qcom_audio ]; then
+      /etc/initscripts/init_qcom_audio start >/dev/null 2>&1 || true
+    fi
     i=$((i + 1))
-    [ "$i" -gt 250 ] && exit 0
+    [ "$i" -gt 300 ] && break
+    sleep 0.1
   done
-  # Same mixer path as anki-audio-init (speaker on RX3).
+
+  if [ -x /etc/initscripts/anki-audio-init ]; then
+    /etc/initscripts/anki-audio-init >/dev/null 2>&1 || true
+  fi
   amixer cset numid=1440 1 >/dev/null 2>&1
   amixer cset numid=1633 "RX1" >/dev/null 2>&1
   amixer cset numid=1641 1 >/dev/null 2>&1
   amixer cset numid=33 84 >/dev/null 2>&1
+  log "speaker routed, looping $WAV"
+
   while true; do
     if [ -x /usr/bin/tinyplay ]; then
-      tinyplay "$WAV" || sleep 0.3
-    else
-      aplay -q "$WAV" || sleep 0.3
+      tinyplay "$WAV" -D 0 -d 0 && continue
+      tinyplay "$WAV" && continue
     fi
+    if [ -x /usr/bin/aplay ]; then
+      aplay -D plughw:0,0 -q "$WAV" && continue
+      aplay -q "$WAV" && continue
+    fi
+    sleep 0.2
   done
 ) &
 MUS_PID=$!

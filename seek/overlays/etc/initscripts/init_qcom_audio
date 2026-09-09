@@ -1,0 +1,27 @@
+#!/bin/sh
+# LIFE OS: boot the Hexagon ADSP as soon as the sysfs node exists.
+# Stock WireOS used set -e and ran only at multi-user, so boot music chirped.
+
+case "$1" in
+start)
+  i=0
+  while [ ! -e /sys/kernel/boot_adsp/boot ]; do
+    i=$((i + 1))
+    [ "$i" -gt 200 ] && exit 1
+    sleep 0.1
+  done
+  echo 0 > /sys/module/subsystem_restart/parameters/enable_debug 2>/dev/null || true
+  echo 1 > /sys/kernel/boot_adsp/boot
+  ;;
+stop)
+  ;;
+restart)
+  $0 start
+  ;;
+*)
+  echo "usage: $0 {start|stop}" >&2
+  exit 1
+  ;;
+esac
+
+exit 0
