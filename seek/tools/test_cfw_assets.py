@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sys
+import wave
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -24,7 +25,9 @@ def main() -> None:
     boot20 = REPO / "seek/overlays/anki/victor/resources/config/engine/animations/boot_anim_20.raw"
     png = REPO / "seek/assets/life-static-184x96.png"
     wav = REPO / "seek/overlays/anki/data/boot-music.wav"
-    wrap = REPO / "seek/overlays/usr/bin/vic-boot-wrap"
+    hold = REPO / "seek/overlays/usr/bin/life-boot-hold"
+    anim_unit = REPO / "seek/overlays/lib/systemd/system/vic-anim.service"
+    boot_unit = REPO / "seek/overlays/lib/systemd/system/vic-bootAnim.service"
 
     text = header.read_text()
     if "anki_dev_unit_len = 35328" not in text:
@@ -44,6 +47,7 @@ def main() -> None:
         fail("boot_anim starts with the static portrait — moving boot must be the song clip")
 
     from PIL import Image
+
     im = Image.open(png)
     if im.size != (184, 96):
         fail(f"static PNG is {im.size}")
@@ -52,19 +56,28 @@ def main() -> None:
         fail("boot-music.wav missing or tiny")
     if wav.read_bytes()[:4] != b"RIFF":
         fail("boot-music.wav is not a WAV")
-    # tinyplay does not resample; MSM codec wants 48 kHz stereo S16LE.
-    import wave
     with wave.open(str(wav), "rb") as w:
         if w.getnchannels() != 2 or w.getframerate() != 48000 or w.getsampwidth() != 2:
             fail(f"boot-music.wav must be 48k stereo s16, got {w.getnchannels()}ch {w.getframerate()}Hz")
-    wrap_txt = wrap.read_text()
-    if "tinyplay" not in wrap_txt or "boot-music.wav" not in wrap_txt:
-        fail("vic-boot-wrap does not loop boot music")
-    if "boot_adsp" not in wrap_txt:
-        fail("vic-boot-wrap does not boot ADSP during the clip")
-    audio_unit = REPO / "seek/overlays/etc/systemd/system/init_audio.service"
-    if "sysinit.target" not in audio_unit.read_text():
-        fail("init_audio.service is not pulled in at sysinit")
+
+    hold_txt = hold.read_text()
+    if "tinyplay" not in hold_txt or "boot-music.wav" not in hold_txt:
+        fail("life-boot-hold does not play boot music")
+    if "boot_adsp" in hold_txt:
+        fail("life-boot-hold must not poke boot_adsp (causes bootloops)")
+    if "systemctl stop vic-bootAnim" not in hold_txt:
+        fail("life-boot-hold does not yield the face after the song")
+
+    if "life-boot-hold" not in anim_unit.read_text():
+        fail("vic-anim.service does not hold the boot clip for music")
+    if "TimeoutStartSec=3min" not in anim_unit.read_text():
+        fail("vic-anim.service timeout is too short for a 40s song")
+
+    boot_unit_txt = boot_unit.read_text()
+    if "vic-boot-wrap" in boot_unit_txt:
+        fail("vic-bootAnim.service must run stock vic-bootAnim, not the wrap")
+    if "ExecStart=/anki/bin/vic-bootAnim" not in boot_unit_txt:
+        fail("vic-bootAnim.service is not stock video-only")
 
     handler_txt = handler.read_text()
     if "890" not in handler_txt or "899" not in handler_txt or "exit 0" not in handler_txt:
@@ -79,7 +92,7 @@ def main() -> None:
 
     print(
         f"ok: stretched portrait rampost, ordinary-life boot_anim frames={len(boot_bytes)//FRAME}, "
-        "48k wav+early ADSP wrap, 890/899, MYLIFE"
+        "48k hold-play (no ADSP poke), 890/899, MYLIFE"
     )
 
 

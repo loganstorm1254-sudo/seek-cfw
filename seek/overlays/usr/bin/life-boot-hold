@@ -1,0 +1,29 @@
+#!/bin/sh
+# LIFE OS: WireOS only brings the speaker up when boot is otherwise done,
+# and vic-anim used to kill the clip at that same instant (a chirp).
+# Do not force-load the Hexagon DSP here — doing that before PIL is ready
+# subsystem-restarts it and bootloops.
+#
+# This runs as vic-anim ExecStartPre (After=anki-audio-init), so the
+# speaker is already up. Keep the clip on the face, play the song once,
+# then yield the display.
+
+WAV=/anki/data/assets/boot-music.wav
+[ -f "$WAV" ] || WAV=/anki/data/boot-music.wav
+
+echo "life-boot-hold: play $WAV" > /dev/kmsg 2>/dev/null
+
+played=0
+if [ -x /usr/bin/tinyplay ]; then
+  tinyplay "$WAV" -D 0 -d 0 && played=1
+  [ "$played" = 0 ] && tinyplay "$WAV" && played=1
+fi
+if [ "$played" = 0 ] && [ -x /usr/bin/aplay ]; then
+  aplay -D plughw:0,0 -q "$WAV" && played=1
+  [ "$played" = 0 ] && aplay -q "$WAV" && played=1
+fi
+[ "$played" = 0 ] && sleep 5
+
+echo "life-boot-hold: yield face" > /dev/kmsg 2>/dev/null
+/bin/systemctl stop vic-bootAnim.service >/dev/null 2>&1 || true
+exit 0
