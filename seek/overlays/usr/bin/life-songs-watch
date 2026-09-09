@@ -1,16 +1,18 @@
 #!/bin/sh
-# After CCIS opens Main from Pairing, the next screen change starts songs.
-# Pooled "EXIT" label is patched to "SONG" on the ship image.
+# Arm on CCIS Main. Launch songs only when SONGS is confirmed
+# (SONGS reuses the SelfTest destination → EnteringScreen 8).
+# EXIT → None (0) and CLEAR → ClearUserData (5) do not start songs.
 
 set -eu
 
 MARKER=/run/life-songs-armed
-IGNORE=/run/life-songs-ignore-next
 LOCK=/run/life-songs.lock
+
+# ScreenName::SelfTest from faceInfoScreenTypes.h (WireOS / victor)
+SELFTEST_SCREEN=8
 
 arm() {
   date +%s > "$MARKER"
-  touch "$IGNORE"
   echo "life-songs-watch: armed" > /dev/kmsg 2>/dev/null || true
 }
 
@@ -26,8 +28,8 @@ start_songs() {
     return 0
   fi
   touch "$LOCK"
-  rm -f "$MARKER" "$IGNORE"
-  echo "life-songs-watch: launching" > /dev/kmsg 2>/dev/null || true
+  rm -f "$MARKER"
+  echo "life-songs-watch: launching songs" > /dev/kmsg 2>/dev/null || true
   /usr/bin/life-songs menu >>/data/life-songs.log 2>&1 || true
   rm -f "$LOCK"
 }
@@ -46,10 +48,13 @@ logcat -v brief 2>/dev/null | while IFS= read -r line; do
       ;;
     *"FaceInfoScreenManager.SetScreen.EnteringScreen"*)
       if armed_recent; then
-        if [ -f "$IGNORE" ]; then
-          rm -f "$IGNORE"
-        else
+        # Message is "...EnteringScreen: N" or "...EnteringScreen N"
+        code=$(printf '%s\n' "$line" | sed -n 's/.*EnteringScreen[^0-9]*\([0-9][0-9]*\).*/\1/p' | tail -n 1)
+        if [ "$code" = "$SELFTEST_SCREEN" ]; then
           start_songs &
+        elif [ "$code" = "0" ] || [ "$code" = "5" ]; then
+          # EXIT (None) or CLEAR (ClearUserData) — disarm only
+          rm -f "$MARKER"
         fi
       fi
       ;;

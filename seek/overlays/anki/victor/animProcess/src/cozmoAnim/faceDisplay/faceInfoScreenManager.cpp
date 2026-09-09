@@ -71,7 +71,8 @@
 #endif
 
 // LIFE OS identity. Static boot is the stretched portrait; moving boot is the starfield GIF.
-// CCIS Main "EXIT" is binary-patched to "SONG" on the ship image (same 4 chars) and opens life-songs.
+// Ship image patches Main menu labels: keep EXIT, rename SELF TEST→SONGS (opens songs panel
+// via life-songs-watch), shrink CLEAR OUT SOUL→CLEAR.
 const std::string OSProject = "MYLIFE";
 const std::string Creator = "Ordinary Life OS";
 const std::string CreatorWebsite = "custom firmware";
@@ -319,11 +320,12 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   };
   SET_ENTER_ACTION(Main, mainEnterFcn);
 
-  ADD_MENU_ITEM(Main, "SONG", None);  // ship image also patches pooled "EXIT"→"SONG"
+  ADD_MENU_ITEM(Main, "EXIT", None);
 #if ENABLE_SELF_TEST
-  ADD_MENU_ITEM(Main, IsXray() ? "TEST" : "SELF TEST", SelfTest);
+  // Ship image labels this SONGS; confirming still enters SelfTest which life-songs-watch hijacks.
+  ADD_MENU_ITEM(Main, "SONGS", SelfTest);
 #endif
-  ADD_MENU_ITEM(Main, IsXray() ? "CLEAR" : "CLEAR OUT SOUL", ClearUserData);
+  ADD_MENU_ITEM(Main, "CLEAR", ClearUserData);
 
   // === Self test screen ===
   ADD_MENU_ITEM(SelfTest, "EXIT", Main);

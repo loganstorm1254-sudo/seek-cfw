@@ -87,8 +87,17 @@ def main() -> None:
     watch_txt = watch.read_text()
     if "Going to Customer Service Main from Pairing" not in watch_txt:
         fail("life-songs-watch does not arm on CCIS Main")
+    if "SELFTEST_SCREEN=8" not in watch_txt:
+        fail("life-songs-watch must launch songs on SelfTest screen (SONGS item)")
     if "ExecStart=/usr/bin/life-songs-watch" not in watch_unit.read_text():
         fail("life-songs-watch.service missing ExecStart")
+    brand_menu = branding.read_text()
+    if 'ADD_MENU_ITEM(Main, "EXIT", None)' not in brand_menu:
+        fail("CCIS Main must keep EXIT")
+    if 'ADD_MENU_ITEM(Main, "SONGS", SelfTest)' not in brand_menu:
+        fail("CCIS Main must offer SONGS")
+    if 'ADD_MENU_ITEM(Main, "CLEAR", ClearUserData)' not in brand_menu:
+        fail("CCIS Main CLEAR should be the short label")
 
     for name in ("muffin", "survive", "ordinary", "neveralone"):
         raw = song_dir / f"{name}.raw"
