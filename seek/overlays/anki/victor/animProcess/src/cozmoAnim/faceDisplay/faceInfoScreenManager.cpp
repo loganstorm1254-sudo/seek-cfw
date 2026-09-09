@@ -70,7 +70,8 @@
 #include <sys/reboot.h>
 #endif
 
-// LIFE OS identity. Static boot is the stretched portrait; moving boot is My Ordinary Life.
+// LIFE OS identity. Static boot is the stretched portrait; moving boot is the starfield GIF.
+// CCIS Main "EXIT" is binary-patched to "SONG" on the ship image (same 4 chars) and opens life-songs.
 const std::string OSProject = "MYLIFE";
 const std::string Creator = "Ordinary Life OS";
 const std::string CreatorWebsite = "custom firmware";
@@ -318,7 +319,7 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   };
   SET_ENTER_ACTION(Main, mainEnterFcn);
 
-  ADD_MENU_ITEM(Main, "EXIT", None);
+  ADD_MENU_ITEM(Main, "SONG", None);  // ship image also patches pooled "EXIT"→"SONG"
 #if ENABLE_SELF_TEST
   ADD_MENU_ITEM(Main, IsXray() ? "TEST" : "SELF TEST", SelfTest);
 #endif

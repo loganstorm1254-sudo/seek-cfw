@@ -1,0 +1,116 @@
+#!/bin/sh
+# LIFE OS song player — face video via /persist/boot_anim.raw + aplay WAV.
+# Usage: life-songs [muffin|survive|ordinary|neveralone|menu]
+
+set -eu
+
+SONG_DIR=/anki/data/assets/life-songs
+PERSIST_ANIM=/persist/boot_anim.raw
+BACKUP=/run/life-songs-boot_anim.bak
+
+log() { echo "life-songs: $*" > /dev/kmsg 2>/dev/null || true; }
+
+play_audio() {
+  wav="$1"
+  if [ -x /usr/bin/aplay ]; then
+    aplay -D plughw:0,0 -q "$wav" && return 0
+    aplay -D hw:0,0 -q "$wav" && return 0
+    aplay -q "$wav" && return 0
+  fi
+  if [ -x /usr/bin/tinyplay ]; then
+    tinyplay "$wav" -D 0 -d 0 && return 0
+    tinyplay "$wav" && return 0
+  fi
+  return 1
+}
+
+stop_face() {
+  systemctl stop vic-anim.service 2>/dev/null || true
+  systemctl stop vic-bootAnim.service 2>/dev/null || true
+  killall vic-bootAnim 2>/dev/null || true
+  killall vic-anim 2>/dev/null || true
+  sleep 0.3
+}
+
+backup_persist() {
+  if [ -f "$PERSIST_ANIM" ]; then
+    cp -f "$PERSIST_ANIM" "$BACKUP" 2>/dev/null || true
+  else
+    rm -f "$BACKUP"
+  fi
+}
+
+restore_persist() {
+  if [ -f "$BACKUP" ]; then
+    cp -f "$BACKUP" "$PERSIST_ANIM" 2>/dev/null || true
+  else
+    rm -f "$PERSIST_ANIM"
+  fi
+}
+
+show_frame() {
+  frame="$1"
+  [ -f "$frame" ] || return 0
+  cp -f "$frame" "$PERSIST_ANIM"
+  /anki/bin/vic-bootAnim >/dev/null 2>&1 &
+  bp=$!
+  sleep 1.0
+  kill "$bp" 2>/dev/null || true
+  wait "$bp" 2>/dev/null || true
+}
+
+play_song() {
+  name="$1"
+  raw="$SONG_DIR/${name}.raw"
+  wav="$SONG_DIR/${name}.wav"
+  if [ ! -f "$raw" ] || [ ! -f "$wav" ]; then
+    log "missing $name"
+    return 1
+  fi
+  log "play $name"
+  stop_face
+  backup_persist
+  show_frame "$SONG_DIR/menu/playing-${name}.raw" || true
+  cp -f "$raw" "$PERSIST_ANIM"
+  /anki/bin/vic-bootAnim >/dev/null 2>&1 &
+  bpid=$!
+  sleep 0.4
+  play_audio "$wav" || true
+  kill "$bpid" 2>/dev/null || true
+  wait "$bpid" 2>/dev/null || true
+  restore_persist
+  systemctl start vic-anim.service 2>/dev/null || true
+  log "done $name"
+}
+
+menu_loop() {
+  log "menu start"
+  stop_face
+  backup_persist
+  show_frame "$SONG_DIR/menu/title.raw" || true
+  sleep 1.5
+
+  for name in muffin survive ordinary neveralone; do
+    show_frame "$SONG_DIR/menu/${name}.raw" || true
+    sleep 2.0
+    cp -f "$SONG_DIR/${name}.raw" "$PERSIST_ANIM"
+    /anki/bin/vic-bootAnim >/dev/null 2>&1 &
+    bpid=$!
+    sleep 0.4
+    play_audio "$SONG_DIR/${name}.wav" || true
+    kill "$bpid" 2>/dev/null || true
+    wait "$bpid" 2>/dev/null || true
+  done
+
+  show_frame "$SONG_DIR/menu/exit.raw" || true
+  sleep 1.2
+  restore_persist
+  systemctl start vic-anim.service 2>/dev/null || true
+  log "menu done"
+}
+
+case "${1:-menu}" in
+  muffin|survive|ordinary|neveralone) play_song "$1" ;;
+  menu|*) menu_loop ;;
+esac
+exit 0

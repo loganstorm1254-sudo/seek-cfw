@@ -1,0 +1,57 @@
+#!/bin/sh
+# After CCIS opens Main from Pairing, the next screen change starts songs.
+# Pooled "EXIT" label is patched to "SONG" on the ship image.
+
+set -eu
+
+MARKER=/run/life-songs-armed
+IGNORE=/run/life-songs-ignore-next
+LOCK=/run/life-songs.lock
+
+arm() {
+  date +%s > "$MARKER"
+  touch "$IGNORE"
+  echo "life-songs-watch: armed" > /dev/kmsg 2>/dev/null || true
+}
+
+armed_recent() {
+  [ -f "$MARKER" ] || return 1
+  now=$(date +%s)
+  then=$(cat "$MARKER" 2>/dev/null || echo 0)
+  [ $((now - then)) -lt 180 ]
+}
+
+start_songs() {
+  if [ -f "$LOCK" ]; then
+    return 0
+  fi
+  touch "$LOCK"
+  rm -f "$MARKER" "$IGNORE"
+  echo "life-songs-watch: launching" > /dev/kmsg 2>/dev/null || true
+  /usr/bin/life-songs menu >>/data/life-songs.log 2>&1 || true
+  rm -f "$LOCK"
+}
+
+echo "life-songs-watch: start" > /dev/kmsg 2>/dev/null || true
+
+if [ ! -x /usr/bin/logcat ]; then
+  echo "life-songs-watch: no logcat" > /dev/kmsg 2>/dev/null || true
+  exec sleep infinity
+fi
+
+logcat -v brief 2>/dev/null | while IFS= read -r line; do
+  case "$line" in
+    *"Going to Customer Service Main from Pairing"*)
+      arm
+      ;;
+    *"FaceInfoScreenManager.SetScreen.EnteringScreen"*)
+      if armed_recent; then
+        if [ -f "$IGNORE" ]; then
+          rm -f "$IGNORE"
+        else
+          start_songs &
+        fi
+      fi
+      ;;
+  esac
+done

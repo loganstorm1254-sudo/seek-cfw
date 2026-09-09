@@ -59,17 +59,23 @@ umount /usr/sbin/update-os 2>/dev/null || true
 # Force HTTP/1.1 system-wide for update-engine (runs as user net).
 # Do this on /usr (exec), never on noexec /data or /run.
 mount -o remount,rw / 2>/dev/null || true
+# Installing a wrapper over a running /usr/bin/curl is ETXTBSY if we
+# truncate the same inode. Copy the real binary aside, unlink, then create
+# a new inode for the wrapper.
 if [ ! -x /usr/bin/curl.anki ]; then
     cp -L /usr/bin/curl /usr/bin/curl.anki 2>/dev/null || cp /usr/bin/curl /usr/bin/curl.anki
     chmod 755 /usr/bin/curl.anki
 fi
-cat > /usr/bin/curl << 'EOF'
+if ! grep -q 'curl.anki' /usr/bin/curl 2>/dev/null; then
+    rm -f /usr/bin/curl
+    cat > /usr/bin/curl << 'EOF'
 #!/bin/sh
 # LIFE OS: Vector's stock curl stalls on GitHub CDN over HTTP/2.
 # -k: many robots have a broken/missing CA bundle (curl exit 77).
 exec /usr/bin/curl.anki -k -L --http1.1 -4 --connect-timeout 30 "$@"
 EOF
-chmod 755 /usr/bin/curl
+    chmod 755 /usr/bin/curl
+fi
 
 CURL_BIN=/usr/bin/curl.anki
 

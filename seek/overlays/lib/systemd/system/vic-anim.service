@@ -4,8 +4,8 @@ SourcePath=/anki/bin/vic-anim
 PartOf=anki-robot.target
 
 Wants=vic-robot.service
-Requires=anki-audio-init.service life-boot-music.service
-After=vic-robot.service anki-audio-init.service life-boot-music.service
+Requires=anki-audio-init.service
+After=vic-robot.service anki-audio-init.service
 
 [Service]
 EnvironmentFile=/anki/etc/vic-anim.env

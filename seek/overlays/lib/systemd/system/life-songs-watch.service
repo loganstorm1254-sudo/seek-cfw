@@ -1,0 +1,13 @@
+[Unit]
+Description=LIFE OS songs menu watcher (CCIS SONG)
+After=vic-anim.service
+Wants=vic-anim.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=3
+ExecStart=/usr/bin/life-songs-watch
+
+[Install]
+WantedBy=anki-robot.target
