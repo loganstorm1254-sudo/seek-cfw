@@ -54,24 +54,30 @@ def main() -> None:
 
     if not wav.is_file() or wav.stat().st_size < 10000:
         fail("boot-music.wav missing or tiny")
-    if wav.read_bytes()[:4] != b"RIFF":
+    wav_bytes = wav.read_bytes()
+    if wav_bytes[:4] != b"RIFF":
         fail("boot-music.wav is not a WAV")
+    if wav_bytes[36:40] != b"data":
+        fail("boot-music.wav is not a canonical 44-byte PCM header (tinyplay would chirp)")
     with wave.open(str(wav), "rb") as w:
         if w.getnchannels() != 2 or w.getframerate() != 48000 or w.getsampwidth() != 2:
             fail(f"boot-music.wav must be 48k stereo s16, got {w.getnchannels()}ch {w.getframerate()}Hz")
 
     hold_txt = hold.read_text()
-    if "tinyplay" not in hold_txt or "boot-music.wav" not in hold_txt:
+    if "aplay" not in hold_txt or "boot-music.wav" not in hold_txt:
         fail("life-boot-hold does not play boot music")
+    if "aplay -D" not in hold_txt or hold_txt.find("aplay -D") > hold_txt.find("tinyplay \"$WAV\""):
+        fail("life-boot-hold must try aplay before tinyplay")
     if "boot_adsp" in hold_txt:
         fail("life-boot-hold must not poke boot_adsp (causes bootloops)")
-    if "systemctl stop vic-bootAnim" not in hold_txt:
-        fail("life-boot-hold does not yield the face after the song")
 
-    if "life-boot-hold" not in anim_unit.read_text():
-        fail("vic-anim.service does not hold the boot clip for music")
-    if "TimeoutStartSec=3min" not in anim_unit.read_text():
-        fail("vic-anim.service timeout is too short for a 40s song")
+    music_unit = REPO / "seek/overlays/lib/systemd/system/life-boot-music.service"
+    if "ExecStart=/usr/bin/life-boot-hold" not in music_unit.read_text():
+        fail("life-boot-music.service does not run life-boot-hold")
+    if "life-boot-music.service" not in anim_unit.read_text():
+        fail("vic-anim.service does not wait for boot music")
+    if "TimeoutStartSec=3min" in anim_unit.read_text():
+        fail("vic-anim should not block 3min in ExecStartPre anymore")
 
     boot_unit_txt = boot_unit.read_text()
     if "vic-boot-wrap" in boot_unit_txt:
@@ -92,7 +98,7 @@ def main() -> None:
 
     print(
         f"ok: stretched portrait rampost, ordinary-life boot_anim frames={len(boot_bytes)//FRAME}, "
-        "48k hold-play (no ADSP poke), 890/899, MYLIFE"
+        "canonical 48k wav + aplay-first boot music, 890/899, MYLIFE"
     )
 
 

@@ -1,29 +1,24 @@
 #!/bin/sh
-# LIFE OS: WireOS only brings the speaker up when boot is otherwise done,
-# and vic-anim used to kill the clip at that same instant (a chirp).
-# Do not force-load the Hexagon DSP here — doing that before PIL is ready
-# subsystem-restarts it and bootloops.
+# LIFE OS: play Ordinary Life on the still-running boot clip.
+# Runs after anki-audio-init (speaker is up). Do not load the Hexagon DSP.
 #
-# This runs as vic-anim ExecStartPre (After=anki-audio-init), so the
-# speaker is already up. Keep the clip on the face, play the song once,
-# then yield the display.
+# Vector's tinyplay cannot skip extra WAV chunks, so this file is a
+# canonical 44-byte PCM header. Prefer aplay, which plays the whole song.
 
 WAV=/anki/data/assets/boot-music.wav
 [ -f "$WAV" ] || WAV=/anki/data/boot-music.wav
 
 echo "life-boot-hold: play $WAV" > /dev/kmsg 2>/dev/null
 
-played=0
+if [ -x /usr/bin/aplay ]; then
+  aplay -D plughw:0,0 -q "$WAV" && exit 0
+  aplay -D hw:0,0 -q "$WAV" && exit 0
+  aplay -q "$WAV" && exit 0
+fi
 if [ -x /usr/bin/tinyplay ]; then
-  tinyplay "$WAV" -D 0 -d 0 && played=1
-  [ "$played" = 0 ] && tinyplay "$WAV" && played=1
+  tinyplay "$WAV" -D 0 -d 0 && exit 0
+  tinyplay "$WAV" && exit 0
 fi
-if [ "$played" = 0 ] && [ -x /usr/bin/aplay ]; then
-  aplay -D plughw:0,0 -q "$WAV" && played=1
-  [ "$played" = 0 ] && aplay -q "$WAV" && played=1
-fi
-[ "$played" = 0 ] && sleep 5
 
-echo "life-boot-hold: yield face" > /dev/kmsg 2>/dev/null
-/bin/systemctl stop vic-bootAnim.service >/dev/null 2>&1 || true
+echo "life-boot-hold: playback failed" > /dev/kmsg 2>/dev/null
 exit 0
