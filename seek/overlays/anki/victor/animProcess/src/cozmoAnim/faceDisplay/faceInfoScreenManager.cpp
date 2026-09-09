@@ -71,9 +71,11 @@
 #endif
 
 // CHANGE THIS TO BE YOUR PROJECT'S STUFF
-const std::string OSProject = "SeekOS";
-const std::string Creator = "By Logan / Seek CFW";
-const std::string CreatorWebsite = "github.com/loganstorm1254-sudo/seek-cfw";
+// Boot splash (and this CCIS identity) uses the top-of-cover text:
+// 조선민주주의인민공화국 / DEMOCRATIC PEOPLE'S REPUBLIC OF KOREA
+const std::string OSProject = "DPRK";
+const std::string Creator = "DEMOCRATIC PEOPLE'S";
+const std::string CreatorWebsite = "REPUBLIC OF KOREA";
 
 // Log options
 #define LOG_CHANNEL    "FaceInfoScreenManager"

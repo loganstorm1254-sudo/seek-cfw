@@ -10,13 +10,22 @@ CCIS face-info strings (guide step in `faceInfoScreenManager.cpp`):
 
 | Field | Value |
 | --- | --- |
-| OSProject | `SeekOS` |
-| Creator | `By Logan / Seek CFW` |
-| CreatorWebsite | `github.com/loganstorm1254-sudo/seek-cfw` |
+| OSProject | `DPRK` |
+| Creator | `DEMOCRATIC PEOPLE'S` |
+| CreatorWebsite | `REPUBLIC OF KOREA` |
+
+These are the English lines from the top of the boot-cover image. The Hangul `조선민주주의인민공화국` is rasterized on the static boot splash (Vector's OpenCV face fonts cannot draw Hangul).
 
 Source of truth: `seek/overlays/anki/victor/animProcess/src/cozmoAnim/faceDisplay/faceInfoScreenManager.cpp`
 
+## Fault codes 890 and 899
 
+**890** (`CLIFF_FR`, front-right cliff self-test) and **899** (`NO_BODY`, syscon not answering) are suppressed so they never appear on the face and never take down `anki-robot.target`.
+
+- `DisplayFaultCode()` in `faultCodes.h` returns immediately for those two codes (nothing is written to `/run/fault_code`).
+- `fault-code-handler` also exits 0 if either code still arrives on the FIFO.
+
+899 is a known false-positive from Anki 1.6. Other fault codes still display normally.
 
 ## Backpack button
 
@@ -28,10 +37,15 @@ Source of truth: `seek/overlays/anki/victor/animProcess/src/cozmoAnim/faceDispla
 
 ## Boot splash
 
-The first static early-boot screen (rampost `anki_dev_unit`) is the **SeekAra** wordmark.
+The first static early-boot screen (rampost `anki_dev_unit`, always shown because initramfs runs `rampost -d`) is the passport-cover splash: navy, gold **조선민주주의인민공화국** / **DEMOCRATIC PEOPLE'S REPUBLIC OF KOREA**, and the national emblem.
 
-- Source: `seek/assets/seekara-boot-184x96.png`
+`vic-bootAnim` uses a **single-frame** `boot_anim.raw` of the same image, so the later boot sequence stays static too.
+
+- Source cover: `seek/assets/dprk-passport.webp`
+- Preview: `seek/assets/dprk-boot-184x96.png`
 - Overlay: `seek/overlays/anki/rampost/anki_dev_unit.h` (184×96 RGB565)
+- Boot anim: `seek/overlays/anki/victor/resources/config/engine/animations/boot_anim.raw` (and `_20` for Vector 2.0)
+- Regenerate: `python3 seek/tools/make_boot_splash.py`
 - Applied automatically by `seek/apply-overlay.sh` before `./build/build.sh`
 
 ## Prerequisites
