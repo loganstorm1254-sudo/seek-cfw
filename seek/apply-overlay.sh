@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Apply Seek CFW overlays on top of the wire-os-victor checkout.
+# Branding, DPRK static boot splash, and 890/899 never-show live under seek/overlays.
 # Per https://os-vector.github.io/vector-docs/6.-Make-Your-Own-CFW/3.%20how.html
 set -euo pipefail
 
