@@ -1,7 +1,7 @@
 #ifndef __ANKI_PROPRIETARY_IMAGE_H_
 #define __ANKI_PROPRIETARY_IMAGE_H_
 
-// DPRK passport cover static boot splash (184x96 RGB565). Top text: 조선민주주의인민공화국 / DEMOCRATIC PEOPLE'S REPUBLIC OF KOREA
+// ChosonOS static rampost splash: DPRK passport cover (184x96 RGB565). Top text: 조선민주주의인민공화국 / DEMOCRATIC PEOPLE'S REPUBLIC OF KOREA
 unsigned char anki_dev_unit[] = {
   0x0d, 0x19, 0x0d, 0x19, 0x0d, 0x19, 0x0d, 0x19, 0x0d, 0x19, 0x0d, 0x19,
   0x0d, 0x19, 0x0d, 0x19, 0x0d, 0x19, 0x0d, 0x19, 0x0d, 0x19, 0x0d, 0x19,

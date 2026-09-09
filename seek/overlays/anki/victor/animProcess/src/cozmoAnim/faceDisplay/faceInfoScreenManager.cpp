@@ -70,10 +70,9 @@
 #include <sys/reboot.h>
 #endif
 
-// CHANGE THIS TO BE YOUR PROJECT'S STUFF
-// Boot splash (and this CCIS identity) uses the top-of-cover text:
-// 조선민주주의인민공화국 / DEMOCRATIC PEOPLE'S REPUBLIC OF KOREA
-const std::string OSProject = "DPRK";
+// ChosonOS identity. Static boot is the passport cover; moving boot is the Orville clip.
+// Top-of-cover text: 조선민주주의인민공화국 / DEMOCRATIC PEOPLE'S REPUBLIC OF KOREA
+const std::string OSProject = "CHOSON";
 const std::string Creator = "DEMOCRATIC PEOPLE'S";
 const std::string CreatorWebsite = "REPUBLIC OF KOREA";
 
