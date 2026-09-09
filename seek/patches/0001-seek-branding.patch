@@ -9,9 +9,9 @@ index 5ac6dd2f..d537e33b 100644
 -const std::string OSProject = "WireOS";
 -const std::string Creator = "By Wire/kercre123";
 -const std::string CreatorWebsite = "kerigan.dev";
-+const std::string OSProject = "CHOSON";
-+const std::string Creator = "DEMOCRATIC PEOPLE'S";
-+const std::string CreatorWebsite = "REPUBLIC OF KOREA";
++const std::string OSProject = "MYLIFE";
++const std::string Creator = "Ordinary Life OS";
++const std::string CreatorWebsite = "custom firmware";
  
  // Log options
  #define LOG_CHANNEL    "FaceInfoScreenManager"

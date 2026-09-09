@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Apply ChosonOS overlays on top of the wire-os-victor checkout.
-# Passport static splash, Orville boot anim, and 890/899 never-show live under seek/overlays.
+# Apply LIFE OS overlays (stretched splash, Ordinary Life boot+music, 890/899).
 # Per https://os-vector.github.io/vector-docs/6.-Make-Your-Own-CFW/3.%20how.html
 set -euo pipefail
 
@@ -17,8 +16,8 @@ if [[ ! -d "${OVERLAY}" ]]; then
   exit 0
 fi
 
-echo "Applying ChosonOS overlay..."
+echo "Applying LIFE OS overlay..."
 # Copy overlay files into the working tree (do not commit submodule dirtiness;
 # branding is owned by this repo under seek/overlays).
 cp -a "${OVERLAY}/." "${ROOT}/"
-echo "ChosonOS overlay applied."
+echo "LIFE OS overlay applied."

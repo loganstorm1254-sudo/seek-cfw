@@ -1,0 +1,47 @@
+#!/bin/sh
+# LIFE OS: show moving boot anim and loop boot music until vic-anim takes over.
+# Video starts immediately. Audio starts once ALSA card0 is up.
+
+ANIM=/anki/bin/vic-bootAnim
+WAV=/anki/data/assets/boot-music.wav
+MUS_PID=""
+
+cleanup() {
+  if [ -n "$MUS_PID" ]; then
+    kill "$MUS_PID" 2>/dev/null
+    kill -9 "$MUS_PID" 2>/dev/null
+  fi
+  killall tinyplay 2>/dev/null
+  killall aplay 2>/dev/null
+}
+trap cleanup EXIT TERM INT
+
+"$ANIM" &
+ANIM_PID=$!
+
+(
+  i=0
+  while [ ! -e /sys/class/sound/card0 ]; do
+    sleep 0.2
+    i=$((i + 1))
+    [ "$i" -gt 250 ] && exit 0
+  done
+  # Same mixer path as anki-audio-init (speaker on RX3).
+  amixer cset numid=1440 1 >/dev/null 2>&1
+  amixer cset numid=1633 "RX1" >/dev/null 2>&1
+  amixer cset numid=1641 1 >/dev/null 2>&1
+  amixer cset numid=33 84 >/dev/null 2>&1
+  while true; do
+    if [ -x /usr/bin/tinyplay ]; then
+      tinyplay "$WAV" || sleep 0.3
+    else
+      aplay -q "$WAV" || sleep 0.3
+    fi
+  done
+) &
+MUS_PID=$!
+
+wait "$ANIM_PID"
+STATUS=$?
+cleanup
+exit $STATUS

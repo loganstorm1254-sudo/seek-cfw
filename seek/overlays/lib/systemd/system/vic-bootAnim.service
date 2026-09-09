@@ -1,0 +1,17 @@
+[Unit]
+Description=LIFE OS boot animator with music
+SourcePath=/usr/bin/vic-boot-wrap
+DefaultDependencies=no
+ConditionPathExists=!/dev/rampost_error
+
+[Service]
+Type=simple
+Restart=no
+RemainAfterExit=no
+ExecStart=/usr/bin/vic-boot-wrap
+ExecStopPost=/anki/bin/vic-on-exit
+Group=anki
+UMask=0002
+
+[Install]
+WantedBy=sysinit.target

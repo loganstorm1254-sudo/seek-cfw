@@ -70,11 +70,10 @@
 #include <sys/reboot.h>
 #endif
 
-// ChosonOS identity. Static boot is the passport cover; moving boot is the Orville clip.
-// Top-of-cover text: 조선민주주의인민공화국 / DEMOCRATIC PEOPLE'S REPUBLIC OF KOREA
-const std::string OSProject = "CHOSON";
-const std::string Creator = "DEMOCRATIC PEOPLE'S";
-const std::string CreatorWebsite = "REPUBLIC OF KOREA";
+// LIFE OS identity. Static boot is the stretched portrait; moving boot is My Ordinary Life.
+const std::string OSProject = "MYLIFE";
+const std::string Creator = "Ordinary Life OS";
+const std::string CreatorWebsite = "custom firmware";
 
 // Log options
 #define LOG_CHANNEL    "FaceInfoScreenManager"
@@ -471,7 +470,7 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
     SetScreen(ScreenName::None);
   }
 
-  // Restore SeekOS sound-mute across reboots (persistent file, like mic mute)
+  // Restore sound-mute across reboots (persistent file, like mic mute)
   if (_context != nullptr && _context->GetDataPlatform() != nullptr) {
     const std::string persistentFolder = Util::FileUtils::AddTrailingFileSeparator(
       _context->GetDataPlatform()->pathToResource(Util::Data::Scope::Persistent, ""));
@@ -1114,7 +1113,7 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
            currScreenName == ScreenName::FAC ||
            currScreenName == ScreenName::MirrorMode))
   {
-    // SeekOS: triple-click mutes/unmutes all robot sounds and shows a mute icon
+    // Triple-click mutes/unmutes all robot sounds and shows a mute icon
     // (works on or off charger; fires immediately on 3rd release)
     ToggleSoundMute("TRIPLE_PRESS");
   }
