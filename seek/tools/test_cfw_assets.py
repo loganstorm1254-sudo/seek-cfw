@@ -86,9 +86,12 @@ def main() -> None:
         fail("life-songs must stop/start vic-anim and run vic-bootAnim")
     watch_txt = watch.read_text()
     if "Going to Customer Service Main from Pairing" not in watch_txt:
-        fail("life-songs-watch does not arm on CCIS Main")
+        # optional arm string may be absent in the always-on SelfTest hijack
+        pass
     if "SELFTEST_SCREEN=8" not in watch_txt:
         fail("life-songs-watch must launch songs on SelfTest screen (SONGS item)")
+    if "/var/log/messages" not in watch_txt:
+        fail("life-songs-watch must follow /var/log/messages (WireOS Anki logs)")
     if "ExecStart=/usr/bin/life-songs-watch" not in watch_unit.read_text():
         fail("life-songs-watch.service missing ExecStart")
     brand_menu = branding.read_text()

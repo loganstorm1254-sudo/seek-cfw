@@ -1,62 +1,57 @@
 #!/bin/sh
-# Arm on CCIS Main. Launch songs only when SONGS is confirmed
-# (SONGS reuses the SelfTest destination → EnteringScreen 8).
-# EXIT → None (0) and CLEAR → ClearUserData (5) do not start songs.
+# When CCIS item SONGS is confirmed, WireOS opens SelfTest (screen 8).
+# Hijack that into the songs playlist. EXIT is screen 0; CLEAR is 5.
+# Anki LOG_INFO on WireOS goes to /var/log/messages (logcat often misses it).
 
-set -eu
-
-MARKER=/run/life-songs-armed
 LOCK=/run/life-songs.lock
-
-# ScreenName::SelfTest from faceInfoScreenTypes.h (WireOS / victor)
+LOG=/var/log/messages
 SELFTEST_SCREEN=8
-
-arm() {
-  date +%s > "$MARKER"
-  echo "life-songs-watch: armed" > /dev/kmsg 2>/dev/null || true
-}
-
-armed_recent() {
-  [ -f "$MARKER" ] || return 1
-  now=$(date +%s)
-  then=$(cat "$MARKER" 2>/dev/null || echo 0)
-  [ $((now - then)) -lt 180 ]
-}
 
 start_songs() {
   if [ -f "$LOCK" ]; then
     return 0
   fi
   touch "$LOCK"
-  rm -f "$MARKER"
   echo "life-songs-watch: launching songs" > /dev/kmsg 2>/dev/null || true
+  # Drop SelfTest UI right away.
+  systemctl stop vic-anim.service 2>/dev/null || true
+  killall vic-anim 2>/dev/null || true
+  sleep 0.2
   /usr/bin/life-songs menu >>/data/life-songs.log 2>&1 || true
   rm -f "$LOCK"
 }
 
-echo "life-songs-watch: start" > /dev/kmsg 2>/dev/null || true
-
-if [ ! -x /usr/bin/logcat ]; then
-  echo "life-songs-watch: no logcat" > /dev/kmsg 2>/dev/null || true
-  exec sleep infinity
-fi
-
-logcat -v brief 2>/dev/null | while IFS= read -r line; do
+handle_line() {
+  line=$1
   case "$line" in
-    *"Going to Customer Service Main from Pairing"*)
-      arm
-      ;;
-    *"FaceInfoScreenManager.SetScreen.EnteringScreen"*)
-      if armed_recent; then
-        # Message is "...EnteringScreen: N" or "...EnteringScreen N"
-        code=$(printf '%s\n' "$line" | sed -n 's/.*EnteringScreen[^0-9]*\([0-9][0-9]*\).*/\1/p' | tail -n 1)
-        if [ "$code" = "$SELFTEST_SCREEN" ]; then
-          start_songs &
-        elif [ "$code" = "0" ] || [ "$code" = "5" ]; then
-          # EXIT (None) or CLEAR (ClearUserData) — disarm only
-          rm -f "$MARKER"
-        fi
+    *"FaceInfoScreenManager.SetScreen.EnteringScreen"*|*"SetScreen.EnteringScreen"*)
+      code=$(printf '%s\n' "$line" | sed -n 's/.*EnteringScreen[^0-9]*\([0-9][0-9]*\).*/\1/p' | tail -n 1)
+      if [ "$code" = "$SELFTEST_SCREEN" ]; then
+        start_songs &
       fi
       ;;
   esac
-done
+}
+
+echo "life-songs-watch: start" > /dev/kmsg 2>/dev/null || true
+
+FIFO=/run/life-songs-watch.fifo
+rm -f "$FIFO"
+mkfifo "$FIFO" 2>/dev/null || {
+  FIFO=/tmp/life-songs-watch.fifo
+  rm -f "$FIFO"
+  mkfifo "$FIFO"
+}
+
+# Syslog is the reliable source on WireOS.
+if [ -f "$LOG" ]; then
+  tail -n 0 -F "$LOG" > "$FIFO" 2>/dev/null &
+fi
+# logcat as a backup if Anki also mirrors there.
+if [ -x /usr/bin/logcat ]; then
+  logcat -v brief > "$FIFO" 2>/dev/null &
+fi
+
+while IFS= read -r line; do
+  handle_line "$line"
+done < "$FIFO"

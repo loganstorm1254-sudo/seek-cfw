@@ -23,7 +23,7 @@ SSH: `life-songs muffin|survive|ordinary|neveralone|menu`
 
 ## Install
 
-Release: https://github.com/loganstorm1254-sudo/seek-cfw/releases/tag/v5.0.0.6d-life
+Release: https://github.com/loganstorm1254-sudo/seek-cfw/releases/tag/v5.0.0.7d-life
 
 If `update-os` dies with `Text file busy` on `/usr/bin/curl`, unlink first:
 
@@ -42,7 +42,7 @@ chmod 755 /usr/bin/curl
 Then:
 
 ```bash
-update-os https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v5.0.0.6d-life/vicos-5.0.0.6d.ota
+update-os https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v5.0.0.7d-life/vicos-5.0.0.7d.ota
 ```
 
 ```bash
