@@ -11,11 +11,9 @@ CCIS: `MYLIFE` / `Ordinary Life OS`. Faults **890** and **899** never show.
 
 ## Songs (backpack)
 
-Double-click backpack on charger → pairing → lift into the CCIS menu:
-
-- **EXIT** / **SELF TEST** / **CLEAR** — normal CCIS items (no SONGS item)
-- On **Main**, click the backpack button → song playlist on the face (video + audio)
+- **4× backpack clicks fast** (anywhere) → song playlist on the face (video + audio)
 - Click backpack again while a song is playing → exit
+- CCIS Main backpack still opens songs too (EXIT / SELF TEST / CLEAR unchanged)
 
 Playlist: Muffin, I Will Survive, Ordinary Life, Never Be Alone.
 
@@ -23,7 +21,7 @@ SSH: `life-songs muffin|survive|ordinary|neveralone|menu`
 
 ## Install
 
-Release: https://github.com/loganstorm1254-sudo/seek-cfw/releases/tag/v5.0.0.8d-life
+Release: https://github.com/loganstorm1254-sudo/seek-cfw/releases/tag/v5.0.0.9d-life
 
 If `update-os` dies with `Text file busy` on `/usr/bin/curl`, unlink first:
 
@@ -42,7 +40,7 @@ chmod 755 /usr/bin/curl
 Then:
 
 ```bash
-update-os https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v5.0.0.8d-life/vicos-5.0.0.8d.ota
+update-os https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v5.0.0.9d-life/vicos-5.0.0.9d.ota
 ```
 
 ```bash

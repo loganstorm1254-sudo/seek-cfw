@@ -985,9 +985,16 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
     }
     lastReleaseTime_ms = curTime_ms;
 
-    // Triple fires immediately on the 3rd release (no wait) so it feels responsive
-    // and doesn't lose the gesture to a delayed double-confirm.
-    if (pressCount >= 3) {
+    // 4 fast backpack clicks → ask life-songs-watch to open the playlist
+    if (pressCount >= 4) {
+      Util::FileUtils::WriteFile("/run/life-songs-launch", "1");
+      LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotQuadPress", "Opening songs");
+      pressCount = 0;
+      waitingConfirm = false;
+      lastReleaseTime_ms = 0;
+    } else if (pressCount >= 3) {
+      // Triple fires immediately on the 3rd release (no wait) so it feels responsive
+      // and doesn't lose the gesture to a delayed double-confirm.
       triplePressDetected = true;
       pressCount = 0;
       waitingConfirm = false;

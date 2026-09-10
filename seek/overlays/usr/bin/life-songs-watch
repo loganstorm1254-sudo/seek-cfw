@@ -1,21 +1,34 @@
 #!/bin/sh
-# CCIS Main + backpack → songs. Backpack again while playing → exit.
-# WireOS Anki LOG_INFO goes to /var/log/messages (not logcat).
-# Main(4) → backpack advances to Network(10) when debug screens are unlocked
-# (auto-unlocked via tiny head-range patch in the OTA). We hijack Network.
+# LIFE songs watcher
+# - 4× backpack clicks fast → open song playlist
+# - While playing, backpack click → exit
+# - CCIS Main → backpack (Network) still opens songs too
+#
+# WireOS Anki LOG_INFO → /var/log/messages. Backpack may also appear as
+# GPIO (gpio0/gpio94) or /dev/input/event*.
 
 LOCK=/run/life-songs.lock
 PLAYING=/run/life-songs-playing
 STOP=/run/life-songs-stop
 STATE=/run/life-songs-state
+LAUNCH=/run/life-songs-launch
 LOG=/var/log/messages
 SCREEN=/run/life-songs-screen
+CLICKS=/run/life-songs-clicks
+LAST_DOUBLE=/run/life-songs-lastdouble
 
 MAIN_SCREEN=4
 NETWORK_SCREEN=10
+# Four presses within this many seconds opens songs
+CLICK_WINDOW_SEC=2
+NEED_CLICKS=4
 
 write_state() {
   echo "$1" > "$STATE" 2>/dev/null || true
+}
+
+now_sec() {
+  date +%s
 }
 
 request_stop() {
@@ -26,8 +39,8 @@ request_stop() {
   touch "$STOP" 2>/dev/null || true
   killall aplay 2>/dev/null || true
   killall tinyplay 2>/dev/null || true
-  # Best-effort stop the player; menu loop checks STOP between songs too.
   pkill -f '/usr/bin/life-songs' 2>/dev/null || true
+  : > "$CLICKS" 2>/dev/null || true
 }
 
 start_songs() {
@@ -36,14 +49,40 @@ start_songs() {
   fi
   touch "$LOCK"
   write_state "launch"
-  rm -f "$STOP"
-  echo "life-songs-watch: Main backpack → songs" > /dev/kmsg 2>/dev/null || true
-  # Keep vic-anim running so backpack events still flow (exit on next press).
+  rm -f "$STOP" "$LAUNCH"
+  : > "$CLICKS" 2>/dev/null || true
+  echo "life-songs-watch: opening songs" > /dev/kmsg 2>/dev/null || true
+  # Freeze face engine so /dev/fb0 playback is clean (esp. from idle face).
+  systemctl stop vic-anim.service 2>/dev/null || true
+  killall vic-anim 2>/dev/null || true
+  sleep 0.15
   /usr/bin/life-songs menu >>/data/life-songs.log 2>&1 || true
   rm -f "$LOCK" "$PLAYING"
   write_state "idle"
-  # Leave debug screens / restore a normal face after the playlist ends.
-  systemctl restart vic-anim.service 2>/dev/null || true
+  systemctl start vic-anim.service 2>/dev/null || true
+}
+
+# Record a backpack press; 4 fast → songs, any press while playing → exit.
+on_click() {
+  if [ -f "$PLAYING" ] || [ -f "$LOCK" ]; then
+    request_stop
+    return 0
+  fi
+  now=$(now_sec)
+  echo "$now" >> "$CLICKS" 2>/dev/null || true
+  # Keep only recent clicks
+  if [ -f "$CLICKS" ]; then
+    awk -v n="$now" -v w="$CLICK_WINDOW_SEC" '$1+0 >= (n-w) { print $1 }' "$CLICKS" > "$CLICKS.tmp" 2>/dev/null
+    mv -f "$CLICKS.tmp" "$CLICKS" 2>/dev/null || true
+  fi
+  c=$(wc -l < "$CLICKS" 2>/dev/null || echo 0)
+  c=$(echo "$c" | tr -dc '0-9')
+  [ -n "$c" ] || c=0
+  if [ "$c" -ge "$NEED_CLICKS" ]; then
+    : > "$CLICKS" 2>/dev/null || true
+    echo "life-songs-watch: ${NEED_CLICKS}x click → songs" > /dev/kmsg 2>/dev/null || true
+    start_songs &
+  fi
 }
 
 set_screen() {
@@ -55,7 +94,6 @@ set_screen() {
     write_state "armed"
   fi
 
-  # Playing: any screen change means backpack (or nav) — exit songs.
   if [ -f "$PLAYING" ] || [ -f "$LOCK" ]; then
     if [ "$code" != "$NETWORK_SCREEN" ] && [ "$code" != "$prev" ]; then
       request_stop
@@ -63,7 +101,6 @@ set_screen() {
     fi
   fi
 
-  # Armed on Main, backpack → Network starts songs.
   if [ "$code" = "$NETWORK_SCREEN" ] && [ "$prev" = "$MAIN_SCREEN" ]; then
     if [ ! -f "$PLAYING" ] && [ ! -f "$LOCK" ]; then
       start_songs &
@@ -80,17 +117,125 @@ handle_line() {
         set_screen "$code"
       fi
       ;;
-    *"GotSinglePress"*|*"GotDoublePress"*|*"CheckForButtonEvent"*)
+    *"GotQuadPress"*|*"life-songs-launch"*)
+      on_click
+      on_click
+      on_click
+      on_click
+      ;;
+    *"GotDoublePress"*)
+      # Two doubles within the window ≈ four clicks (fallback if GPIO missing).
+      now=$(now_sec)
+      last=$(cat "$LAST_DOUBLE" 2>/dev/null || echo 0)
+      echo "$now" > "$LAST_DOUBLE" 2>/dev/null || true
       if [ -f "$PLAYING" ] || [ -f "$LOCK" ]; then
         request_stop
+      elif [ $((now - last)) -le "$CLICK_WINDOW_SEC" ] && [ "$last" -gt 0 ]; then
+        : > "$CLICKS" 2>/dev/null || true
+        start_songs &
+      else
+        # Count double as two clicks toward the 4-click gesture
+        on_click
+        on_click
+      fi
+      ;;
+    *"GotSinglePress"*|*"CheckForButtonEvent.StartShutdownAnim"*)
+      if [ -f "$PLAYING" ] || [ -f "$LOCK" ]; then
+        request_stop
+      else
+        on_click
       fi
       ;;
   esac
 }
 
-echo "life-songs-watch: start (backpack on Main → songs)" > /dev/kmsg 2>/dev/null || true
+# Poll backpack GPIO — prefer gpio94, else gpio0. One falling edge = one press.
+gpio_loop() {
+  p=""
+  if [ -r /sys/class/gpio/gpio94/value ]; then
+    p=/sys/class/gpio/gpio94/value
+  elif [ -r /sys/class/gpio/gpio0/value ]; then
+    p=/sys/class/gpio/gpio0/value
+  fi
+  if [ -z "$p" ]; then
+    echo "life-songs-watch: no readable gpio0/gpio94" > /dev/kmsg 2>/dev/null || true
+    return 0
+  fi
+  echo "life-songs-watch: gpio poll $p" > /dev/kmsg 2>/dev/null || true
+  stf=/run/life-songs-gpio-btn
+  cur=$(cat "$p" 2>/dev/null || echo 0)
+  echo "$cur" > "$stf" 2>/dev/null || true
+  while true; do
+    prev=$(cat "$stf" 2>/dev/null || echo 0)
+    cur=$(cat "$p" 2>/dev/null || echo x)
+    if [ "$cur" = "0" ] || [ "$cur" = "1" ]; then
+      echo "$cur" > "$stf" 2>/dev/null || true
+      # Active-low press edge
+      if [ "$cur" = "0" ] && [ "$prev" = "1" ]; then
+        on_click
+      fi
+    fi
+    sleep 0.05
+  done
+}
+
+# Raw Linux input EV_KEY down via perl (present on WireOS image).
+input_loop() {
+  if [ ! -x /usr/bin/perl ] && [ ! -x /usr/bin/perl5* ]; then
+    command -v perl >/dev/null 2>&1 || return 0
+  fi
+  perl -e '
+    use strict;
+    use IO::Handle;
+    my @fhs;
+    for my $d (glob("/dev/input/event*")) {
+      open my $fh, "<:raw", $d or next;
+      $fh->blocking(0);
+      push @fhs, $fh;
+    }
+    exit 0 unless @fhs;
+    my $esize = 16; # 32-bit timeval + type/code/value
+    while (1) {
+      my $rin = "";
+      for my $fh (@fhs) {
+        vec($rin, fileno($fh), 1) = 1;
+      }
+      select(my $rout = $rin, undef, undef, 0.5);
+      for my $fh (@fhs) {
+        my $buf;
+        while (sysread($fh, $buf, $esize)) {
+          my ($sec, $usec, $type, $code, $value) = unpack("llSSl", $buf);
+          # EV_KEY=1, value 1 = press
+          if ($type == 1 && $value == 1) {
+            print "CLICK\n";
+            IO::Handle->new_from_fd(fileno(STDOUT), "w")->flush;
+          }
+        }
+      }
+    }
+  ' 2>/dev/null | while IFS= read -r line; do
+    [ "$line" = "CLICK" ] && on_click
+  done
+}
+
+launch_file_loop() {
+  while true; do
+    if [ -f "$LAUNCH" ]; then
+      rm -f "$LAUNCH"
+      if [ -f "$PLAYING" ] || [ -f "$LOCK" ]; then
+        request_stop
+      else
+        start_songs &
+      fi
+    fi
+    sleep 0.2
+  done
+}
+
+echo "life-songs-watch: start (4x backpack → songs)" > /dev/kmsg 2>/dev/null || true
 write_state "idle"
 echo 0 > "$SCREEN" 2>/dev/null || true
+: > "$CLICKS" 2>/dev/null || true
 
 FIFO=/run/life-songs-watch.fifo
 rm -f "$FIFO"
@@ -106,6 +251,10 @@ fi
 if [ -x /usr/bin/logcat ]; then
   logcat -v brief > "$FIFO" 2>/dev/null &
 fi
+
+gpio_loop &
+input_loop &
+launch_file_loop &
 
 while IFS= read -r line; do
   handle_line "$line"

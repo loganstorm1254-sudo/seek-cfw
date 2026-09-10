@@ -91,14 +91,18 @@ def main() -> None:
     watch_txt = watch.read_text()
     if watch_txt.startswith("#!") and "python" in watch_txt.splitlines()[0]:
         fail("life-songs-watch must be shell (no python on robot)")
+    if "NEED_CLICKS=4" not in watch_txt:
+        fail("life-songs-watch must open songs on 4 fast backpack clicks")
     if "NETWORK_SCREEN=10" not in watch_txt:
-        fail("life-songs-watch must launch songs on Network (backpack from Main)")
+        fail("life-songs-watch must also launch songs on Network (backpack from Main)")
     if "MAIN_SCREEN=4" not in watch_txt:
         fail("life-songs-watch must arm on Main")
     if "/var/log/messages" not in watch_txt:
         fail("life-songs-watch must follow /var/log/messages (WireOS Anki logs)")
     if "life-songs-stop" not in watch_txt or "request_stop" not in watch_txt:
         fail("life-songs-watch must stop songs on backpack while playing")
+    if "gpio94" not in watch_txt and "gpio0" not in watch_txt:
+        fail("life-songs-watch must poll backpack GPIO for click counting")
     if "ExecStart=/usr/bin/life-songs-watch" not in watch_unit.read_text():
         fail("life-songs-watch.service missing ExecStart")
     brand_menu = branding.read_text()
