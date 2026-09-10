@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Sanity checks for LIFE OS — stock CCIS + backpack songs (no anim cave)."""
+"""Sanity checks for LIFE OS — boot anim + fault 800/890/899 suppress."""
 from __future__ import annotations
 
 import sys
-import wave
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -23,21 +22,17 @@ def main() -> None:
     boot = REPO / "seek/overlays/anki/victor/resources/config/engine/animations/boot_anim.raw"
     boot20 = REPO / "seek/overlays/anki/victor/resources/config/engine/animations/boot_anim_20.raw"
     png = REPO / "seek/assets/life-static-184x96.png"
-    gif = REPO / "seek/assets/starfield-boot.gif"
+    gif = REPO / "seek/assets/life-boot.gif"
     update_os = REPO / "seek/overlays/usr/sbin/update-os"
     anim_unit = REPO / "seek/overlays/lib/systemd/system/vic-anim.service"
-    songs = REPO / "seek/overlays/usr/bin/life-songs"
-    watch = REPO / "seek/overlays/usr/bin/life-songs-watch"
-    watch_unit = REPO / "seek/overlays/lib/systemd/system/life-songs-watch.service"
-    song_dir = REPO / "seek/overlays/anki/data/life-songs"
-    pack13 = REPO / "seek/tools/pack_life13.py"
+    fault_h = REPO / "seek/overlays/anki/victor/robot/include/anki/cozmo/shared/factory/faultCodes.h"
 
     text = header.read_text()
     if "anki_dev_unit_len = 35328" not in text:
         fail("rampost splash is not 184x96 RGB565")
 
     if not gif.is_file():
-        fail("starfield-boot.gif missing")
+        fail("life-boot.gif missing")
     boot_bytes = boot.read_bytes()
     if len(boot_bytes) <= FRAME * 8 or len(boot_bytes) % FRAME:
         fail("boot_anim.raw invalid")
@@ -56,19 +51,6 @@ def main() -> None:
     if "curl.anki" not in upd or "rm -f /usr/bin/curl" not in upd:
         fail("update-os ETXTBSY fix missing")
 
-    songs_txt = songs.read_text()
-    if "/dev/fb0" not in songs_txt or "SONG_DIR=/anki/data/assets/life-songs" not in songs_txt:
-        fail("life-songs fb0 path missing")
-    watch_txt = watch.read_text()
-    if "python" in watch_txt.splitlines()[0]:
-        fail("watcher must be shell")
-    if "SONGS_SCREEN=10" not in watch_txt:
-        fail("watcher must hijack Network (10) for backpack songs")
-    if "MAIN_SCREEN=4" not in watch_txt:
-        fail("watcher must arm on Main")
-    if "ExecStart=/usr/bin/life-songs-watch" not in watch_unit.read_text():
-        fail("watcher unit missing")
-
     brand = branding.read_text()
     if 'ADD_MENU_ITEM(Main, "EXIT", None)' not in brand:
         fail("Main EXIT missing")
@@ -77,27 +59,20 @@ def main() -> None:
     if 'ADD_MENU_ITEM(Main, "CLEAR", ClearUserData)' not in brand:
         fail("Main CLEAR missing")
     if 'ADD_MENU_ITEM(Main, "SONGS"' in brand:
-        fail("do not add SONGS AppendMenuItem (fault 800)")
+        fail("songs menu item must stay removed")
 
-    pack = pack13.read_text()
-    if "HOOK_ORIG" not in pack or "clearing SONGS code cave" not in pack:
-        fail("pack_life13 must remove cave / restore hook")
-
-    for name in ("muffin", "survive", "ordinary", "neveralone"):
-        raw = song_dir / f"{name}.raw"
-        wav = song_dir / f"{name}.wav"
-        if not raw.is_file() or raw.stat().st_size < FRAME * 8:
-            fail(f"song raw: {name}")
-        with wave.open(str(wav), "rb") as w:
-            if w.getnchannels() != 2 or w.getframerate() != 48000 or w.getsampwidth() != 2:
-                fail(f"wav: {name}")
-
-    if "890" not in handler.read_text() or "899" not in handler.read_text():
-        fail("890/899 suppress missing")
+    h = handler.read_text()
+    if "-eq 800" not in h or "-eq 890" not in h or "-eq 899" not in h:
+        fail("fault-code-handler must suppress 800/890/899")
+    fh = fault_h.read_text()
+    if "NO_ANIM_PROCESS" not in fh or "CLIFF_FR" not in fh:
+        fail("faultCodes.h missing suppress symbols")
+    if "code == NO_ANIM_PROCESS || code == CLIFF_FR || code == NO_BODY" not in fh:
+        fail("faultCodes.h must suppress 800/890/899")
 
     print(
-        f"ok: starfield frames={len(boot_bytes)//FRAME}, "
-        "stock EXIT/SELF TEST/CLEAR, backpack→songs, no anim cave, MYLIFE"
+        f"ok: boot frames={len(boot_bytes)//FRAME}, "
+        "static splash, suppress 800/890/899, no songs, MYLIFE"
     )
 
 

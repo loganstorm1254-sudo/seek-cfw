@@ -70,9 +70,8 @@
 #include <sys/reboot.h>
 #endif
 
-// LIFE OS identity. Static boot is the stretched portrait; moving boot is the starfield GIF.
-// CCIS Main stays stock: EXIT / SELF TEST / CLEAR.
-// Do not AppendMenuItem a 4th SONGS in the ship binary (fault 800). Backpack on Main → songs.
+// LIFE OS identity. Static boot is the stretched portrait; moving boot is life-boot.gif.
+// CCIS Main stays stock: EXIT / SELF TEST / CLEAR. No songs menu injection.
 const std::string OSProject = "MYLIFE";
 const std::string Creator = "Ordinary Life OS";
 const std::string CreatorWebsite = "custom firmware";
@@ -325,8 +324,6 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   ADD_MENU_ITEM(Main, "SELF TEST", SelfTest);
 #endif
   ADD_MENU_ITEM(Main, "CLEAR", ClearUserData);
-  // SONGS: backpack on Main enters Network; life-songs-watch hijacks that.
-  // A 4th ADD_MENU_ITEM in the packed vic-anim binary causes fault 800.
 
   // === Self test screen ===
   ADD_MENU_ITEM(SelfTest, "EXIT", Main);

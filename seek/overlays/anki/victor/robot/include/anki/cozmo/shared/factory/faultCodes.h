@@ -119,10 +119,11 @@ enum : uint16_t {
 // from the fifo
 static int DisplayFaultCode(uint16_t code)
 {
-  // Never put 890 (CLIFF_FR) or 899 (NO_BODY) on the face or through the
-  // fault-code FIFO. 899 is a known 1.6 false-positive; 890 is a cliff
-  // self-test whose handler would otherwise stop anki-robot.target.
-  if (code == CLIFF_FR || code == NO_BODY) {
+  // Never put 800 (NO_ANIM_PROCESS), 890 (CLIFF_FR), or 899 (NO_BODY) on the
+  // face or through the fault-code FIFO. 800 is vic-anim dead (spam/loop);
+  // 899 is a known 1.6 false-positive; 890 is a cliff self-test whose handler
+  // would otherwise stop anki-robot.target.
+  if (code == NO_ANIM_PROCESS || code == CLIFF_FR || code == NO_BODY) {
     printf("DisplayFaultCode: suppressed %u\n", code);
     return 0;
   }
