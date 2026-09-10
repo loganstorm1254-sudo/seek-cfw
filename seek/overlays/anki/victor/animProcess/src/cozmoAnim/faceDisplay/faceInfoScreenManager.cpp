@@ -71,7 +71,7 @@
 #endif
 
 // LIFE OS identity. Static boot is the stretched portrait; moving boot is the starfield GIF.
-// CCIS Main: short labels EX / TEST / CLR plus SONGS (playlist via Network hijack).
+// CCIS Main (safe 3-item pack): EX / SONGS / CLR. Do not inject a 4th AppendMenuItem (fault 800).
 const std::string OSProject = "MYLIFE";
 const std::string Creator = "Ordinary Life OS";
 const std::string CreatorWebsite = "custom firmware";
@@ -231,7 +231,7 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   ADD_SCREEN_WITH_TEXT(ClearUserData, Main, {"CLEAR OUT SOUL?"});
   ADD_SCREEN_WITH_TEXT(ClearUserDataFail, Main, {"UNABLE TO CLEAR SOUL"});
   ADD_SCREEN_WITH_TEXT(Rebooting, Rebooting, {"Vector will remember that..."});
-  ADD_SCREEN_WITH_TEXT(SelfTest, Main, {"START SELF TEST?"});
+  ADD_SCREEN_WITH_TEXT(SelfTest, Main, {"PLAY SONGS?"});
   ADD_SCREEN(SelfTestRunning, SelfTestRunning)
   ADD_SCREEN(Network, SensorInfo);
   ADD_SCREEN(SensorInfo, IMUInfo);
@@ -321,11 +321,10 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
 
   ADD_MENU_ITEM(Main, "EX", None);
 #if ENABLE_SELF_TEST
-  ADD_MENU_ITEM(Main, "TEST", SelfTest);
+  // Labelled SONGS in the ship image; destination SelfTest (8) is hijacked by life-songs-watch.
+  ADD_MENU_ITEM(Main, "SONGS", SelfTest);
 #endif
   ADD_MENU_ITEM(Main, "CLR", ClearUserData);
-  // Opens Network; life-songs-watch hijacks that into the playlist (SelfTest stays real).
-  ADD_MENU_ITEM(Main, "SONGS", Network);
 
   // === Self test screen ===
   ADD_MENU_ITEM(SelfTest, "EXIT", Main);

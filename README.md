@@ -5,46 +5,29 @@ Custom Vector firmware. **Not SeekOS.** Built from official **WireOS 3.0.1.32d**
 ## Boot
 
 1. **Static first screen** (rampost): the portrait, stretched to 184×96.
-2. **Moving second screen** (`vic-bootAnim`): the starfield GIF animation (silent — no boot-song hold).
+2. **Moving second screen** (`vic-bootAnim`): the starfield GIF animation (silent).
 
 CCIS: `MYLIFE` / `Ordinary Life OS`. Faults **890** and **899** never show.
 
-## Songs (CCIS menu)
+## CCIS menu
 
-Double-click backpack on charger → pairing → lift into the CCIS menu:
+- **EX** — leave
+- **SONGS** — face playlist (confirm with lift)
+- **CLR** — wipe data
 
-- **EX** — leave (was EXIT)
-- **TEST** — self test (was SELF TEST)
-- **CLR** — wipe data (was CLEAR / CLEAR OUT SOUL)
-- **SONGS** — face playlist (video + audio)
-
-Confirm **SONGS** with a lift. Playlist: Muffin, I Will Survive, Ordinary Life, Never Be Alone.
+Do **not** install `v5.0.0.10d` (fault **800** bootloop from a bad `vic-anim` patch).
 
 SSH: `life-songs muffin|survive|ordinary|neveralone|menu`
 
-## Install
+## Install (recovery from 800)
 
-Release: https://github.com/loganstorm1254-sudo/seek-cfw/releases/tag/v5.0.0.10d-life
-
-If `update-os` dies with `Text file busy` on `/usr/bin/curl`, unlink first:
+Release: https://github.com/loganstorm1254-sudo/seek-cfw/releases/tag/v5.0.0.11d-life
 
 ```bash
-mount -o remount,rw /
-cp -L /usr/bin/curl /usr/bin/curl.anki
-chmod 755 /usr/bin/curl.anki
-rm -f /usr/bin/curl
-cat > /usr/bin/curl << 'EOF'
-#!/bin/sh
-exec /usr/bin/curl.anki -k -L --http1.1 -4 --connect-timeout 30 "$@"
-EOF
-chmod 755 /usr/bin/curl
+update-os https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v5.0.0.11d-life/vicos-5.0.0.11d.ota
 ```
 
-Then:
-
-```bash
-update-os https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v5.0.0.10d-life/vicos-5.0.0.10d.ota
-```
+If `update-os` will not run in the bootloop, use recovery / `ota-start` with the same URL.
 
 ```bash
 curl -L -o robot_sshkey https://github.com/kercre123/unlocking-vector/raw/refs/heads/main/ssh_root_key
@@ -52,16 +35,4 @@ chmod 600 robot_sshkey
 ssh -i robot_sshkey root@VECTOR_IP
 ```
 
-Recovery: `ota-start` with the same URL. Dev-signed unlocked Vector only.
-
-Do **not** install `v5.0.0.2d-life` (bootloop).
-
-## Assets
-
-- Static: `seek/assets/life-static-source.png` → stretched `life-static-184x96.png`
-- Moving: `seek/assets/starfield-boot.gif` → `boot_anim.raw`
-- Songs: `seek/overlays/anki/data/life-songs/`
-
-```bash
-python3 seek/tools/test_cfw_assets.py
-```
+Dev-signed unlocked Vector only. Do **not** install `v5.0.0.2d-life` (bootloop).

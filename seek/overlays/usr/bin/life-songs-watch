@@ -1,8 +1,6 @@
 #!/bin/sh
-# LIFE songs watcher — CCIS SONGS menu item opens the playlist.
-# SelfTest (8) is left alone (TEST still runs self-test).
-# SONGS goes to Network (10); we hijack that. Backpack on Main also hits 10.
-# While playing, backpack / screen change / stop file exits.
+# LIFE songs watcher — CCIS SONGS item enters SelfTest (8); we open the playlist.
+# Do not inject extra vic-anim menu code (that caused fault 800 / bootloop).
 
 LOCK=/run/life-songs.lock
 PLAYING=/run/life-songs-playing
@@ -12,7 +10,7 @@ LOG=/var/log/messages
 SCREEN=/run/life-songs-screen
 
 MAIN_SCREEN=4
-SONGS_SCREEN=10
+SONGS_SCREEN=8
 
 write_state() {
   echo "$1" > "$STATE" 2>/dev/null || true
@@ -62,8 +60,8 @@ set_screen() {
     fi
   fi
 
-  # Main → Network (SONGS item or backpack) opens playlist.
-  if [ "$code" = "$SONGS_SCREEN" ] && [ "$prev" = "$MAIN_SCREEN" ]; then
+  # SONGS menu confirms into SelfTest (8) — hijack immediately.
+  if [ "$code" = "$SONGS_SCREEN" ]; then
     if [ ! -f "$PLAYING" ] && [ ! -f "$LOCK" ]; then
       start_songs &
     fi
@@ -87,7 +85,7 @@ handle_line() {
   esac
 }
 
-echo "life-songs-watch: start (CCIS SONGS menu)" > /dev/kmsg 2>/dev/null || true
+echo "life-songs-watch: start (SONGS→screen 8)" > /dev/kmsg 2>/dev/null || true
 write_state "idle"
 echo 0 > "$SCREEN" 2>/dev/null || true
 
