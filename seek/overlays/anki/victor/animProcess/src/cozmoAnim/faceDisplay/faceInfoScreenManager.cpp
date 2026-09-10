@@ -71,7 +71,7 @@
 #endif
 
 // LIFE OS identity. Static boot is the stretched portrait; moving boot is the starfield GIF.
-// Songs open via backpack on CCIS Main (→ Network), not a menu item. CLEAR stays short.
+// CCIS Main: short labels EX / TEST / CLR plus SONGS (playlist via Network hijack).
 const std::string OSProject = "MYLIFE";
 const std::string Creator = "Ordinary Life OS";
 const std::string CreatorWebsite = "custom firmware";
@@ -319,11 +319,13 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   };
   SET_ENTER_ACTION(Main, mainEnterFcn);
 
-  ADD_MENU_ITEM(Main, "EXIT", None);
+  ADD_MENU_ITEM(Main, "EX", None);
 #if ENABLE_SELF_TEST
-  ADD_MENU_ITEM(Main, "SELF TEST", SelfTest);
+  ADD_MENU_ITEM(Main, "TEST", SelfTest);
 #endif
-  ADD_MENU_ITEM(Main, "CLEAR", ClearUserData);
+  ADD_MENU_ITEM(Main, "CLR", ClearUserData);
+  // Opens Network; life-songs-watch hijacks that into the playlist (SelfTest stays real).
+  ADD_MENU_ITEM(Main, "SONGS", Network);
 
   // === Self test screen ===
   ADD_MENU_ITEM(SelfTest, "EXIT", Main);

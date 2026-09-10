@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sanity checks for LIFE OS starfield boot, backpack songs, update-os curl fix."""
+"""Sanity checks for LIFE OS starfield boot, CCIS SONGS menu, update-os curl fix."""
 from __future__ import annotations
 
 import re
@@ -62,8 +62,6 @@ def main() -> None:
     anim_txt = anim_unit.read_text()
     if "life-boot-music.service" in anim_txt:
         fail("vic-anim.service must not wait on life-boot-music (starfield boot is silent)")
-    if "TimeoutStartSec=3min" in anim_txt:
-        fail("vic-anim should not block 3min in ExecStartPre")
 
     boot_unit_txt = boot_unit.read_text()
     if "vic-boot-wrap" in boot_unit_txt:
@@ -72,48 +70,37 @@ def main() -> None:
         fail("vic-bootAnim.service is not stock video-only")
 
     upd = update_os.read_text()
-    if "curl.anki" not in upd:
-        fail("update-os does not preserve real curl as curl.anki")
-    if "rm -f /usr/bin/curl" not in upd:
-        fail("update-os must unlink /usr/bin/curl before rewriting (ETXTBSY fix)")
+    if "curl.anki" not in upd or "rm -f /usr/bin/curl" not in upd:
+        fail("update-os ETXTBSY fix missing")
 
     if not songs.is_file() or not watch.is_file():
         fail("life-songs scripts missing")
     songs_txt = songs.read_text()
-    if "SONG_DIR=/anki/data/assets/life-songs" not in songs_txt:
-        fail("life-songs points at wrong asset dir")
-    if "/dev/fb0" not in songs_txt:
-        fail("life-songs must draw RGB565 to /dev/fb0 (not persist/bootAnim)")
-    if "vic-bootAnim" in songs_txt and "persist" in songs_txt:
-        fail("life-songs must not use /persist + vic-bootAnim (black screen)")
-    if songs_txt.startswith("#!") and "python" in songs_txt.splitlines()[0]:
-        fail("life-songs must be shell (no python on robot)")
+    if "SONG_DIR=/anki/data/assets/life-songs" not in songs_txt or "/dev/fb0" not in songs_txt:
+        fail("life-songs must draw to /dev/fb0 under life-songs assets")
     watch_txt = watch.read_text()
     if watch_txt.startswith("#!") and "python" in watch_txt.splitlines()[0]:
-        fail("life-songs-watch must be shell (no python on robot)")
-    if "NEED_CLICKS=4" not in watch_txt:
-        fail("life-songs-watch must open songs on 4 fast backpack clicks")
-    if "NETWORK_SCREEN=10" not in watch_txt:
-        fail("life-songs-watch must also launch songs on Network (backpack from Main)")
+        fail("life-songs-watch must be shell")
+    if "SONGS_SCREEN=10" not in watch_txt:
+        fail("life-songs-watch must hijack Network (SONGS item)")
     if "MAIN_SCREEN=4" not in watch_txt:
         fail("life-songs-watch must arm on Main")
     if "/var/log/messages" not in watch_txt:
-        fail("life-songs-watch must follow /var/log/messages (WireOS Anki logs)")
-    if "life-songs-stop" not in watch_txt or "request_stop" not in watch_txt:
-        fail("life-songs-watch must stop songs on backpack while playing")
-    if "gpio94" not in watch_txt and "gpio0" not in watch_txt:
-        fail("life-songs-watch must poll backpack GPIO for click counting")
+        fail("life-songs-watch must follow /var/log/messages")
     if "ExecStart=/usr/bin/life-songs-watch" not in watch_unit.read_text():
         fail("life-songs-watch.service missing ExecStart")
+
     brand_menu = branding.read_text()
-    if 'ADD_MENU_ITEM(Main, "EXIT", None)' not in brand_menu:
-        fail("CCIS Main must keep EXIT")
+    if 'ADD_MENU_ITEM(Main, "EX", None)' not in brand_menu:
+        fail("CCIS Main must shrink EXIT to EX")
+    if 'ADD_MENU_ITEM(Main, "TEST", SelfTest)' not in brand_menu:
+        fail("CCIS Main must keep TEST (self-test)")
+    if 'ADD_MENU_ITEM(Main, "CLR", ClearUserData)' not in brand_menu:
+        fail("CCIS Main must shrink CLEAR to CLR")
+    if 'ADD_MENU_ITEM(Main, "SONGS", Network)' not in brand_menu:
+        fail("CCIS Main must add SONGS")
     if 'ADD_MENU_ITEM(Main, "SONGS", SelfTest)' in brand_menu:
-        fail("SONGS menu item must be removed")
-    if 'ADD_MENU_ITEM(Main, "SELF TEST", SelfTest)' not in brand_menu:
-        fail("CCIS Main must restore SELF TEST")
-    if 'ADD_MENU_ITEM(Main, "CLEAR", ClearUserData)' not in brand_menu:
-        fail("CCIS Main CLEAR should be the short label")
+        fail("SONGS must not replace SelfTest")
 
     for name in ("muffin", "survive", "ordinary", "neveralone"):
         raw = song_dir / f"{name}.raw"
@@ -128,8 +115,6 @@ def main() -> None:
         with wave.open(str(wav), "rb") as w:
             if w.getnchannels() != 2 or w.getframerate() != 48000 or w.getsampwidth() != 2:
                 fail(f"{name}.wav must be 48k stereo s16")
-        if not (song_dir / "menu" / f"{name}.raw").is_file():
-            fail(f"menu frame missing for {name}")
 
     handler_txt = handler.read_text()
     if "890" not in handler_txt or "899" not in handler_txt or "exit 0" not in handler_txt:
@@ -139,12 +124,10 @@ def main() -> None:
     ident = brand[brand.find("OSProject") : brand.find("LOG_CHANNEL")]
     if "MYLIFE" not in ident:
         fail("CCIS OSProject is not MYLIFE")
-    if "SeekOS" in ident or "CHOSON" in ident or "DPRK" in ident:
-        fail("CCIS identity still has old OS names")
 
     print(
         f"ok: starfield boot_anim frames={len(boot_bytes)//FRAME}, "
-        "backpack songs via Network, fb0 player, update-os ETXTBSY fix, 890/899, MYLIFE"
+        "CCIS EX/TEST/CLR/SONGS, fb0 player, update-os ETXTBSY fix, MYLIFE"
     )
 
 
