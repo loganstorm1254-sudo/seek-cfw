@@ -11,23 +11,22 @@ CCIS: `MYLIFE` / `Ordinary Life OS`. Faults **890** and **899** never show.
 
 ## CCIS menu
 
-- **EX** — leave
+- **EXIT** — leave
+- **SELF TEST** — hardware self-test
+- **CLEAR** — wipe data
 - **SONGS** — face playlist (confirm with lift)
-- **CLR** — wipe data
 
-Do **not** install `v5.0.0.10d` (fault **800** bootloop from a bad `vic-anim` patch).
+Do **not** install `v5.0.0.10d` (fault **800** bootloop — bad `vic-anim` patch). Prefer **12d** over 11d (11d replaced TEST with SONGS).
 
 SSH: `life-songs muffin|survive|ordinary|neveralone|menu`
 
-## Install (recovery from 800)
+## Install
 
-Release: https://github.com/loganstorm1254-sudo/seek-cfw/releases/tag/v5.0.0.11d-life
+Release: https://github.com/loganstorm1254-sudo/seek-cfw/releases/tag/v5.0.0.12d-life
 
 ```bash
-update-os https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v5.0.0.11d-life/vicos-5.0.0.11d.ota
+update-os https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v5.0.0.12d-life/vicos-5.0.0.12d.ota
 ```
-
-If `update-os` will not run in the bootloop, use recovery / `ota-start` with the same URL.
 
 ```bash
 curl -L -o robot_sshkey https://github.com/kercre123/unlocking-vector/raw/refs/heads/main/ssh_root_key

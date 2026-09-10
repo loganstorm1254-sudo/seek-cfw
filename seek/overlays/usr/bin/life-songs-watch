@@ -1,6 +1,6 @@
 #!/bin/sh
-# LIFE songs watcher — CCIS SONGS item enters SelfTest (8); we open the playlist.
-# Do not inject extra vic-anim menu code (that caused fault 800 / bootloop).
+# LIFE songs watcher — CCIS SONGS (4th item) enters Network (10); we open the playlist.
+# SELF TEST (8) is left alone. Do not pass raw char* into AppendMenuItem (fault 800).
 
 LOCK=/run/life-songs.lock
 PLAYING=/run/life-songs-playing
@@ -10,7 +10,7 @@ LOG=/var/log/messages
 SCREEN=/run/life-songs-screen
 
 MAIN_SCREEN=4
-SONGS_SCREEN=8
+SONGS_SCREEN=10
 
 write_state() {
   echo "$1" > "$STATE" 2>/dev/null || true
@@ -60,7 +60,7 @@ set_screen() {
     fi
   fi
 
-  # SONGS menu confirms into SelfTest (8) — hijack immediately.
+  # SONGS menu item enters Network (10) — hijack into playlist.
   if [ "$code" = "$SONGS_SCREEN" ]; then
     if [ ! -f "$PLAYING" ] && [ ! -f "$LOCK" ]; then
       start_songs &
@@ -85,7 +85,7 @@ handle_line() {
   esac
 }
 
-echo "life-songs-watch: start (SONGS→screen 8)" > /dev/kmsg 2>/dev/null || true
+echo "life-songs-watch: start (SONGS→screen 10)" > /dev/kmsg 2>/dev/null || true
 write_state "idle"
 echo 0 > "$SCREEN" 2>/dev/null || true
 
