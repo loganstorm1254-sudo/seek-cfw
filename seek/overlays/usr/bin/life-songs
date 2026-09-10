@@ -1,0 +1,149 @@
+#!/bin/sh
+# LIFE OS songs — draw RGB565 frames to /dev/fb0 + aplay WAV.
+# Usage: life-songs [muffin|survive|ordinary|neveralone|menu]
+# Does not stop vic-anim (backpack still works). Exit: /run/life-songs-stop.
+
+SONG_DIR=/anki/data/assets/life-songs
+FRAME=35328
+STOP=/run/life-songs-stop
+PLAYING=/run/life-songs-playing
+
+log() { echo "life-songs: $*" > /dev/kmsg 2>/dev/null || true; }
+
+want_exit() {
+  [ -f "$STOP" ]
+}
+
+clear_exit() {
+  rm -f "$STOP"
+}
+
+show_fb() {
+  f="$1"
+  [ -f "$f" ] || return 1
+  [ -e /dev/fb0 ] || return 1
+  dd if="$f" of=/dev/fb0 bs="$FRAME" count=1 conv=notrunc 2>/dev/null && return 0
+  cat "$f" > /dev/fb0 2>/dev/null && return 0
+  return 1
+}
+
+play_audio_bg() {
+  wav="$1"
+  if [ -x /usr/bin/aplay ]; then
+    aplay -D plughw:0,0 -q "$wav" 2>/dev/null &
+    echo $!
+    return 0
+  fi
+  if [ -x /usr/bin/tinyplay ]; then
+    tinyplay "$wav" -D 0 -d 0 2>/dev/null &
+    echo $!
+    return 0
+  fi
+  echo ""
+  return 1
+}
+
+# Stream raw animation to fb0 at ~12fps while audio runs; STOP file aborts.
+play_raw_with_audio() {
+  raw="$1"
+  wav="$2"
+  label="$3"
+
+  clear_exit
+  touch "$PLAYING"
+
+  if [ -n "$label" ]; then
+    show_fb "$SONG_DIR/menu/playing-${label}.raw" 2>/dev/null || \
+      show_fb "$SONG_DIR/menu/${label}.raw" 2>/dev/null || true
+  fi
+
+  bytes=$(wc -c < "$raw" 2>/dev/null || echo 0)
+  frames=$((bytes / FRAME))
+  [ "$frames" -gt 0 ] || frames=1
+
+  apid=$(play_audio_bg "$wav")
+  log "audio pid=$apid frames=$frames label=$label"
+
+  i=0
+  while true; do
+    if want_exit; then
+      log "exit requested"
+      break
+    fi
+    if [ -n "$apid" ] && [ "$apid" != "0" ] && ! kill -0 "$apid" 2>/dev/null; then
+      break
+    fi
+    dd if="$raw" of=/dev/fb0 bs="$FRAME" skip="$i" count=1 conv=notrunc 2>/dev/null || \
+      dd if="$raw" bs="$FRAME" skip="$i" count=1 2>/dev/null | cat > /dev/fb0 2>/dev/null || true
+    i=$((i + 1))
+    if [ "$i" -ge "$frames" ]; then
+      i=0
+    fi
+    sleep 0.08
+  done
+
+  if [ -n "$apid" ] && [ "$apid" != "0" ]; then
+    kill "$apid" 2>/dev/null || true
+    wait "$apid" 2>/dev/null || true
+  fi
+  killall aplay 2>/dev/null || true
+  killall tinyplay 2>/dev/null || true
+
+  if want_exit; then
+    return 1
+  fi
+  return 0
+}
+
+play_song() {
+  name="$1"
+  raw="$SONG_DIR/${name}.raw"
+  wav="$SONG_DIR/${name}.wav"
+  if [ ! -f "$raw" ] || [ ! -f "$wav" ]; then
+    log "missing $name (raw/wav)"
+    return 1
+  fi
+  log "play $name"
+  # Do not stop vic-anim — backpack must still be observed for exit.
+  play_raw_with_audio "$raw" "$wav" "$name"
+  ex=$?
+  rm -f "$PLAYING"
+  log "done $name"
+  return $ex
+}
+
+menu_loop() {
+  log "menu start"
+  clear_exit
+  touch "$PLAYING"
+  show_fb "$SONG_DIR/menu/title.raw" || true
+  sleep 1.0
+
+  for name in muffin survive ordinary neveralone; do
+    if want_exit; then
+      break
+    fi
+    show_fb "$SONG_DIR/menu/${name}.raw" || true
+    sleep 0.8
+    if want_exit; then
+      break
+    fi
+    play_raw_with_audio "$SONG_DIR/${name}.raw" "$SONG_DIR/${name}.wav" "$name" || break
+    if want_exit; then
+      log "backpack exit during $name"
+      break
+    fi
+  done
+
+  show_fb "$SONG_DIR/menu/exit.raw" || true
+  sleep 0.5
+  rm -f "$PLAYING"
+  clear_exit
+  log "menu done"
+}
+
+case "${1:-menu}" in
+  muffin|survive|ordinary|neveralone) play_song "$1" ;;
+  menu|*) menu_loop ;;
+esac
+exit 0

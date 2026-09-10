@@ -1,0 +1,14 @@
+[Unit]
+Description=LIFE OS boot music
+After=anki-audio-init.service
+Requires=anki-audio-init.service
+Before=vic-anim.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=2min
+ExecStart=/usr/bin/life-boot-hold
+
+[Install]
+WantedBy=anki-robot.target

@@ -70,10 +70,11 @@
 #include <sys/reboot.h>
 #endif
 
-// CHANGE THIS TO BE YOUR PROJECT'S STUFF
-const std::string OSProject = "SeekOS";
-const std::string Creator = "By Logan / Seek CFW";
-const std::string CreatorWebsite = "github.com/loganstorm1254-sudo/seek-cfw";
+// LIFE OS identity. Static boot is the stretched portrait; moving boot is life-boot.gif.
+// CCIS Main stays stock: EXIT / SELF TEST / CLEAR. No songs menu injection.
+const std::string OSProject = "MYLIFE";
+const std::string Creator = "Ordinary Life OS";
+const std::string CreatorWebsite = "custom firmware";
 
 // Log options
 #define LOG_CHANNEL    "FaceInfoScreenManager"
@@ -320,9 +321,9 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
 
   ADD_MENU_ITEM(Main, "EXIT", None);
 #if ENABLE_SELF_TEST
-  ADD_MENU_ITEM(Main, IsXray() ? "TEST" : "SELF TEST", SelfTest);
+  ADD_MENU_ITEM(Main, "SELF TEST", SelfTest);
 #endif
-  ADD_MENU_ITEM(Main, IsXray() ? "CLEAR" : "CLEAR OUT SOUL", ClearUserData);
+  ADD_MENU_ITEM(Main, "CLEAR", ClearUserData);
 
   // === Self test screen ===
   ADD_MENU_ITEM(SelfTest, "EXIT", Main);
@@ -470,7 +471,7 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
     SetScreen(ScreenName::None);
   }
 
-  // Restore SeekOS sound-mute across reboots (persistent file, like mic mute)
+  // Restore sound-mute across reboots (persistent file, like mic mute)
   if (_context != nullptr && _context->GetDataPlatform() != nullptr) {
     const std::string persistentFolder = Util::FileUtils::AddTrailingFileSeparator(
       _context->GetDataPlatform()->pathToResource(Util::Data::Scope::Persistent, ""));
@@ -984,9 +985,16 @@ void FaceInfoScreenManager::CheckForButtonEvent(const bool buttonPressed,
     }
     lastReleaseTime_ms = curTime_ms;
 
-    // Triple fires immediately on the 3rd release (no wait) so it feels responsive
-    // and doesn't lose the gesture to a delayed double-confirm.
-    if (pressCount >= 3) {
+    // 4 fast backpack clicks → ask life-songs-watch to open the playlist
+    if (pressCount >= 4) {
+      Util::FileUtils::WriteFile("/run/life-songs-launch", "1");
+      LOG_INFO("FaceInfoScreenManager.ProcessMenuNavigation.GotQuadPress", "Opening songs");
+      pressCount = 0;
+      waitingConfirm = false;
+      lastReleaseTime_ms = 0;
+    } else if (pressCount >= 3) {
+      // Triple fires immediately on the 3rd release (no wait) so it feels responsive
+      // and doesn't lose the gesture to a delayed double-confirm.
       triplePressDetected = true;
       pressCount = 0;
       waitingConfirm = false;
@@ -1113,7 +1121,7 @@ void FaceInfoScreenManager::ProcessMenuNavigation(const RobotState& state)
            currScreenName == ScreenName::FAC ||
            currScreenName == ScreenName::MirrorMode))
   {
-    // SeekOS: triple-click mutes/unmutes all robot sounds and shows a mute icon
+    // Triple-click mutes/unmutes all robot sounds and shows a mute icon
     // (works on or off charger; fires immediately on 3rd release)
     ToggleSoundMute("TRIPLE_PRESS");
   }

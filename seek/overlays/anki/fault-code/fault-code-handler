@@ -100,11 +100,12 @@ if [ $FAULT_CODE -eq 0 ]; then
   exit 0
 fi
 
-# Never show or act on 890 (CLIFF_FR) or 899 (NO_BODY).
+# Never show or act on 800 (NO_ANIM_PROCESS), 890 (CLIFF_FR), or 899 (NO_BODY).
+# 800 = vic-anim died; showing it spams the face and can loop restarts.
 # 899 is a known false-positive from Anki 1.6 (body comms flicker).
 # 890 is a front-right cliff self-test; displaying it also kills anki-robot.target.
-if [ "$FAULT_CODE" -eq 890 ] || [ "$FAULT_CODE" -eq 899 ]; then
-  log "Suppressing fault code ${FAULT_CODE} (never-show: CLIFF_FR=890, NO_BODY=899)"
+if [ "$FAULT_CODE" -eq 800 ] || [ "$FAULT_CODE" -eq 890 ] || [ "$FAULT_CODE" -eq 899 ]; then
+  log "Suppressing fault code ${FAULT_CODE} (never-show: NO_ANIM=800, CLIFF_FR=890, NO_BODY=899)"
   exit 0
 fi
 

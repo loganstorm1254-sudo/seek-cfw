@@ -1,0 +1,113 @@
+#!/bin/sh
+# LIFE songs watcher — no vic-anim menu injection (that causes fault 800).
+# On CCIS Main, backpack enters Network (10); we open the playlist.
+# EXIT / SELF TEST / CLEAR stay stock.
+
+LOCK=/run/life-songs.lock
+PLAYING=/run/life-songs-playing
+STOP=/run/life-songs-stop
+STATE=/run/life-songs-state
+LOG=/var/log/messages
+SCREEN=/run/life-songs-screen
+
+MAIN_SCREEN=4
+SONGS_SCREEN=10
+
+write_state() {
+  echo "$1" > "$STATE" 2>/dev/null || true
+}
+
+request_stop() {
+  if [ ! -f "$PLAYING" ] && [ ! -f "$LOCK" ]; then
+    return 0
+  fi
+  echo "life-songs-watch: exit songs" > /dev/kmsg 2>/dev/null || true
+  touch "$STOP" 2>/dev/null || true
+  killall aplay 2>/dev/null || true
+  killall tinyplay 2>/dev/null || true
+  pkill -f '/usr/bin/life-songs' 2>/dev/null || true
+}
+
+start_songs() {
+  if [ -f "$LOCK" ] || [ -f "$PLAYING" ]; then
+    return 0
+  fi
+  touch "$LOCK"
+  write_state "launch"
+  rm -f "$STOP"
+  echo "life-songs-watch: backpack/Network → playlist" > /dev/kmsg 2>/dev/null || true
+  systemctl stop vic-anim.service 2>/dev/null || true
+  killall vic-anim 2>/dev/null || true
+  sleep 0.15
+  /usr/bin/life-songs menu >>/data/life-songs.log 2>&1 || true
+  rm -f "$LOCK" "$PLAYING"
+  write_state "idle"
+  systemctl start vic-anim.service 2>/dev/null || true
+}
+
+set_screen() {
+  code=$1
+  prev=$(cat "$SCREEN" 2>/dev/null || echo 0)
+  echo "$code" > "$SCREEN" 2>/dev/null || true
+
+  if [ "$code" = "$MAIN_SCREEN" ]; then
+    write_state "armed"
+  fi
+
+  if [ -f "$PLAYING" ] || [ -f "$LOCK" ]; then
+    if [ "$code" != "$SONGS_SCREEN" ] && [ "$code" != "$prev" ]; then
+      request_stop
+      return 0
+    fi
+  fi
+
+  # Backpack on Main → Network (10). Only start songs if we were on Main (armed).
+  if [ "$code" = "$SONGS_SCREEN" ]; then
+    state=$(cat "$STATE" 2>/dev/null || echo idle)
+    if [ "$state" = "armed" ] || [ "$prev" = "$MAIN_SCREEN" ]; then
+      if [ ! -f "$PLAYING" ] && [ ! -f "$LOCK" ]; then
+        start_songs &
+      fi
+    fi
+  fi
+}
+
+handle_line() {
+  line=$1
+  case "$line" in
+    *"FaceInfoScreenManager.SetScreen.EnteringScreen"*|*"SetScreen.EnteringScreen"*)
+      code=$(printf '%s\n' "$line" | sed -n 's/.*EnteringScreen[^0-9]*\([0-9][0-9]*\).*/\1/p' | tail -n 1)
+      if [ -n "$code" ]; then
+        set_screen "$code"
+      fi
+      ;;
+    *"GotSinglePress"*|*"GotDoublePress"*)
+      if [ -f "$PLAYING" ] || [ -f "$LOCK" ]; then
+        request_stop
+      fi
+      ;;
+  esac
+}
+
+echo "life-songs-watch: start (Main backpack → songs; no anim cave)" > /dev/kmsg 2>/dev/null || true
+write_state "idle"
+echo 0 > "$SCREEN" 2>/dev/null || true
+
+FIFO=/run/life-songs-watch.fifo
+rm -f "$FIFO"
+mkfifo "$FIFO" 2>/dev/null || {
+  FIFO=/tmp/life-songs-watch.fifo
+  rm -f "$FIFO"
+  mkfifo "$FIFO"
+}
+
+if [ -f "$LOG" ]; then
+  tail -n 0 -F "$LOG" > "$FIFO" 2>/dev/null &
+fi
+if [ -x /usr/bin/logcat ]; then
+  logcat -v brief > "$FIFO" 2>/dev/null &
+fi
+
+while IFS= read -r line; do
+  handle_line "$line"
+done < "$FIFO"
