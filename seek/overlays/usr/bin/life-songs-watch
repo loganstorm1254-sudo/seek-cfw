@@ -1,6 +1,7 @@
 #!/bin/sh
-# LIFE songs watcher — CCIS SONGS (4th item) enters Network (10); we open the playlist.
-# SELF TEST (8) is left alone. Do not pass raw char* into AppendMenuItem (fault 800).
+# LIFE songs watcher — no vic-anim menu injection (that causes fault 800).
+# On CCIS Main, backpack enters Network (10); we open the playlist.
+# EXIT / SELF TEST / CLEAR stay stock.
 
 LOCK=/run/life-songs.lock
 PLAYING=/run/life-songs-playing
@@ -34,7 +35,7 @@ start_songs() {
   touch "$LOCK"
   write_state "launch"
   rm -f "$STOP"
-  echo "life-songs-watch: SONGS → playlist" > /dev/kmsg 2>/dev/null || true
+  echo "life-songs-watch: backpack/Network → playlist" > /dev/kmsg 2>/dev/null || true
   systemctl stop vic-anim.service 2>/dev/null || true
   killall vic-anim 2>/dev/null || true
   sleep 0.15
@@ -60,10 +61,13 @@ set_screen() {
     fi
   fi
 
-  # SONGS menu item enters Network (10) — hijack into playlist.
+  # Backpack on Main → Network (10). Only start songs if we were on Main (armed).
   if [ "$code" = "$SONGS_SCREEN" ]; then
-    if [ ! -f "$PLAYING" ] && [ ! -f "$LOCK" ]; then
-      start_songs &
+    state=$(cat "$STATE" 2>/dev/null || echo idle)
+    if [ "$state" = "armed" ] || [ "$prev" = "$MAIN_SCREEN" ]; then
+      if [ ! -f "$PLAYING" ] && [ ! -f "$LOCK" ]; then
+        start_songs &
+      fi
     fi
   fi
 }
@@ -85,7 +89,7 @@ handle_line() {
   esac
 }
 
-echo "life-songs-watch: start (SONGS→screen 10)" > /dev/kmsg 2>/dev/null || true
+echo "life-songs-watch: start (Main backpack → songs; no anim cave)" > /dev/kmsg 2>/dev/null || true
 write_state "idle"
 echo 0 > "$SCREEN" 2>/dev/null || true
 

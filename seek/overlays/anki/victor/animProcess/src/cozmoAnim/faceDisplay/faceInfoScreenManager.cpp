@@ -71,8 +71,8 @@
 #endif
 
 // LIFE OS identity. Static boot is the stretched portrait; moving boot is the starfield GIF.
-// CCIS Main: EXIT / SELF TEST / CLEAR / SONGS.
-// Binary pack builds SONGS via std::string ctor (raw char* AppendMenuItem → fault 800).
+// CCIS Main stays stock: EXIT / SELF TEST / CLEAR.
+// Do not AppendMenuItem a 4th SONGS in the ship binary (fault 800). Backpack on Main → songs.
 const std::string OSProject = "MYLIFE";
 const std::string Creator = "Ordinary Life OS";
 const std::string CreatorWebsite = "custom firmware";
@@ -325,8 +325,8 @@ void FaceInfoScreenManager::Init(Anim::AnimContext* context, Anim::AnimationStre
   ADD_MENU_ITEM(Main, "SELF TEST", SelfTest);
 #endif
   ADD_MENU_ITEM(Main, "CLEAR", ClearUserData);
-  // 4th item: ship image injects this with a proper std::string; watcher hijacks Network (10).
-  ADD_MENU_ITEM(Main, "SONGS", Network);
+  // SONGS: backpack on Main enters Network; life-songs-watch hijacks that.
+  // A 4th ADD_MENU_ITEM in the packed vic-anim binary causes fault 800.
 
   // === Self test screen ===
   ADD_MENU_ITEM(SelfTest, "EXIT", Main);

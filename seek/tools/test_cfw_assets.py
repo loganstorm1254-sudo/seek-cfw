@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sanity checks for LIFE OS — EXIT/TEST/CLEAR + SONGS (Network hijack)."""
+"""Sanity checks for LIFE OS — stock CCIS + backpack songs (no anim cave)."""
 from __future__ import annotations
 
 import sys
@@ -30,7 +30,7 @@ def main() -> None:
     watch = REPO / "seek/overlays/usr/bin/life-songs-watch"
     watch_unit = REPO / "seek/overlays/lib/systemd/system/life-songs-watch.service"
     song_dir = REPO / "seek/overlays/anki/data/life-songs"
-    pack12 = REPO / "seek/tools/pack_life12.py"
+    pack13 = REPO / "seek/tools/pack_life13.py"
 
     text = header.read_text()
     if "anki_dev_unit_len = 35328" not in text:
@@ -63,9 +63,9 @@ def main() -> None:
     if "python" in watch_txt.splitlines()[0]:
         fail("watcher must be shell")
     if "SONGS_SCREEN=10" not in watch_txt:
-        fail("watcher must hijack Network (10) for SONGS")
-    if "SONGS_SCREEN=8" in watch_txt:
-        fail("do not hijack SelfTest (8) — TEST must work")
+        fail("watcher must hijack Network (10) for backpack songs")
+    if "MAIN_SCREEN=4" not in watch_txt:
+        fail("watcher must arm on Main")
     if "ExecStart=/usr/bin/life-songs-watch" not in watch_unit.read_text():
         fail("watcher unit missing")
 
@@ -76,16 +76,12 @@ def main() -> None:
         fail("Main SELF TEST missing")
     if 'ADD_MENU_ITEM(Main, "CLEAR", ClearUserData)' not in brand:
         fail("Main CLEAR missing")
-    if 'ADD_MENU_ITEM(Main, "SONGS", Network)' not in brand:
-        fail("Main SONGS→Network missing")
-    if 'ADD_MENU_ITEM(Main, "SONGS", SelfTest)' in brand:
-        fail("do not replace SELF TEST with SONGS")
+    if 'ADD_MENU_ITEM(Main, "SONGS"' in brand:
+        fail("do not add SONGS AppendMenuItem (fault 800)")
 
-    pack = pack12.read_text()
-    if "STRING_CTOR" not in pack or "0x40D08" not in pack:
-        fail("pack_life12 must use std::string ctor (fix 800)")
-    if 'b"SONGS\\x00"' not in pack and "SONGS\\x00" not in pack:
-        fail("pack_life12 must embed SONGS in cave")
+    pack = pack13.read_text()
+    if "HOOK_ORIG" not in pack or "clearing SONGS code cave" not in pack:
+        fail("pack_life13 must remove cave / restore hook")
 
     for name in ("muffin", "survive", "ordinary", "neveralone"):
         raw = song_dir / f"{name}.raw"
@@ -101,7 +97,7 @@ def main() -> None:
 
     print(
         f"ok: starfield frames={len(boot_bytes)//FRAME}, "
-        "EXIT/SELF TEST/CLEAR + SONGS(Network), fb0 player, MYLIFE"
+        "stock EXIT/SELF TEST/CLEAR, backpack→songs, no anim cave, MYLIFE"
     )
 
 
