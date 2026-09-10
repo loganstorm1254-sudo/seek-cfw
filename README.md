@@ -9,21 +9,21 @@ Custom Vector firmware. **Not SeekOS.** Built from official **WireOS 3.0.1.32d**
 
 CCIS: `MYLIFE` / `Ordinary Life OS`. Faults **890** and **899** never show.
 
-## Songs menu
+## Songs (backpack)
 
 Double-click backpack on charger → pairing → lift into the CCIS menu:
 
-- **EXIT** — leave (unchanged)
-- **SONGS** — face playlist (short; was SELF TEST)
-- **CLEAR** — wipe data (short; was CLEAR OUT SOUL)
+- **EXIT** / **SELF TEST** / **CLEAR** — normal CCIS items (no SONGS item)
+- On **Main**, click the backpack button → song playlist on the face (video + audio)
+- Click backpack again while a song is playing → exit
 
-Confirm **SONGS** with a lift. Playlist (video + audio): Muffin, I Will Survive, Ordinary Life, Never Be Alone.
+Playlist: Muffin, I Will Survive, Ordinary Life, Never Be Alone.
 
 SSH: `life-songs muffin|survive|ordinary|neveralone|menu`
 
 ## Install
 
-Release: https://github.com/loganstorm1254-sudo/seek-cfw/releases/tag/v5.0.0.7d-life
+Release: https://github.com/loganstorm1254-sudo/seek-cfw/releases/tag/v5.0.0.8d-life
 
 If `update-os` dies with `Text file busy` on `/usr/bin/curl`, unlink first:
 
@@ -42,7 +42,7 @@ chmod 755 /usr/bin/curl
 Then:
 
 ```bash
-update-os https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v5.0.0.7d-life/vicos-5.0.0.7d.ota
+update-os https://github.com/loganstorm1254-sudo/seek-cfw/releases/download/v5.0.0.8d-life/vicos-5.0.0.8d.ota
 ```
 
 ```bash

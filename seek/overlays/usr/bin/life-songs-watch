@@ -1,24 +1,74 @@
 #!/bin/sh
-# When CCIS item SONGS is confirmed, WireOS opens SelfTest (screen 8).
-# Hijack that into the songs playlist. EXIT is screen 0; CLEAR is 5.
-# Anki LOG_INFO on WireOS goes to /var/log/messages (logcat often misses it).
+# CCIS Main + backpack → songs. Backpack again while playing → exit.
+# WireOS Anki LOG_INFO goes to /var/log/messages (not logcat).
+# Main(4) → backpack advances to Network(10) when debug screens are unlocked
+# (auto-unlocked via tiny head-range patch in the OTA). We hijack Network.
 
 LOCK=/run/life-songs.lock
+PLAYING=/run/life-songs-playing
+STOP=/run/life-songs-stop
+STATE=/run/life-songs-state
 LOG=/var/log/messages
-SELFTEST_SCREEN=8
+SCREEN=/run/life-songs-screen
+
+MAIN_SCREEN=4
+NETWORK_SCREEN=10
+
+write_state() {
+  echo "$1" > "$STATE" 2>/dev/null || true
+}
+
+request_stop() {
+  if [ ! -f "$PLAYING" ] && [ ! -f "$LOCK" ]; then
+    return 0
+  fi
+  echo "life-songs-watch: backpack → exit songs" > /dev/kmsg 2>/dev/null || true
+  touch "$STOP" 2>/dev/null || true
+  killall aplay 2>/dev/null || true
+  killall tinyplay 2>/dev/null || true
+  # Best-effort stop the player; menu loop checks STOP between songs too.
+  pkill -f '/usr/bin/life-songs' 2>/dev/null || true
+}
 
 start_songs() {
-  if [ -f "$LOCK" ]; then
+  if [ -f "$LOCK" ] || [ -f "$PLAYING" ]; then
     return 0
   fi
   touch "$LOCK"
-  echo "life-songs-watch: launching songs" > /dev/kmsg 2>/dev/null || true
-  # Drop SelfTest UI right away.
-  systemctl stop vic-anim.service 2>/dev/null || true
-  killall vic-anim 2>/dev/null || true
-  sleep 0.2
+  write_state "launch"
+  rm -f "$STOP"
+  echo "life-songs-watch: Main backpack → songs" > /dev/kmsg 2>/dev/null || true
+  # Keep vic-anim running so backpack events still flow (exit on next press).
   /usr/bin/life-songs menu >>/data/life-songs.log 2>&1 || true
-  rm -f "$LOCK"
+  rm -f "$LOCK" "$PLAYING"
+  write_state "idle"
+  # Leave debug screens / restore a normal face after the playlist ends.
+  systemctl restart vic-anim.service 2>/dev/null || true
+}
+
+set_screen() {
+  code=$1
+  prev=$(cat "$SCREEN" 2>/dev/null || echo 0)
+  echo "$code" > "$SCREEN" 2>/dev/null || true
+
+  if [ "$code" = "$MAIN_SCREEN" ]; then
+    write_state "armed"
+  fi
+
+  # Playing: any screen change means backpack (or nav) — exit songs.
+  if [ -f "$PLAYING" ] || [ -f "$LOCK" ]; then
+    if [ "$code" != "$NETWORK_SCREEN" ] && [ "$code" != "$prev" ]; then
+      request_stop
+      return 0
+    fi
+  fi
+
+  # Armed on Main, backpack → Network starts songs.
+  if [ "$code" = "$NETWORK_SCREEN" ] && [ "$prev" = "$MAIN_SCREEN" ]; then
+    if [ ! -f "$PLAYING" ] && [ ! -f "$LOCK" ]; then
+      start_songs &
+    fi
+  fi
 }
 
 handle_line() {
@@ -26,14 +76,21 @@ handle_line() {
   case "$line" in
     *"FaceInfoScreenManager.SetScreen.EnteringScreen"*|*"SetScreen.EnteringScreen"*)
       code=$(printf '%s\n' "$line" | sed -n 's/.*EnteringScreen[^0-9]*\([0-9][0-9]*\).*/\1/p' | tail -n 1)
-      if [ "$code" = "$SELFTEST_SCREEN" ]; then
-        start_songs &
+      if [ -n "$code" ]; then
+        set_screen "$code"
+      fi
+      ;;
+    *"GotSinglePress"*|*"GotDoublePress"*|*"CheckForButtonEvent"*)
+      if [ -f "$PLAYING" ] || [ -f "$LOCK" ]; then
+        request_stop
       fi
       ;;
   esac
 }
 
-echo "life-songs-watch: start" > /dev/kmsg 2>/dev/null || true
+echo "life-songs-watch: start (backpack on Main → songs)" > /dev/kmsg 2>/dev/null || true
+write_state "idle"
+echo 0 > "$SCREEN" 2>/dev/null || true
 
 FIFO=/run/life-songs-watch.fifo
 rm -f "$FIFO"
@@ -43,11 +100,9 @@ mkfifo "$FIFO" 2>/dev/null || {
   mkfifo "$FIFO"
 }
 
-# Syslog is the reliable source on WireOS.
 if [ -f "$LOG" ]; then
   tail -n 0 -F "$LOG" > "$FIFO" 2>/dev/null &
 fi
-# logcat as a backup if Anki also mirrors there.
 if [ -x /usr/bin/logcat ]; then
   logcat -v brief > "$FIFO" 2>/dev/null &
 fi

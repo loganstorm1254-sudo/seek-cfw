@@ -1,62 +1,98 @@
 #!/bin/sh
-# LIFE OS song player — face video via /persist/boot_anim.raw + aplay WAV.
+# LIFE OS songs — draw RGB565 frames to /dev/fb0 + aplay WAV.
 # Usage: life-songs [muffin|survive|ordinary|neveralone|menu]
-
-set -eu
+# Does not stop vic-anim (backpack still works). Exit: /run/life-songs-stop.
 
 SONG_DIR=/anki/data/assets/life-songs
-PERSIST_ANIM=/persist/boot_anim.raw
-BACKUP=/run/life-songs-boot_anim.bak
+FRAME=35328
+STOP=/run/life-songs-stop
+PLAYING=/run/life-songs-playing
 
 log() { echo "life-songs: $*" > /dev/kmsg 2>/dev/null || true; }
 
-play_audio() {
-  wav="$1"
-  if [ -x /usr/bin/aplay ]; then
-    aplay -D plughw:0,0 -q "$wav" && return 0
-    aplay -D hw:0,0 -q "$wav" && return 0
-    aplay -q "$wav" && return 0
-  fi
-  if [ -x /usr/bin/tinyplay ]; then
-    tinyplay "$wav" -D 0 -d 0 && return 0
-    tinyplay "$wav" && return 0
-  fi
+want_exit() {
+  [ -f "$STOP" ]
+}
+
+clear_exit() {
+  rm -f "$STOP"
+}
+
+show_fb() {
+  f="$1"
+  [ -f "$f" ] || return 1
+  [ -e /dev/fb0 ] || return 1
+  dd if="$f" of=/dev/fb0 bs="$FRAME" count=1 conv=notrunc 2>/dev/null && return 0
+  cat "$f" > /dev/fb0 2>/dev/null && return 0
   return 1
 }
 
-stop_face() {
-  systemctl stop vic-anim.service 2>/dev/null || true
-  systemctl stop vic-bootAnim.service 2>/dev/null || true
-  killall vic-bootAnim 2>/dev/null || true
-  killall vic-anim 2>/dev/null || true
-  sleep 0.3
-}
-
-backup_persist() {
-  if [ -f "$PERSIST_ANIM" ]; then
-    cp -f "$PERSIST_ANIM" "$BACKUP" 2>/dev/null || true
-  else
-    rm -f "$BACKUP"
+play_audio_bg() {
+  wav="$1"
+  if [ -x /usr/bin/aplay ]; then
+    aplay -D plughw:0,0 -q "$wav" 2>/dev/null &
+    echo $!
+    return 0
   fi
-}
-
-restore_persist() {
-  if [ -f "$BACKUP" ]; then
-    cp -f "$BACKUP" "$PERSIST_ANIM" 2>/dev/null || true
-  else
-    rm -f "$PERSIST_ANIM"
+  if [ -x /usr/bin/tinyplay ]; then
+    tinyplay "$wav" -D 0 -d 0 2>/dev/null &
+    echo $!
+    return 0
   fi
+  echo ""
+  return 1
 }
 
-show_frame() {
-  frame="$1"
-  [ -f "$frame" ] || return 0
-  cp -f "$frame" "$PERSIST_ANIM"
-  /anki/bin/vic-bootAnim >/dev/null 2>&1 &
-  bp=$!
-  sleep 1.0
-  kill "$bp" 2>/dev/null || true
-  wait "$bp" 2>/dev/null || true
+# Stream raw animation to fb0 at ~12fps while audio runs; STOP file aborts.
+play_raw_with_audio() {
+  raw="$1"
+  wav="$2"
+  label="$3"
+
+  clear_exit
+  touch "$PLAYING"
+
+  if [ -n "$label" ]; then
+    show_fb "$SONG_DIR/menu/playing-${label}.raw" 2>/dev/null || \
+      show_fb "$SONG_DIR/menu/${label}.raw" 2>/dev/null || true
+  fi
+
+  bytes=$(wc -c < "$raw" 2>/dev/null || echo 0)
+  frames=$((bytes / FRAME))
+  [ "$frames" -gt 0 ] || frames=1
+
+  apid=$(play_audio_bg "$wav")
+  log "audio pid=$apid frames=$frames label=$label"
+
+  i=0
+  while true; do
+    if want_exit; then
+      log "exit requested"
+      break
+    fi
+    if [ -n "$apid" ] && [ "$apid" != "0" ] && ! kill -0 "$apid" 2>/dev/null; then
+      break
+    fi
+    dd if="$raw" of=/dev/fb0 bs="$FRAME" skip="$i" count=1 conv=notrunc 2>/dev/null || \
+      dd if="$raw" bs="$FRAME" skip="$i" count=1 2>/dev/null | cat > /dev/fb0 2>/dev/null || true
+    i=$((i + 1))
+    if [ "$i" -ge "$frames" ]; then
+      i=0
+    fi
+    sleep 0.08
+  done
+
+  if [ -n "$apid" ] && [ "$apid" != "0" ]; then
+    kill "$apid" 2>/dev/null || true
+    wait "$apid" 2>/dev/null || true
+  fi
+  killall aplay 2>/dev/null || true
+  killall tinyplay 2>/dev/null || true
+
+  if want_exit; then
+    return 1
+  fi
+  return 0
 }
 
 play_song() {
@@ -64,48 +100,45 @@ play_song() {
   raw="$SONG_DIR/${name}.raw"
   wav="$SONG_DIR/${name}.wav"
   if [ ! -f "$raw" ] || [ ! -f "$wav" ]; then
-    log "missing $name"
+    log "missing $name (raw/wav)"
     return 1
   fi
   log "play $name"
-  stop_face
-  backup_persist
-  show_frame "$SONG_DIR/menu/playing-${name}.raw" || true
-  cp -f "$raw" "$PERSIST_ANIM"
-  /anki/bin/vic-bootAnim >/dev/null 2>&1 &
-  bpid=$!
-  sleep 0.4
-  play_audio "$wav" || true
-  kill "$bpid" 2>/dev/null || true
-  wait "$bpid" 2>/dev/null || true
-  restore_persist
-  systemctl start vic-anim.service 2>/dev/null || true
+  # Do not stop vic-anim — backpack must still be observed for exit.
+  play_raw_with_audio "$raw" "$wav" "$name"
+  ex=$?
+  rm -f "$PLAYING"
   log "done $name"
+  return $ex
 }
 
 menu_loop() {
   log "menu start"
-  stop_face
-  backup_persist
-  show_frame "$SONG_DIR/menu/title.raw" || true
-  sleep 1.5
+  clear_exit
+  touch "$PLAYING"
+  show_fb "$SONG_DIR/menu/title.raw" || true
+  sleep 1.0
 
   for name in muffin survive ordinary neveralone; do
-    show_frame "$SONG_DIR/menu/${name}.raw" || true
-    sleep 2.0
-    cp -f "$SONG_DIR/${name}.raw" "$PERSIST_ANIM"
-    /anki/bin/vic-bootAnim >/dev/null 2>&1 &
-    bpid=$!
-    sleep 0.4
-    play_audio "$SONG_DIR/${name}.wav" || true
-    kill "$bpid" 2>/dev/null || true
-    wait "$bpid" 2>/dev/null || true
+    if want_exit; then
+      break
+    fi
+    show_fb "$SONG_DIR/menu/${name}.raw" || true
+    sleep 0.8
+    if want_exit; then
+      break
+    fi
+    play_raw_with_audio "$SONG_DIR/${name}.raw" "$SONG_DIR/${name}.wav" "$name" || break
+    if want_exit; then
+      log "backpack exit during $name"
+      break
+    fi
   done
 
-  show_frame "$SONG_DIR/menu/exit.raw" || true
-  sleep 1.2
-  restore_persist
-  systemctl start vic-anim.service 2>/dev/null || true
+  show_fb "$SONG_DIR/menu/exit.raw" || true
+  sleep 0.5
+  rm -f "$PLAYING"
+  clear_exit
   log "menu done"
 }
 
